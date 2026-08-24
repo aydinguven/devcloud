@@ -102,7 +102,7 @@ sudo sed -e "s|{{USER}}|$USER|g" \
 
 sudo systemctl daemon-reload
 sudo systemctl enable devcloud
-sudo systemctl restart devcloud
+bash "${PROJECT_DIR}/deploy/restart.sh"
 
 IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo '127.0.0.1')
 

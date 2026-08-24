@@ -121,6 +121,18 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now devcloud
 ```
 
+#### Bounded Service Restart
+
+Use the project helper instead of a blocking `systemctl restart`:
+
+```bash
+bash deploy/restart.sh
+```
+
+The helper preserves Podman workspace containers, bounds stop/start waits,
+cleans up stale Uvicorn workers, verifies `http://127.0.0.1:8000/login`, and
+prints service logs if the application does not become healthy.
+
 ---
 
 ## Air-Gapped / Offline Installation

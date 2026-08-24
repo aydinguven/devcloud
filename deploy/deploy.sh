@@ -46,7 +46,7 @@ sudo sed -e "s|{{USER}}|$USER|g" \
 
 sudo systemctl daemon-reload
 sudo systemctl enable devcloud
-sudo systemctl restart devcloud
+bash "${PROJECT_DIR}/deploy/restart.sh"
 
 echo "=== DevCloud successfully installed and running! ==="
 echo "Access the dashboard at: http://$(hostname -I | awk '{print $1}'):8000"
