@@ -167,9 +167,9 @@ function initWorkspaceCreationModal() {
               deploymentCompleted = true;
               if (statusBadge) {
                 statusBadge.className = "badge badge-running";
-                statusBadge.textContent = "Running";
+                statusBadge.textContent = "Active";
               }
-              appendLog("🎉 Container environment initialized and ready for connections!", "success");
+              appendLog("🎉 Container online & verified! Workspace is ready.", "success");
 
               // Replace footer with Launch & Dashboard buttons
               if (modalFooter) {
@@ -180,6 +180,11 @@ function initWorkspaceCreationModal() {
                   </a>
                 `;
               }
+
+              // Auto-refresh dashboard after 2 seconds so active workspace is shown
+              setTimeout(() => {
+                window.location.reload();
+              }, 2000);
             }
           } catch (parseErr) {
             console.warn("SSE parse error:", line);
