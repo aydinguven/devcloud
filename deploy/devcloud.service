@@ -12,11 +12,10 @@ RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 Environment=STORAGE_ROOT=/var/lib/devcloud/workspaces
 
-# Security & Fast Shutdown Limits
+# Security & Decoupled Podman Process Management
 LimitNOFILE=65535
 TimeoutStopSec=3
-KillMode=mixed
-SendSIGKILL=yes
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
