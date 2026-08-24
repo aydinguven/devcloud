@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     PODMAN_BIN: str = "podman"
     PODMAN_NETWORK: str = "bridge"
     USE_MOCK_PODMAN: bool = False
+    PODMAN_RUN_TIMEOUT_SECONDS: float = 30.0
     
     # Container Port Range for internal forwarding
     PORT_RANGE_START: int = 10100

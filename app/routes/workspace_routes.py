@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import logging
+import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -85,14 +86,17 @@ async def create_workspace(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    # Initialize workspace object
+    # Generate the final identity before the first commit so concurrent
+    # lifecycle requests always see the real Podman container name.
+    workspace_id = str(uuid.uuid4())
     workspace = Workspace(
+        id=workspace_id,
         name=data.name.strip(),
         description=data.description.strip(),
         user_id=current_user.id,
         template_id=data.template_id,
         flavor_id=data.flavor_id,
-        container_name=f"devcloud-{current_user.id}-{data.name.strip().lower().replace(' ', '-')[:10]}",
+        container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
         host_port=host_port,
         container_port=template.default_port,
         storage_path="",  # will be set by orchestrator
@@ -103,8 +107,6 @@ async def create_workspace(
     await db.commit()
     await db.refresh(workspace)
 
-    # Ensure unique container name incorporating workspace ID
-    workspace.container_name = f"devcloud-{current_user.id}-{workspace.id[:8]}"
 
     # Launch container via Podman
     try:
@@ -191,14 +193,17 @@ async def deploy_workspace_stream(
                 await emit_error(f"Port allocation failed: {str(e)}")
                 return
 
-            # Workspace record
+            # Generate the final identity before the first commit so delete,
+            # logs, and deployment all address the same container.
+            workspace_id = str(uuid.uuid4())
             workspace = Workspace(
+                id=workspace_id,
                 name=data.name.strip(),
                 description=data.description.strip(),
                 user_id=current_user.id,
                 template_id=data.template_id,
                 flavor_id=data.flavor_id,
-                container_name=f"devcloud-{current_user.id}-{data.name.strip().lower().replace(' ', '-')[:10]}",
+                container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
                 host_port=host_port,
                 container_port=template.default_port,
                 storage_path="",
@@ -209,7 +214,6 @@ async def deploy_workspace_stream(
             await db.commit()
             await db.refresh(workspace)
 
-            workspace.container_name = f"devcloud-{current_user.id}-{workspace.id[:8]}"
             await emit_log(f"💾 Initialized persistent volume for User #{current_user.id}", "info")
 
             # Launch container with progress callback
@@ -366,6 +370,11 @@ async def delete_workspace_endpoint(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
+    if workspace.status == WorkspaceStatus.CREATING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workspace deployment is still in progress. Wait for it to finish before deleting it.",
+        )
 
     # 1. Stop and remove container in Podman
     await podman_service.delete_container(workspace.container_name)

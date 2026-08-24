@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import socket
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -39,22 +40,52 @@ class PodmanService:
         """Check if podman executable is found in PATH."""
         return shutil.which(self.podman_bin) is not None
 
-    async def run_cmd(self, *args: str) -> tuple[int, str, str]:
-        """Execute a podman CLI command asynchronously with stdin closed."""
+    async def run_cmd(
+        self,
+        *args: str,
+        timeout: float | None = None,
+    ) -> tuple[int, str, str]:
+        """Execute Podman without waiting for descendant processes to close pipes.
+
+        Podman's monitor process can inherit stdout/stderr after a detached
+        podman run. Process.communicate() then waits for EOF until the
+        container exits even though the Podman client has already completed.
+        File-backed output lets us wait for the CLI process itself and still
+        retain its diagnostics.
+        """
         cmd = [self.podman_bin, *args]
         logger.debug("Executing command: %s", " ".join(cmd))
-        
+
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await process.communicate()
-            stdout_str = stdout.decode("utf-8", errors="replace").strip()
-            stderr_str = stderr.decode("utf-8", errors="replace").strip()
-            return process.returncode or 0, stdout_str, stderr_str
+            with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                )
+                try:
+                    if timeout is None:
+                        return_code = await process.wait()
+                    else:
+                        return_code = await asyncio.wait_for(process.wait(), timeout=timeout)
+                except TimeoutError as exc:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    await process.wait()
+                    raise PodmanExecutionError(
+                        f"Podman command timed out after {timeout:g}s: {' '.join(cmd)}"
+                    ) from exc
+
+                stdout_file.seek(0)
+                stderr_file.seek(0)
+                stdout = stdout_file.read().decode("utf-8", errors="replace").strip()
+                stderr = stderr_file.read().decode("utf-8", errors="replace").strip()
+                return return_code or 0, stdout, stderr
+        except PodmanExecutionError:
+            raise
         except Exception as exc:
             logger.error(f"Failed to execute podman command '{' '.join(cmd)}': {exc}")
             raise PodmanExecutionError(f"Podman execution failed: {exc}") from exc
@@ -240,11 +271,38 @@ class PodmanService:
         if template.startup_command:
             cmd_args.extend(template.startup_command)
 
-        code, stdout, stderr = await self.run_cmd(*cmd_args)
+        try:
+            code, stdout, stderr = await self.run_cmd(
+                *cmd_args,
+                timeout=settings.PODMAN_RUN_TIMEOUT_SECONDS,
+            )
+        except PodmanExecutionError as exc:
+            # A timed-out Podman client may still have created the container.
+            # Recover by name so a healthy detached container is not orphaned.
+            inspect_code, inspect_stdout, _ = await self.run_cmd(
+                "inspect", "--format", "{{.Id}}", container_name, timeout=5
+            )
+            if inspect_code != 0 or not inspect_stdout:
+                raise exc
+            code, stdout, stderr = 0, inspect_stdout, ""
+            if progress_callback:
+                await progress_callback(
+                    "⚠️ Podman client response timed out; recovered the running container by name.",
+                    "info",
+                )
         if code != 0:
             raise PodmanExecutionError(f"Failed to start container: {stderr or stdout}")
 
         container_id = stdout.strip()
+        if not container_id:
+            inspect_code, inspect_stdout, inspect_stderr = await self.run_cmd(
+                "inspect", "--format", "{{.Id}}", container_name, timeout=5
+            )
+            if inspect_code != 0 or not inspect_stdout:
+                raise PodmanExecutionError(
+                    f"Container started without an ID: {inspect_stderr or 'inspect failed'}"
+                )
+            container_id = inspect_stdout.strip()
 
         # 4. Fast Readiness Health Check
         if progress_callback:

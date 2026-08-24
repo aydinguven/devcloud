@@ -1,6 +1,9 @@
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceStatus
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "dev_user") -> dict[str, str]:
     """Helper to register and return authorization headers."""
@@ -108,3 +111,38 @@ async def test_deploy_workspace_stream(client: AsyncClient):
     assert "Initializing deployment" in body
     assert "done" in body
 
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, db_session):
+    """Deleting a creating workspace must not race its deployment task."""
+    headers = await get_authenticated_headers(client, "creating_workspace_tester")
+    result = await db_session.execute(
+        select(User).where(User.username == "creating_workspace_tester")
+    )
+    user = result.scalar_one()
+
+    workspace = Workspace(
+        name="Still Deploying",
+        description="",
+        user_id=user.id,
+        template_id="vscode-python",
+        flavor_id="t1.micro",
+        container_name="devcloud-creating-test",
+        host_port=11999,
+        container_port=8080,
+        storage_path="",
+        status=WorkspaceStatus.CREATING,
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+
+    response = await client.delete(
+        f"/api/workspaces/{workspace.id}",
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert "still in progress" in response.json()["detail"]
+    assert await db_session.get(Workspace, workspace.id) is not None
