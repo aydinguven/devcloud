@@ -49,14 +49,15 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-color);">
           <div style="display: flex; gap: 0.5rem;">
-            {% if ws.status == 'running' %}
+            {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
+            {% if ws_st == 'running' %}
               <a href="{{ ws.web_url }}" target="_blank" class="btn btn-success btn-sm">
                 <span>🚀</span> Launch IDE
               </a>
               <button class="btn btn-secondary btn-sm" data-action="stop" data-workspace-id="{{ ws.id }}">
                 Stop
               </button>
-            {% elif ws.status == 'stopped' or ws.status == 'error' %}
+            {% elif ws_st == 'stopped' or ws_st == 'error' or ws_st == 'creating' %}
               <button class="btn btn-primary btn-sm" data-action="start" data-workspace-id="{{ ws.id }}">
                 ▶ Start
               </button>

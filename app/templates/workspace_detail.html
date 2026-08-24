@@ -11,21 +11,24 @@
     <div>
       <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.75rem;">
         <span>{{ workspace.name }}</span>
-        <span class="badge badge-{{ workspace.status }}">{{ workspace.status }}</span>
+        <span class="badge badge-{{ workspace.status.value if workspace.status.value is defined else workspace.status }}">
+          {{ (workspace.status.value if workspace.status.value is defined else workspace.status)|upper }}
+        </span>
       </h1>
       <p style="color: var(--text-muted); font-size: 0.875rem;">{{ workspace.description or "No description" }}</p>
     </div>
 
     <!-- Action Toolbar -->
     <div style="display: flex; gap: 0.75rem;">
-      {% if workspace.status == 'running' %}
+      {% set current_st = workspace.status.value if workspace.status.value is defined else workspace.status %}
+      {% if current_st == 'running' %}
         <a href="{{ workspace.web_url }}" target="_blank" class="btn btn-success">
           <span>🚀</span> Open IDE in New Tab
         </a>
         <button class="btn btn-secondary" data-action="stop" data-workspace-id="{{ workspace.id }}">
           Stop Container
         </button>
-      {% elif workspace.status == 'stopped' or workspace.status == 'error' %}
+      {% elif current_st == 'stopped' or current_st == 'error' or current_st == 'creating' %}
         <button class="btn btn-primary" data-action="start" data-workspace-id="{{ workspace.id }}">
           ▶ Start Container
         </button>

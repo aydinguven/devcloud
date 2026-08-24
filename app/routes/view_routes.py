@@ -119,6 +119,14 @@ async def workspace_detail_page(
     ):
         return RedirectResponse(url="/", status_code=302)
 
+    # Reconcile status with Podman if needed
+    if workspace.container_name:
+        actual_status = await podman_service.get_container_status(workspace.container_name)
+        if actual_status == "running" and workspace.status != WorkspaceStatus.RUNNING:
+            workspace.status = WorkspaceStatus.RUNNING
+            db.add(workspace)
+            await db.commit()
+
     ws_out = WorkspaceOut.model_validate(workspace)
     ws_out.web_url = f"/proxy/{workspace.id}/"
 
