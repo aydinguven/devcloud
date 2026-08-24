@@ -268,7 +268,17 @@ class PodmanService:
         # Image tag
         cmd_args.append(template.image_tag)
 
-        if template.startup_command:
+        if "jupyter" in template_id:
+            cmd_args.extend([
+                "start-notebook.py",
+                "--ServerApp.ip=0.0.0.0",
+                f"--ServerApp.port={template.default_port}",
+                f"--ServerApp.root_dir={template.container_workdir}",
+                f"--ServerApp.base_url=/proxy/{workspace_id}/",
+                "--ServerApp.default_url=/lab",
+                "--ServerApp.trust_xheaders=True",
+            ])
+        elif template.startup_command:
             cmd_args.extend(template.startup_command)
 
         try:

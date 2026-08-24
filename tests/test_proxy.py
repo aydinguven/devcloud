@@ -52,6 +52,7 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
     html_body = b"<!doctype html><html><body>Code Server</body></html>"
     compressed_body = gzip.compress(html_body)
 
+    captured_request = {}
     class FakeUpstreamResponse:
         status_code = 200
         headers = {
@@ -71,6 +72,7 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
             self.response = FakeUpstreamResponse()
 
         def build_request(self, *args, **kwargs):
+            captured_request.update(kwargs)
             return object()
 
         async def send(self, request, stream=False):
@@ -95,7 +97,7 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
         "/api/workspaces",
         json={
             "name": "Compressed IDE",
-            "template_id": "vscode-empty",
+            "template_id": "jupyter-python",
             "flavor_id": "t1.nano",
         },
         headers={"Authorization": f"Bearer {token}"},
@@ -110,3 +112,6 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
     assert response.status_code == 200
     assert response.content == html_body
     assert response.headers["content-encoding"] == "gzip"
+    assert captured_request["url"].endswith(f"/proxy/{workspace_id}/")
+    assert captured_request["headers"]["Authorization"].startswith("token ")
+    assert captured_request["headers"]["Authorization"] != f"Bearer {token}"

@@ -45,6 +45,14 @@ async def get_authorized_workspace(
     return workspace
 
 
+def get_upstream_path(workspace_id: str, template_id: str, path: str) -> str:
+    """Keep Jupyter's configured proxy prefix while other IDEs use root paths."""
+    normalized_path = path.lstrip("/")
+    if "jupyter" in template_id:
+        return f"/proxy/{workspace_id}/{normalized_path}"
+    return f"/{normalized_path}"
+
+
 @proxy_router.api_route(
     "/{workspace_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
@@ -58,7 +66,8 @@ async def proxy_http_request(
 ):
     """Proxy HTTP requests to the target container's local port."""
     workspace = await get_authorized_workspace(workspace_id, db, current_user)
-    target_url = f"http://127.0.0.1:{workspace.host_port}/{path}"
+    upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
+    target_url = f"http://127.0.0.1:{workspace.host_port}{upstream_path}"
     
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
@@ -72,6 +81,9 @@ async def proxy_http_request(
     }
     # Set host header to localhost target
     headers["Host"] = f"127.0.0.1:{workspace.host_port}"
+    if "jupyter" in workspace.template_id:
+        # Authenticate only the trusted loopback hop; never expose this token.
+        headers["Authorization"] = f"token {workspace.workspace_token}"
 
     body = await request.body()
     client = httpx.AsyncClient(timeout=30.0)
@@ -183,12 +195,19 @@ async def proxy_websocket(
         await websocket.close(code=4003, reason=str(e.detail))
         return
 
-    target_ws_url = f"ws://127.0.0.1:{workspace.host_port}/{path}"
+    upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
+    target_ws_url = f"ws://127.0.0.1:{workspace.host_port}{upstream_path}"
     if websocket.scope.get("query_string"):
         target_ws_url += f"?{websocket.scope['query_string'].decode()}"
 
+    additional_headers = None
+    if "jupyter" in workspace.template_id:
+        additional_headers = {"Authorization": f"token {workspace.workspace_token}"}
+
     try:
-        async with websockets.connect(target_ws_url) as target_ws:
+        async with websockets.connect(
+            target_ws_url, additional_headers=additional_headers
+        ) as target_ws:
             async def forward_to_target():
                 try:
                     while True:

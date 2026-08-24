@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator.podman_service import PodmanService
@@ -73,3 +74,60 @@ async def test_podman_service_mock_lifecycle():
 
     # 6. Delete
     assert await svc.delete_container(container_name) is True
+
+
+@pytest.mark.asyncio
+async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
+    """Jupyter must remain token-protected and mounted below its proxy prefix."""
+    svc = PodmanService(podman_bin="podman")
+    svc._mock_mode = False
+    commands = []
+
+    async def fake_run_cmd(*args, timeout=None):
+        commands.append(args)
+        if args[0] == "run":
+            return 0, "container-id", ""
+        return 0, "", ""
+
+    async def fake_ensure_image_exists(*args, **kwargs):
+        return True
+
+    class FakeWriter:
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def fake_open_connection(*args, **kwargs):
+        return object(), FakeWriter()
+
+    monkeypatch.setattr(
+        svc, "ensure_workspace_storage", lambda user_id, workspace_id: "/workspace"
+    )
+    monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(svc, "ensure_image_exists", fake_ensure_image_exists)
+    monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+
+    workspace_id = "12345678-1234-1234-1234-123456789abc"
+    await svc.create_workspace_container(
+        workspace_id=workspace_id,
+        user_id=1,
+        container_name="devcloud-1-12345678",
+        template_id="jupyter-python",
+        flavor_id="t1.micro",
+        host_port=10100,
+        workspace_token="secret-workspace-token",
+    )
+
+    run_command = next(args for args in commands if args[0] == "run")
+    image_index = run_command.index("localhost/devcloud-jupyter-python:latest")
+    startup_command = run_command[image_index + 1:]
+
+    assert startup_command[0] == "start-notebook.py"
+    assert f"--ServerApp.base_url=/proxy/{workspace_id}/" in startup_command
+    assert "--ServerApp.default_url=/lab" in startup_command
+    assert "-e" in run_command
+    assert "JUPYTER_TOKEN=secret-workspace-token" in run_command
+    assert not any("disable_check_xsrf" in arg for arg in startup_command)
+    assert not any("allow_origin" in arg for arg in startup_command)
