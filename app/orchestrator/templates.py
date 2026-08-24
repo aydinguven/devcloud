@@ -32,7 +32,7 @@ class WorkspaceTemplate:
 TEMPLATES: dict[str, WorkspaceTemplate] = {
     "vscode-empty": WorkspaceTemplate(
         id="vscode-empty",
-        name="VS Code (Boş Proje)",
+        name="Boş Proje",
         description="Tarayıcıda terminal ve Git içeren temiz, standart VS Code ortamı.",
         category="Genel",
         icon="code-bracket",
@@ -44,7 +44,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
     "vscode-python": WorkspaceTemplate(
         id="vscode-python",
-        name="VS Code (Python 3.14)",
+        name="Python 3.14",
         description="Python 3.14/3.12, pip, uv ve VS Code Python extension yüklü geliştirme ortamı.",
         category="Python",
         icon="code-bracket-square",
@@ -56,7 +56,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
     "vscode-react": WorkspaceTemplate(
         id="vscode-react",
-        name="VS Code (React / Node.js)",
+        name="React/Node.js",
         description="Node.js 22 LTS, package manager ve React/TypeScript araçları yüklü VS Code ortamı.",
         category="Web Geliştirme",
         icon="code-bracket-square",
@@ -68,7 +68,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
     "jupyter-python": WorkspaceTemplate(
         id="jupyter-python",
-        name="Jupyter Notebook / Lab (Python)",
+        name="Jupyter Notebook",
         description="Python kernel ve veri bilimi paketleri içeren etkileşimli JupyterLab ortamı.",
         category="Veri Bilimi",
         icon="chart-bar",
@@ -80,7 +80,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
     "vscode-java": WorkspaceTemplate(
         id="vscode-java",
-        name="VS Code (Java 21 LTS)",
+        name="Java 21 LTS",
         description="OpenJDK 21, Maven, Gradle ve Red Hat Java Language Support yüklü VS Code ortamı.",
         category="Java",
         icon="command-line",

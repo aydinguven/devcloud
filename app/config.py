@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings and configuration."""
     
     APP_NAME: str = "DevCloud Çalışma Alanı Yönetimi"
-    APP_VERSION: str = "1.1.2"
+    APP_VERSION: str = "1.1.3"
     ENV: str = "development"
     DEBUG: bool = True
     

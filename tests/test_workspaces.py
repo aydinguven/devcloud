@@ -28,11 +28,19 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
     assert tpl_resp.status_code == 200
     templates = tpl_resp.json()
     tpl_ids = [t["id"] for t in templates]
+    template_names = {t["id"]: t["name"] for t in templates}
     assert "vscode-empty" in tpl_ids
     assert "vscode-python" in tpl_ids
     assert "vscode-react" in tpl_ids
     assert "jupyter-python" in tpl_ids
     assert "vscode-java" in tpl_ids
+    assert template_names == {
+        "vscode-empty": "Boş Proje",
+        "vscode-python": "Python 3.14",
+        "vscode-react": "React/Node.js",
+        "jupyter-python": "Jupyter Notebook",
+        "vscode-java": "Java 21 LTS",
+    }
 
     flavor_resp = await client.get("/api/workspaces/flavors")
     assert flavor_resp.status_code == 200

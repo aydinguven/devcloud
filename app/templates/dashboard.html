@@ -158,7 +158,7 @@
                 <span style="font-size: 1.25rem;">
                   {% if 'react' in tpl.id %}⚛{% elif 'python' in tpl.id %}Py{% elif 'java' in tpl.id %}J{% elif 'jupyter' in tpl.id %}Jp{% else %}&lt;/&gt;{% endif %}
                 </span>
-                <span style="font-weight: 600; font-size: 0.9rem; color: #fff;">{{ tpl.name }}</span>
+                <span class="template-card-title">{{ tpl.name }}</span>
               </div>
               <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">{{ tpl.description }}</p>
               <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">

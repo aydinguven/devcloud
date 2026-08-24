@@ -27,8 +27,8 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert "Yeni Hesap Oluştur" in login_resp.text
     assert "1 CPU, 1 GB RAM ve 10 GB Disk" in login_resp.text
     assert '<html lang="tr">' in login_resp.text
-    assert "v1.1.2" in login_resp.text
-    assert "/static/css/kurumsal.css?v=1.1.2" in login_resp.text
+    assert "v1.1.3" in login_resp.text
+    assert "/static/css/kurumsal.css?v=1.1.3" in login_resp.text
     assert 'href="https://git.aydin.cloud/aydin/devcloud"' in login_resp.text
 
     # 2. Register page
@@ -53,6 +53,11 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert "Kaynak Profili" in auth_dashboard.text
     assert "CPU" in auth_dashboard.text
     assert "RAM" in auth_dashboard.text
+    for template_name in (
+        "Boş Proje", "Python 3.14", "React/Node.js", "Jupyter Notebook", "Java 21 LTS"
+    ):
+        assert template_name in auth_dashboard.text
+    assert 'class="template-card-title"' in auth_dashboard.text
 
     # 5. Create a workspace and render dashboard + detail page
     create_payload = {

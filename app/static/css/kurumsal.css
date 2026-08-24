@@ -291,6 +291,12 @@ a:hover { color: var(--primary); }
   border-left-color: var(--primary);
   box-shadow: 0 0 0 1px rgba(213, 0, 50, 0.08);
 }
+.template-card-title {
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
 
 /* Status and data */
 .badge {
