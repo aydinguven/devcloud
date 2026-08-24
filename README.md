@@ -82,6 +82,8 @@ Visit `http://127.0.0.1:8000` in your browser.
 
 ## Production Deployment on Linux VM
 
+For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CLOUDFLARE.md).
+
 ### 1. Automated Deployment Script
 We provide an automated setup script that installs Podman, configures permissions, builds workspace container images, and sets up a systemd service:
 

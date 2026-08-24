@@ -18,6 +18,30 @@ from app.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
+def set_session_cookie(response: Response, token: str) -> None:
+    """Set the browser session cookie with production-safe options."""
+    response.set_cookie(
+        key=settings.COOKIE_NAME,
+        value=token,
+        httponly=True,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    """Expire the session cookie using the same attributes used to set it."""
+    response.delete_cookie(
+        key=settings.COOKIE_NAME,
+        httponly=True,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        path="/",
+    )
+
+
 @auth_router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_in: UserCreate,
@@ -49,14 +73,7 @@ async def register_user(
     # Generate JWT token
     token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
     
-    # Set session cookie
-    response.set_cookie(
-        key=settings.COOKIE_NAME,
-        value=token,
-        httponly=True,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        samesite="lax",
-    )
+    set_session_cookie(response, token)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
@@ -78,14 +95,7 @@ async def login_user(
 
     token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
 
-    # Set session cookie
-    response.set_cookie(
-        key=settings.COOKIE_NAME,
-        value=token,
-        httponly=True,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        samesite="lax",
-    )
+    set_session_cookie(response, token)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
@@ -93,7 +103,7 @@ async def login_user(
 @auth_router.post("/logout")
 async def logout_user(response: Response):
     """Log out user by clearing the session cookie."""
-    response.delete_cookie(key=settings.COOKIE_NAME)
+    clear_session_cookie(response)
     return {"message": "Logged out successfully."}
 
 

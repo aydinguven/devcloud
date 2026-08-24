@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+from app.config import settings
 
 
 @pytest.mark.asyncio
@@ -60,3 +61,27 @@ async def test_duplicate_user_registration(client: AsyncClient):
     res2 = await client.post("/api/auth/register", json=payload)
     assert res2.status_code == 400
     assert "already taken" in res2.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_secure_session_cookie_setting(client: AsyncClient, monkeypatch):
+    """HTTPS deployments mark both issued and expired session cookies Secure."""
+    monkeypatch.setattr(settings, "COOKIE_SECURE", True)
+    register = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "secure_cookie_user",
+            "email": "secure-cookie@example.com",
+            "password": "SecurePassword123!",
+            "full_name": "Secure Cookie",
+        },
+    )
+
+    assert register.status_code == 201
+    session_cookie = register.headers["set-cookie"]
+    assert "HttpOnly" in session_cookie
+    assert "SameSite=lax" in session_cookie
+    assert "Secure" in session_cookie
+
+    logout = await client.post("/api/auth/logout")
+    assert "Secure" in logout.headers["set-cookie"]
