@@ -81,7 +81,7 @@ async def create_workspace(
 
     # Find free port
     try:
-        host_port = podman_service.find_free_port(used_ports)
+        host_port = await podman_service.find_available_port(used_ports)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -185,7 +185,7 @@ async def deploy_workspace_stream(
             used_ports = set(result.scalars().all())
 
             try:
-                host_port = podman_service.find_free_port(used_ports)
+                host_port = await podman_service.find_available_port(used_ports)
                 await emit_log(f"🔌 Allocated host port: {host_port}", "info")
             except RuntimeError as e:
                 await emit_error(f"Port allocation failed: {str(e)}")

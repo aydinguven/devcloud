@@ -10,9 +10,10 @@ from app.auth.dependencies import get_current_user_optional
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
+from app.orchestrator.podman_service import podman_service
 from app.schemas.workspace import WorkspaceOut
 
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
@@ -69,7 +70,21 @@ async def dashboard_page(
     result = await db.execute(stmt)
     workspaces = result.scalars().all()
 
+    # Self-healing status reconciliation with Podman engine
+    status_changed = False
+    for ws in workspaces:
+        if ws.status == WorkspaceStatus.CREATING and ws.container_name:
+            actual_status = await podman_service.get_container_status(ws.container_name)
+            if actual_status == "running":
+                ws.status = WorkspaceStatus.RUNNING
+                db.add(ws)
+                status_changed = True
+    if status_changed:
+        await db.commit()
+
     ws_list = [WorkspaceOut.model_validate(ws) for ws in workspaces]
+    for ws_out in ws_list:
+        ws_out.web_url = f"/proxy/{ws_out.id}/"
 
     return templates.TemplateResponse(
         request=request,

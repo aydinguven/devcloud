@@ -143,6 +143,48 @@ function initWorkspaceCreationModal() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let deploymentCompleted = false;
+
+        function processLine(rawLine) {
+          const line = rawLine.trim();
+          if (!line || !line.startsWith("data: ")) return;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "log") {
+              appendLog(data.text, data.level || "info");
+            } else if (data.type === "error") {
+              appendLog(data.text || data.error, "error");
+              if (statusBadge) {
+                statusBadge.className = "badge badge-error";
+                statusBadge.textContent = "Error";
+              }
+              if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = "Retry Deployment";
+              }
+              if (cancelBtn) cancelBtn.style.display = "inline-flex";
+            } else if (data.type === "done") {
+              deploymentCompleted = true;
+              if (statusBadge) {
+                statusBadge.className = "badge badge-running";
+                statusBadge.textContent = "Running";
+              }
+              appendLog("🎉 Container environment initialized and ready for connections!", "success");
+
+              // Replace footer with Launch & Dashboard buttons
+              if (modalFooter) {
+                modalFooter.innerHTML = `
+                  <button type="button" class="btn btn-secondary" onclick="window.location.reload();">Back to Dashboard</button>
+                  <a href="${data.web_url}" target="_blank" class="btn btn-success" style="padding: 0.65rem 1.5rem; font-weight: 600;">
+                    <span>🚀</span> Launch IDE Now
+                  </a>
+                `;
+              }
+            }
+          } catch (parseErr) {
+            console.warn("SSE parse error:", line);
+          }
+        }
 
         while (true) {
           const { done, value } = await reader.read();
@@ -150,43 +192,23 @@ function initWorkspaceCreationModal() {
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
-          buffer = lines.pop(); // keep last incomplete line
+          buffer = lines.pop(); // keep last incomplete chunk
 
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === "log") {
-                  appendLog(data.text, data.level || "info");
-                } else if (data.type === "error") {
-                  appendLog(data.text || data.error, "error");
-                  if (statusBadge) {
-                    statusBadge.className = "badge badge-error";
-                    statusBadge.textContent = "Error";
-                  }
-                } else if (data.type === "done") {
-                  if (statusBadge) {
-                    statusBadge.className = "badge badge-running";
-                    statusBadge.textContent = "Running";
-                  }
-                  appendLog("🎉 Container environment initialized and ready for connections!", "success");
-
-                  // Replace footer with Launch & Dashboard buttons
-                  if (modalFooter) {
-                    modalFooter.innerHTML = `
-                      <button type="button" class="btn btn-secondary" onclick="window.location.reload();">Back to Dashboard</button>
-                      <a href="${data.web_url}" target="_blank" class="btn btn-success" style="padding: 0.65rem 1.5rem; font-weight: 600;">
-                        <span>🚀</span> Launch IDE Now
-                      </a>
-                    `;
-                  }
-                  return;
-                }
-              } catch (parseErr) {
-                console.warn("SSE parse error:", line);
-              }
-            }
+            processLine(line);
           }
+        }
+
+        // Process any remaining buffered text
+        if (buffer) {
+          processLine(buffer);
+        }
+
+        // Fallback if completed without explicit error
+        if (!deploymentCompleted && statusBadge && statusBadge.textContent !== "Error") {
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         }
       } catch (err) {
         appendLog(`Network connection error: ${err.message}`, "error");

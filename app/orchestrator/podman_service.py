@@ -59,6 +59,24 @@ class PodmanService:
             logger.error(f"Failed to execute podman command '{' '.join(cmd)}': {exc}")
             raise PodmanExecutionError(f"Podman execution failed: {exc}") from exc
 
+    async def get_active_podman_ports(self) -> set[int]:
+        """Query running Podman containers to find host ports currently mapped."""
+        if self._mock_mode:
+            return set()
+        code, stdout, _ = await self.run_cmd("ps", "--format", "{{.Ports}}")
+        if code != 0 or not stdout:
+            return set()
+        ports = set()
+        import re
+        for line in stdout.splitlines():
+            matches = re.findall(r":(\d+)->", line)
+            for m in matches:
+                try:
+                    ports.add(int(m))
+                except ValueError:
+                    pass
+        return ports
+
     def find_free_port(self, used_ports: set[int]) -> int:
         """Find an available TCP port on the host within the configured range."""
         for port in range(settings.PORT_RANGE_START, settings.PORT_RANGE_END):
@@ -71,6 +89,13 @@ class PodmanService:
                 except OSError:
                     continue
         raise RuntimeError("No available ports found in the configured range.")
+
+    async def find_available_port(self, db_used_ports: set[int]) -> int:
+        """Find free port considering both database records and active Podman containers."""
+        active_ports = await self.get_active_podman_ports()
+        all_used = db_used_ports | active_ports
+        return self.find_free_port(all_used)
+
 
     def ensure_workspace_storage(self, user_id: int, workspace_id: str) -> str:
         """Create and initialize the persistent directory on host for workspace."""
