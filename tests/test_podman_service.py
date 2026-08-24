@@ -126,6 +126,7 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     image_index = run_command.index("localhost/devcloud-jupyter-python:latest")
     startup_command = run_command[image_index + 1:]
 
+    assert "/workspace:/home/jovyan/work:Z,U" in run_command
     assert startup_command[0] == "start-notebook.py"
     assert f"--ServerApp.base_url=/proxy/{workspace_id}/" in startup_command
     assert "--ServerApp.default_url=/lab" in startup_command

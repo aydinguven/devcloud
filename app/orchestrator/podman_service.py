@@ -246,7 +246,10 @@ class PodmanService:
             "--cpus", str(flavor.cpus),
             "--memory", f"{flavor.memory_mb}m",
             "-p", f"127.0.0.1:{host_port}:{template.default_port}",
-            "-v", f"{storage_path}:{template.container_workdir}:Z",
+            # Relabel for SELinux and align bind-mount ownership with the
+            # image's non-root user (jovyan/coder). This also repairs files
+            # initialized by the host service account.
+            "-v", f"{storage_path}:{template.container_workdir}:Z,U",
             "--restart", "unless-stopped",
         ]
 
