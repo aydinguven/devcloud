@@ -73,7 +73,7 @@ async def test_workspace_lifecycle(client: AsyncClient):
     # 3. Get Logs
     logs_resp = await client.get(f"/api/workspaces/{ws_id}/logs", headers=headers)
     assert logs_resp.status_code == 200
-    assert "Initializing" in logs_resp.json()["logs"]
+    assert "başlatılıyor" in logs_resp.json()["logs"]
 
     # 4. Stop Workspace
     stop_resp = await client.post(f"/api/workspaces/{ws_id}/stop", headers=headers)
@@ -141,7 +141,7 @@ async def test_deploy_workspace_stream(client: AsyncClient):
     assert "text/event-stream" in resp.headers.get("content-type", "")
     body = resp.text
     assert "data: " in body
-    assert "Initializing deployment" in body
+    assert "kurulum süreci başlatılıyor" in body
     assert "done" in body
 
 
@@ -177,7 +177,7 @@ async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, d
     )
 
     assert response.status_code == 409
-    assert "still in progress" in response.json()["detail"]
+    assert "kurulumu devam ediyor" in response.json()["detail"]
     assert await db_session.get(Workspace, workspace.id) is not None
 
 
@@ -212,9 +212,9 @@ async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
         headers=headers,
     )
     assert second.status_code == 409
-    assert "User quota exceeded" in second.json()["detail"]
-    assert "CPU would be 1.0/0.5 cores" in second.json()["detail"]
-    assert "RAM would be 1024/512 MB" in second.json()["detail"]
+    assert "Kullanıcı kotası aşıldı" in second.json()["detail"]
+    assert "CPU 1.0/0.5 olacak" in second.json()["detail"]
+    assert "RAM 1024/512 MB olacak" in second.json()["detail"]
 
     streamed = await client.post(
         "/api/workspaces/deploy-stream",
@@ -222,5 +222,5 @@ async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
         headers=headers,
     )
     assert streamed.status_code == 200
-    assert "User quota exceeded" in streamed.text
+    assert "Kullanıcı kotası aşıldı" in streamed.text
     assert '"type": "done"' not in streamed.text

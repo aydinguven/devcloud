@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings and configuration."""
     
-    APP_NAME: str = "DevCloud Workspace Manager"
-    APP_VERSION: str = "1.0.0"
+    APP_NAME: str = "DevCloud Çalışma Alanı Yönetimi"
+    APP_VERSION: str = "1.1.0"
     ENV: str = "development"
     DEBUG: bool = True
     

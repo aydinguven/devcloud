@@ -1,76 +1,73 @@
 {% extends "base.html" %}
 
-{% block title %}Admin Dashboard - {{ app_name }}{% endblock %}
+{% block title %}Yönetim Paneli - {{ app_name }}{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 2rem;">
-  <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">System Administration</h1>
-  <p style="color: var(--text-muted); font-size: 0.9rem;">Overview of users and workspaces, with per-user CPU, RAM, and disk quotas</p>
+{% set status_labels = {'running': 'Çalışıyor', 'stopped': 'Durduruldu', 'creating': 'Oluşturuluyor', 'starting': 'Başlatılıyor', 'error': 'Hata', 'deleted': 'Silindi'} %}
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">Sistem Yönetimi</span>
+    <h1>Yönetim Paneli</h1>
+    <p>Kullanıcıları, çalışma alanlarını ve kullanıcı bazlı CPU, RAM ve Disk kotalarını yönetin.</p>
+  </div>
 </div>
 
-<!-- Stats row -->
 <div class="grid grid-cols-3" style="margin-bottom: 2rem;">
-  <div class="card">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Total Users</div>
+  <div class="card" style="border-top: 3px solid var(--secondary);">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Kullanıcı</div>
     <div style="font-size: 1.75rem; font-weight: 700; color: #fff; margin-top: 0.25rem;">{{ all_users|length }}</div>
   </div>
-  <div class="card">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Total Workspaces</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{{ all_workspaces|length }}</div>
+  <div class="card" style="border-top: 3px solid var(--primary);">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Çalışma Alanı</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">{{ all_workspaces|length }}</div>
   </div>
-  <div class="card">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Active Containers</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: #10b981; margin-top: 0.25rem;">
+  <div class="card" style="border-top: 3px solid var(--gold);">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Aktif Container</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: var(--success); margin-top: 0.25rem;">
       {{ all_workspaces|selectattr('status', 'equalto', 'running')|list|length }}
     </div>
   </div>
 </div>
 
-<!-- Offline bundle publisher -->
 <div class="card download-update-card" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Offline Downloads</h2>
+      <h2 class="card-title">Çevrim Dışı İndirmeler</h2>
       <p class="download-update-description">
-        Build the current clean Git revision, verify it, and replace the bundle published at
-        <a href="/download/" target="_blank">/download/</a>.
+        Güncel ve temiz Git revizyonunu derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlanan paketi değiştirin.
       </p>
     </div>
     <div class="download-update-actions">
-      <span id="download-update-badge" class="badge badge-stopped">Checking</span>
-      <button id="btn-update-downloads" class="btn btn-warning" type="button" disabled>
-        Update downloads
-      </button>
+      <span id="download-update-badge" class="badge badge-stopped">Kontrol ediliyor</span>
+      <button id="btn-update-downloads" class="btn btn-warning" type="button" disabled>İndirmeleri Güncelle</button>
     </div>
   </div>
   <div class="download-update-summary">
-    <span id="download-update-message" role="status" aria-live="polite">Loading status...</span>
+    <span id="download-update-message" role="status" aria-live="polite">Durum yükleniyor...</span>
     <a id="download-current-link" href="/download/" target="_blank" style="display: none;"></a>
   </div>
-  <pre id="download-update-logs" class="terminal-window download-update-logs">No update logs yet.</pre>
+  <pre id="download-update-logs" class="terminal-window download-update-logs">Henüz güncelleme logu yok.</pre>
   <p class="download-update-warning">
-    This operation downloads Python wheels, rebuilds five Podman images, and can take several
-    minutes. Existing downloads remain available until the replacement passes verification.
+    Bu işlem Python wheel paketlerini indirir, beş Podman image'ını yeniden oluşturur ve birkaç dakika sürebilir. Yeni paket doğrulanana kadar mevcut indirme kullanılabilir kalır.
   </p>
 </div>
 
-<!-- All Users -->
 <div class="card" style="margin-bottom: 2rem; overflow-x: auto;">
   <div class="card-header">
-    <h2 class="card-title">Registered Users</h2>
+    <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
   </div>
   <table class="table">
     <thead>
       <tr>
         <th>ID</th>
-        <th>Username</th>
-        <th>Full Name</th>
-        <th>Email</th>
-        <th>Role</th>
-        <th>Source</th>
-        <th>Active</th>
-        <th>Usage / Quota</th>
-        <th>Quota Controls</th>
+        <th>Kullanıcı Adı</th>
+        <th>Ad Soyad</th>
+        <th>E-posta</th>
+        <th>Rol</th>
+        <th>Kaynak</th>
+        <th>Durum</th>
+        <th>Kullanım / Kota</th>
+        <th>Kota Ayarları</th>
       </tr>
     </thead>
     <tbody>
@@ -81,12 +78,12 @@
           <td>{{ u.full_name or '-' }}</td>
           <td>{{ u.email }}</td>
           <td>
-            <span class="badge" style="background: {% if u.role == 'admin' %}rgba(245, 158, 11, 0.2); color: #f59e0b;{% else %}rgba(59, 130, 246, 0.2); color: #3b82f6;{% endif %}">
-              {{ u.role }}
+            <span class="badge {% if u.role == 'admin' %}badge-role-admin{% else %}badge-role-user{% endif %}">
+              {% if u.role == 'admin' %}Yönetici{% else %}Kullanıcı{% endif %}
             </span>
           </td>
-          <td>{{ u.auth_source }}</td>
-          <td>{% if u.is_active %}<span style="color: #10b981;">✓</span>{% else %}<span style="color: #ef4444;">✗</span>{% endif %}</td>
+          <td>{{ {'internal': 'Dahili', 'active_directory': 'Active Directory'}.get(u.auth_source, u.auth_source) }}</td>
+          <td>{% if u.is_active %}<span style="color: var(--success);">Aktif</span>{% else %}<span style="color: var(--danger);">Pasif</span>{% endif %}</td>
           {% set quota_usage = usage_by_user[u.id] %}
           <td class="quota-summary">
             <span><strong>CPU</strong> {{ quota_usage.cpu.used_display }} / {{ quota_usage.cpu.limit_display }}</span>
@@ -97,7 +94,7 @@
             <form class="quota-form" data-user-id="{{ u.id }}">
               <div class="quota-input-grid">
                 <label class="quota-field">
-                  <span>CPU cores</span>
+                  <span>CPU</span>
                   <input class="form-input" type="number" name="cpu_quota" min="0" max="256" step="0.5" value="{{ u.cpu_quota }}" required>
                 </label>
                 <label class="quota-field">
@@ -110,7 +107,7 @@
                 </label>
               </div>
               <div class="quota-actions">
-                <button type="submit" class="btn btn-primary btn-sm">Save quota</button>
+                <button type="submit" class="btn btn-primary btn-sm">Kotayı Kaydet</button>
                 <span class="quota-form-status" role="status"></span>
               </div>
             </form>
@@ -121,36 +118,36 @@
   </table>
 </div>
 
-<!-- All Workspaces -->
-<div class="card">
+<div class="card" style="overflow-x: auto;">
   <div class="card-header">
-    <h2 class="card-title">All Containers & Workspaces</h2>
+    <h2 class="card-title">Tüm Container ve Çalışma Alanları</h2>
   </div>
   <table class="table">
     <thead>
       <tr>
-        <th>Name</th>
-        <th>Owner ID</th>
-        <th>Template</th>
-        <th>Flavor</th>
-        <th>Host Port</th>
-        <th>Status</th>
-        <th>Actions</th>
+        <th>Ad</th>
+        <th>Sahip ID</th>
+        <th>Şablon</th>
+        <th>Kaynak Profili</th>
+        <th>Host Portu</th>
+        <th>Durum</th>
+        <th>İşlemler</th>
       </tr>
     </thead>
     <tbody>
       {% for ws in all_workspaces %}
+        {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
         <tr>
           <td style="font-weight: 600; color: #fff;">{{ ws.name }}</td>
-          <td>User #{{ ws.user_id }}</td>
+          <td>Kullanıcı #{{ ws.user_id }}</td>
           <td>{{ ws.template_id }}</td>
           <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
           <td><code>{{ ws.host_port }}</code></td>
-          <td><span class="badge badge-{{ ws.status }}">{{ ws.status }}</span></td>
+          <td><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
           <td>
             <div style="display: flex; gap: 0.5rem;">
-              <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">View</a>
-              <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Delete</button>
+              <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Görüntüle</a>
+              <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Sil</button>
             </div>
           </td>
         </tr>

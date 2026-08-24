@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Downloads - {{ app_name }}{% endblock %}
+{% block title %}İndirmeler - {{ app_name }}{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 2rem;">
-  <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">Air-Gapped Downloads</h1>
-  <p style="color: var(--text-muted); font-size: 0.9rem;">
-    Download the current DevCloud offline installer and verify its SHA-256 checksum before extraction.
-  </p>
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">Çevrim Dışı Kurulum</span>
+    <h1>Kurulum Paketleri</h1>
+    <p>Güncel DevCloud çevrim dışı kurulum paketini indirin ve arşivi açmadan önce SHA-256 checksum değerini doğrulayın.</p>
+  </div>
 </div>
 
-<div class="card">
+<div class="card" style="border-top: 3px solid var(--secondary);">
   {% if bundles %}
     {% for bundle in bundles %}
       <div class="download-item">
@@ -20,14 +21,14 @@
         </div>
         <div class="download-actions">
           {% if bundle.checksum_url %}
-            <a class="btn btn-secondary" href="{{ bundle.checksum_url }}">SHA-256</a>
+            <a class="btn btn-secondary" href="{{ bundle.checksum_url }}">SHA-256 Checksum</a>
           {% endif %}
-          <a class="btn btn-primary" href="{{ bundle.url }}">Download bundle</a>
+          <a class="btn btn-primary" href="{{ bundle.url }}">Paketi İndir</a>
         </div>
       </div>
     {% endfor %}
   {% else %}
-    <p style="color: var(--text-muted);">No offline bundle has been published yet.</p>
+    <p style="color: var(--text-muted);">Henüz çevrim dışı kurulum paketi yayımlanmadı.</p>
   {% endif %}
 </div>
 {% endblock %}

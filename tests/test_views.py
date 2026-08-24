@@ -23,15 +23,18 @@ async def test_view_routes_render_html(client: AsyncClient):
     # 1. Login page
     login_resp = await client.get("/login")
     assert login_resp.status_code == 200
-    assert "Welcome to DevCloud" in login_resp.text
-    assert "Create New Account" in login_resp.text
-    assert "1 CPU core, 1 GB RAM, and 10 GB disk" in login_resp.text
+    assert "DevCloud'a Hoş Geldiniz" in login_resp.text
+    assert "Yeni Hesap Oluştur" in login_resp.text
+    assert "1 CPU, 1 GB RAM ve 10 GB Disk" in login_resp.text
+    assert '<html lang="tr">' in login_resp.text
+    assert "v1.1.0" in login_resp.text
+    assert "/static/css/kurumsal.css?v=1.1.0" in login_resp.text
 
     # 2. Register page
     reg_resp = await client.get("/register")
     assert reg_resp.status_code == 200
-    assert "Create Your Account" in reg_resp.text
-    assert "1 CPU core, 1 GB RAM, and 10 GB disk" in reg_resp.text
+    assert "Hesabınızı Oluşturun" in reg_resp.text
+    assert "1 CPU, 1 GB RAM ve 10 GB Disk" in reg_resp.text
 
     # 3. Root redirect to /login for unauthenticated users
     root_resp = await client.get("/", follow_redirects=False)
@@ -42,11 +45,13 @@ async def test_view_routes_render_html(client: AsyncClient):
     headers = await get_authenticated_headers(client, "dashboard_view_user")
     auth_dashboard = await client.get("/", headers=headers)
     assert auth_dashboard.status_code == 200
-    assert "My Workspaces" in auth_dashboard.text
-    assert "Total System Usage" in auth_dashboard.text
-    assert "Total User Usage" in auth_dashboard.text
-    assert "Remaining User Quota" in auth_dashboard.text
-    assert "Select Resource Flavor" in auth_dashboard.text
+    assert "Çalışma Alanlarım" in auth_dashboard.text
+    assert "Toplam Sistem Kullanımı" in auth_dashboard.text
+    assert "Toplam Kullanıcı Kullanımı" in auth_dashboard.text
+    assert "Kalan Kullanıcı Kotası" in auth_dashboard.text
+    assert "Kaynak Profili" in auth_dashboard.text
+    assert "CPU" in auth_dashboard.text
+    assert "RAM" in auth_dashboard.text
 
     # 5. Create a workspace and render dashboard + detail page
     create_payload = {

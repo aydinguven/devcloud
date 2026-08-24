@@ -1,34 +1,34 @@
 {% extends "base.html" %}
 
-{% block title %}Sign In - {{ app_name }}{% endblock %}
+{% block title %}Giriş - {{ app_name }}{% endblock %}
 
 {% block content %}
-<div style="max-width: 440px; margin: 3rem auto;">
-  <div class="card">
+<div class="auth-shell">
+  <div class="card auth-card">
     <div class="card-header" style="justify-content: center; flex-direction: column; text-align: center; gap: 0.5rem;">
-      <h1 class="card-title" style="font-size: 1.5rem;">Welcome to DevCloud</h1>
-      <p style="color: var(--text-muted); font-size: 0.875rem;">Sign in to access your cloud development workspaces</p>
+      <h1 class="card-title" style="font-size: 1.5rem;">DevCloud'a Hoş Geldiniz</h1>
+      <p style="color: var(--text-muted); font-size: 0.875rem;">Bulut geliştirme çalışma alanlarınıza erişmek için giriş yapın</p>
     </div>
 
     <div id="login-error" style="display: none; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;"></div>
 
     <form id="login-form">
       <div class="form-group">
-        <label class="form-label" for="username">Username or Email</label>
-        <input type="text" id="username" class="form-input" placeholder="e.g. admin or developer" required autofocus>
+        <label class="form-label" for="username">Kullanıcı Adı veya E-posta</label>
+        <input type="text" id="username" class="form-input" placeholder="örn. admin veya geliştirici" required autofocus>
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="password">Password</label>
+        <label class="form-label" for="password">Parola</label>
         <input type="password" id="password" class="form-input" placeholder="••••••••" required>
       </div>
 
-      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Sign In</button>
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Giriş Yap</button>
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); font-size: 0.875rem; color: var(--text-muted);">
-      <p style="margin-bottom: 0.75rem;">New users receive {{ registration_cpu_quota|int }} CPU core, {{ registration_memory_gb_quota|int }} GB RAM, and {{ registration_disk_gb_quota|int }} GB disk.</p>
-      <a href="/register" class="btn btn-secondary" style="width: 100%;">Create New Account</a>
+      <p style="margin-bottom: 0.75rem;">Yeni kullanıcılara {{ registration_cpu_quota|int }} CPU, {{ registration_memory_gb_quota|int }} GB RAM ve {{ registration_disk_gb_quota|int }} GB Disk kotası tanımlanır.</p>
+      <a href="/register" class="btn btn-secondary" style="width: 100%;">Yeni Hesap Oluştur</a>
     </div>
   </div>
 </div>
@@ -53,15 +53,14 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
     if (!res.ok) {
       const data = await res.json();
-      errorBox.textContent = data.detail || "Authentication failed.";
+      errorBox.textContent = data.detail || "Kimlik doğrulama başarısız.";
       errorBox.style.display = "block";
       return;
     }
 
-    // Login successful
     window.location.href = "/";
   } catch (err) {
-    errorBox.textContent = "Network error: " + err.message;
+    errorBox.textContent = "Ağ hatası: " + err.message;
     errorBox.style.display = "block";
   }
 });

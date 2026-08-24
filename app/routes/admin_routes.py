@@ -40,7 +40,7 @@ async def update_user_quota(
     """Admin: Update CPU, RAM, and persistent-disk quota for one user."""
     user = await db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
     user.cpu_quota = quota.cpu_quota
     user.memory_mb_quota = quota.memory_mb_quota
     user.disk_mb_quota = quota.disk_mb_quota

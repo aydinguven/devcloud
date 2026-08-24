@@ -105,9 +105,9 @@ async def test_proxy_waiting_page_exposes_live_authenticated_diagnostics(
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert "Recent container output" in response.text
-    assert "IDE port" in response.text
-    assert "Checks" in response.text
+    assert "Son Container Çıktısı" in response.text
+    assert "IDE Portu" in response.text
+    assert "Kontrol" in response.text
     assert f"/proxy/{workspace['id']}/_devcloud/status?tail=120" in response.text
     assert "http-equiv=\"refresh\"" not in response.text
 
@@ -121,7 +121,7 @@ async def test_proxy_waiting_page_exposes_live_authenticated_diagnostics(
     assert diagnostics["container_status"] == "running"
     assert diagnostics["host_port"] == workspace["host_port"]
     assert diagnostics["port_ready"] is False
-    assert "Initializing" in diagnostics["logs"]
+    assert "başlatılıyor" in diagnostics["logs"]
 
     other_register = await client.post(
         "/api/auth/register",

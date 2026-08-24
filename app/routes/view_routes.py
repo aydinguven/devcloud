@@ -20,6 +20,7 @@ from app.schemas.workspace import WorkspaceOut
 
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
+templates.env.globals["app_version"] = settings.APP_VERSION
 
 view_router = APIRouter(include_in_schema=False)
 

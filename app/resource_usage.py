@@ -180,14 +180,14 @@ def quota_violations(
     requested_memory_mb = usage["memory"]["used"] / BYTES_PER_MB + requested_flavor.memory_mb
     if requested_cpu > user.cpu_quota:
         violations.append(
-            f"CPU would be {requested_cpu:.1f}/{user.cpu_quota:.1f} cores"
+            f"CPU {requested_cpu:.1f}/{user.cpu_quota:.1f} olacak"
         )
     if requested_memory_mb > user.memory_mb_quota:
         violations.append(
-            f"RAM would be {requested_memory_mb:.0f}/{user.memory_mb_quota} MB"
+            f"RAM {requested_memory_mb:.0f}/{user.memory_mb_quota} MB olacak"
         )
     if usage["disk"]["used"] >= usage["disk"]["limit"]:
         violations.append(
-            f"disk usage is {usage['disk']['used_display']}/{usage['disk']['limit_display']}"
+            f"Disk kullanımı {usage['disk']['used_display']}/{usage['disk']['limit_display']}"
         )
     return violations

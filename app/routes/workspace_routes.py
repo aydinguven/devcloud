@@ -42,7 +42,7 @@ async def get_quota_error(
     )
     if not violations:
         return None
-    return "User quota exceeded: " + "; ".join(violations) + "."
+    return "Kullanıcı kotası aşıldı: " + "; ".join(violations) + "."
 
 
 @workspace_router.get("/templates", response_model=list[TemplateInfo])
@@ -109,11 +109,11 @@ async def create_workspace(
     """Create a new persistent workspace and deploy container."""
     template = get_template(data.template_id)
     if not template:
-        raise HTTPException(status_code=400, detail=f"Invalid template ID: {data.template_id}")
+        raise HTTPException(status_code=400, detail=f"Geçersiz şablon ID: {data.template_id}")
 
     flavor = get_flavor(data.flavor_id)
     if not flavor:
-        raise HTTPException(status_code=400, detail=f"Invalid flavor ID: {data.flavor_id}")
+        raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
 
     quota_error = await get_quota_error(db, current_user, flavor)
     if quota_error:
@@ -195,11 +195,11 @@ async def deploy_workspace_stream(
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     async def emit_log(text: str, level: str = "info"):
-        payload = json.dumps({"type": "log", "level": level, "text": text})
+        payload = json.dumps({"type": "log", "level": level, "text": text}, ensure_ascii=False)
         await queue.put(f"data: {payload}\n\n")
 
     async def emit_error(text: str):
-        payload = json.dumps({"type": "error", "text": text})
+        payload = json.dumps({"type": "error", "text": text}, ensure_ascii=False)
         await queue.put(f"data: {payload}\n\n")
 
     async def emit_done(workspace_id: str, web_url: str):
@@ -208,17 +208,17 @@ async def deploy_workspace_stream(
 
     async def run_deployment():
         try:
-            await emit_log(f"🚀 Initializing deployment pipeline for '{data.name}'...", "info")
+            await emit_log(f"'{data.name}' için kurulum süreci başlatılıyor...", "info")
             await asyncio.sleep(0.05)
 
             template = get_template(data.template_id)
             if not template:
-                await emit_error(f"Invalid template: {data.template_id}")
+                await emit_error(f"Geçersiz şablon: {data.template_id}")
                 return
 
             flavor = get_flavor(data.flavor_id)
             if not flavor:
-                await emit_error(f"Invalid flavor: {data.flavor_id}")
+                await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
                 return
 
             quota_error = await get_quota_error(db, current_user, flavor)
@@ -226,8 +226,8 @@ async def deploy_workspace_stream(
                 await emit_error(quota_error)
                 return
 
-            await emit_log(f"📋 Template: {template.name} ({template.image_tag})", "info")
-            await emit_log(f"⚡ Workspace allocation: {flavor.cpus} CPU(s), {flavor.memory_display} RAM ({flavor.name})", "info")
+            await emit_log(f"Şablon: {template.name} ({template.image_tag})", "info")
+            await emit_log(f"Çalışma alanı kaynağı: {flavor.cpus} CPU, {flavor.memory_display} RAM ({flavor.name})", "info")
 
             # Host port selection
             stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
@@ -236,9 +236,9 @@ async def deploy_workspace_stream(
 
             try:
                 host_port = await podman_service.find_available_port(used_ports)
-                await emit_log(f"🔌 Allocated host port: {host_port}", "info")
+                await emit_log(f"Host portu ayrıldı: {host_port}", "info")
             except RuntimeError as e:
-                await emit_error(f"Port allocation failed: {str(e)}")
+                await emit_error(f"Port ayrılamadı: {str(e)}")
                 return
 
             # Generate the final identity before the first commit so delete,
@@ -262,7 +262,7 @@ async def deploy_workspace_stream(
             await db.commit()
             await db.refresh(workspace)
 
-            await emit_log(f"💾 Initialized persistent volume for User #{current_user.id}", "info")
+            await emit_log(f"Kullanıcı #{current_user.id} için kalıcı volume hazırlandı", "info")
 
             # Launch container with progress callback
             container_id, storage_path = await podman_service.create_workspace_container(
@@ -286,7 +286,7 @@ async def deploy_workspace_stream(
             await db.commit()
             await db.refresh(workspace)
 
-            await emit_log(f"📂 Persistent directory: {storage_path}", "success")
+            await emit_log(f"Kalıcı dizin: {storage_path}", "success")
             await emit_done(workspace.id, f"/proxy/{workspace.id}/")
 
         except Exception as exc:
@@ -296,7 +296,7 @@ async def deploy_workspace_stream(
                 workspace.error_message = str(exc)
                 db.add(workspace)
                 await db.commit()
-            await emit_error(f"Deployment error: {str(exc)}")
+            await emit_error(f"Kurulum hatası: {str(exc)}")
         finally:
             await queue.put(None)
 
@@ -324,10 +324,10 @@ async def get_workspace_detail(
     workspace = result.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
 
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Access denied.")
+        raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
     ws_out = WorkspaceOut.model_validate(workspace)
     ws_out.web_url = f"/proxy/{workspace.id}/"
@@ -346,9 +346,9 @@ async def start_workspace_endpoint(
     workspace = result.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Access denied.")
+        raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
     try:
         container_exists = await podman_service.container_exists(workspace.container_name)
@@ -388,7 +388,7 @@ async def start_workspace_endpoint(
         workspace.error_message = None
     else:
         workspace.status = WorkspaceStatus.ERROR
-        workspace.error_message = workspace.error_message or "Failed to restart container."
+        workspace.error_message = workspace.error_message or "Container yeniden başlatılamadı."
 
     db.add(workspace)
     await db.commit()
@@ -410,9 +410,9 @@ async def stop_workspace_endpoint(
     workspace = result.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Access denied.")
+        raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
     await podman_service.stop_container(workspace.container_name)
     workspace.status = WorkspaceStatus.STOPPED
@@ -441,13 +441,13 @@ async def delete_workspace_endpoint(
     workspace = result.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Access denied.")
+        raise HTTPException(status_code=403, detail="Erişim reddedildi.")
     if workspace.status == WorkspaceStatus.CREATING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Workspace deployment is still in progress. Wait for it to finish before deleting it.",
+            detail="Çalışma alanı kurulumu devam ediyor. Silmeden önce tamamlanmasını bekleyin.",
         )
 
     # 1. Stop and remove container in Podman
@@ -464,7 +464,7 @@ async def delete_workspace_endpoint(
     # 3. Remove record from database
     await db.delete(workspace)
     await db.commit()
-    return {"message": f"Workspace {workspace_id} and its persistent storage were deleted successfully."}
+    return {"message": f"Çalışma alanı {workspace_id} ve kalıcı depolaması silindi."}
 
 
 @workspace_router.get("/{workspace_id}/logs")
@@ -480,9 +480,9 @@ async def get_workspace_logs_endpoint(
     workspace = result.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Access denied.")
+        raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
     logs = await podman_service.get_logs(workspace.container_name, tail=tail)
     return {"workspace_id": workspace_id, "logs": logs}

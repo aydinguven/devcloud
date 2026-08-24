@@ -71,7 +71,7 @@ async def test_podman_service_mock_lifecycle():
 
     # 5. Retrieve logs
     logs = await svc.get_logs(container_name)
-    assert "Allocated 2.0 CPU" in logs
+    assert "2.0 CPU ve 2 GB RAM ayrıldı" in logs
 
     # 6. Delete
     assert await svc.delete_container(container_name) is True

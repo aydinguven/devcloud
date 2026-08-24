@@ -39,7 +39,7 @@ async def seed_initial_admin():
                 username=settings.ADMIN_USERNAME,
                 email=settings.ADMIN_EMAIL,
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
-                full_name="System Administrator",
+                full_name="Sistem Yöneticisi",
                 role=UserRole.ADMIN,
                 auth_source="internal",
                 is_active=True,

@@ -1,42 +1,52 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#d50032">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=2.4">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/css/kurumsal.css?v={{ app_version }}">
+  <link rel="icon" href="/static/favicon.svg?v={{ app_version }}" type="image/svg+xml">
 </head>
-<body>
-  <!-- Top Navigation Bar -->
-  <nav class="navbar">
+<body class="{% block body_class %}{% endblock %}">
+  <nav class="navbar" aria-label="Ana menü">
     <a href="/" class="navbar-brand">
-      <span class="logo-icon">⚡</span>
-      <span>DevCloud</span>
+      <span class="logo-icon" aria-hidden="true">DC</span>
+      <span class="brand-copy">
+        <span class="brand-name">DevCloud</span>
+        <span class="brand-subtitle">Kurum İçi Geliştirme Platformu</span>
+      </span>
+      <span class="version-chip" title="Uygulama sürümü">v{{ app_version }}</span>
     </a>
     <div class="nav-links">
       {% if user %}
-        <a href="/" class="nav-link">Workspaces</a>
+        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Çalışma Alanları</a>
         {% if user.role == "admin" %}
-          <a href="/admin" class="nav-link" style="color: #f59e0b;">Admin</a>
+          <a href="/admin" class="nav-link nav-link-admin {% if request.url.path == '/admin' %}active{% endif %}">Yönetim</a>
         {% endif %}
-        <a href="/profile" class="nav-link">{{ user.full_name or user.username }}</a>
-        <button id="btn-logout" class="btn btn-secondary btn-sm" style="margin-left: 0.5rem;">Log out</button>
+        <a href="/profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">{{ user.full_name or user.username }}</a>
+        <button id="btn-logout" class="btn btn-secondary btn-sm" style="margin-left: 0.5rem;">Çıkış Yap</button>
       {% else %}
-        <a href="/login" class="nav-link">Login</a>
-        <a href="/register" class="btn btn-primary btn-sm">Sign Up</a>
+        <a href="/login" class="nav-link {% if request.url.path == '/login' %}active{% endif %}">Giriş</a>
+        <a href="/register" class="btn btn-primary btn-sm">Hesap Oluştur</a>
       {% endif %}
     </div>
   </nav>
 
-  <!-- Main Content Container -->
   <main class="container">
     {% block content %}{% endblock %}
   </main>
 
-  <script src="/static/js/app.js?v=2.4"></script>
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <span><strong>DevCloud</strong> · Kurum İçi Geliştirme Platformu</span>
+      <span class="site-footer-version">Sürüm {{ app_version }}</span>
+    </div>
+  </footer>
+
+  <script src="/static/js/app.js?v={{ app_version }}"></script>
   <script>
-    // Global Logout Handler
     const logoutBtn = document.getElementById("btn-logout");
     if (logoutBtn) {
       logoutBtn.addEventListener("click", async () => {

@@ -61,7 +61,7 @@ async def test_duplicate_user_registration(client: AsyncClient):
     # Duplicate username
     res2 = await client.post("/api/auth/register", json=payload)
     assert res2.status_code == 400
-    assert "already taken" in res2.json()["detail"]
+    assert "zaten kullanılıyor" in res2.json()["detail"]
 
 
 @pytest.mark.asyncio

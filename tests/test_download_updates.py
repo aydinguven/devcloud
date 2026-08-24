@@ -59,7 +59,7 @@ def test_publish_rejects_tampered_checksum(tmp_path: Path, monkeypatch):
     checksum.write_text(f"{'0' * 64}  {archive.name}\n", encoding="ascii")
 
     manager = DownloadUpdateManager()
-    with pytest.raises(RuntimeError, match="checksum verification failed"):
+    with pytest.raises(RuntimeError, match="checksum doğrulaması başarısız"):
         manager._verify_pair(archive, checksum)
 
 

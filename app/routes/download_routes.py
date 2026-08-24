@@ -21,6 +21,7 @@ DOWNLOAD_NAME_PATTERN = re.compile(
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent / "templates")
 )
+templates.env.globals["app_version"] = settings.APP_VERSION
 download_router = APIRouter(include_in_schema=False)
 
 
@@ -30,10 +31,10 @@ def _download_root() -> Path:
 
 def _require_downloads_enabled() -> Path:
     if not settings.DOWNLOADS_ENABLED:
-        raise HTTPException(status_code=404, detail="Downloads are not enabled.")
+        raise HTTPException(status_code=404, detail="İndirmeler etkin değil.")
     root = _download_root()
     if not root.is_dir():
-        raise HTTPException(status_code=404, detail="No downloads are available.")
+        raise HTTPException(status_code=404, detail="Kullanılabilir indirme bulunamadı.")
     return root
 
 
@@ -94,11 +95,11 @@ async def download_file(filename: str):
     """Stream one allow-listed bundle file with byte-range support."""
     root = _require_downloads_enabled()
     if not DOWNLOAD_NAME_PATTERN.fullmatch(filename):
-        raise HTTPException(status_code=404, detail="Download not found.")
+        raise HTTPException(status_code=404, detail="İndirme bulunamadı.")
     candidate = root / filename
     path = candidate.resolve()
     if candidate.is_symlink() or path.parent != root or not path.is_file():
-        raise HTTPException(status_code=404, detail="Download not found.")
+        raise HTTPException(status_code=404, detail="İndirme bulunamadı.")
     media_type = "text/plain" if filename.endswith(".sha256") else "application/gzip"
     return FileResponse(
         path,

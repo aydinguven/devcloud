@@ -31,7 +31,7 @@ function initWorkspaceCreationModal() {
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.style.display = "inline-flex";
-        submitBtn.innerHTML = "Deploy Workspace";
+        submitBtn.innerHTML = "Çalışma Alanını Kur";
       }
       if (cancelBtn) cancelBtn.style.display = "inline-flex";
       modalBackdrop.classList.add("open");
@@ -104,16 +104,16 @@ function initWorkspaceCreationModal() {
       if (terminal) terminal.innerHTML = "";
       if (statusBadge) {
         statusBadge.className = "badge badge-creating";
-        statusBadge.textContent = "Deploying...";
+        statusBadge.textContent = "Kuruluyor...";
       }
 
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="pulse-dot" style="margin-right: 0.35rem;"></span> Deploying...';
+        submitBtn.innerHTML = '<span class="pulse-dot" style="margin-right: 0.35rem;"></span> Kuruluyor...';
       }
       if (cancelBtn) cancelBtn.style.display = "none";
 
-      appendLog(`Submitting request for '${name}' (${templateId}, ${flavorId})...`, "dim");
+      appendLog(`'${name}' için istek gönderiliyor (${templateId}, ${flavorId})...`, "dim");
 
       try {
         const response = await fetch("/api/workspaces/deploy-stream", {
@@ -129,14 +129,14 @@ function initWorkspaceCreationModal() {
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          appendLog(`Error (${response.status}): ${errData.detail || "Deployment request rejected"}`, "error");
+          appendLog(`Hata (${response.status}): ${errData.detail || "Kurulum isteği reddedildi"}`, "error");
           if (statusBadge) {
             statusBadge.className = "badge badge-error";
-            statusBadge.textContent = "Failed";
+            statusBadge.textContent = "Başarısız";
           }
           if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = "Retry Deployment";
+            submitBtn.innerHTML = "Kurulumu Yeniden Dene";
           }
           if (cancelBtn) cancelBtn.style.display = "inline-flex";
           return;
@@ -158,27 +158,26 @@ function initWorkspaceCreationModal() {
               appendLog(data.text || data.error, "error");
               if (statusBadge) {
                 statusBadge.className = "badge badge-error";
-                statusBadge.textContent = "Error";
+                statusBadge.textContent = "Hata";
               }
               if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = "Retry Deployment";
+                submitBtn.innerHTML = "Kurulumu Yeniden Dene";
               }
               if (cancelBtn) cancelBtn.style.display = "inline-flex";
             } else if (data.type === "done") {
               deploymentCompleted = true;
               if (statusBadge) {
                 statusBadge.className = "badge badge-running";
-                statusBadge.textContent = "Active";
+                statusBadge.textContent = "Aktif";
               }
-              appendLog("🎉 Container online & verified! Workspace is ready.", "success");
+              appendLog("Container çevrimiçi ve doğrulandı. Çalışma alanı hazır.", "success");
 
-              // Replace footer with Launch & Dashboard buttons
               if (modalFooter) {
                 modalFooter.innerHTML = `
-                  <button type="button" class="btn btn-secondary" onclick="window.location.reload();">Back to Dashboard</button>
+                  <button type="button" class="btn btn-secondary" onclick="window.location.reload();">Panele Dön</button>
                   <a href="${data.web_url}" target="_blank" class="btn btn-success" style="padding: 0.65rem 1.5rem; font-weight: 600;">
-                    <span>🚀</span> Launch IDE Now
+                    <span>↗</span> IDE'yi Şimdi Aç
                   </a>
                 `;
               }
@@ -211,21 +210,20 @@ function initWorkspaceCreationModal() {
           processLine(buffer);
         }
 
-        // Fallback if completed without explicit error
-        if (!deploymentCompleted && statusBadge && statusBadge.textContent !== "Error") {
+        if (!deploymentCompleted && statusBadge && statusBadge.textContent !== "Hata") {
           setTimeout(() => {
             window.location.reload();
           }, 1000);
         }
       } catch (err) {
-        appendLog(`Network connection error: ${err.message}`, "error");
+        appendLog(`Ağ bağlantısı hatası: ${err.message}`, "error");
         if (statusBadge) {
           statusBadge.className = "badge badge-error";
-          statusBadge.textContent = "Network Error";
+          statusBadge.textContent = "Ağ Hatası";
         }
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.innerHTML = "Retry Deployment";
+          submitBtn.innerHTML = "Kurulumu Yeniden Dene";
         }
         if (cancelBtn) cancelBtn.style.display = "inline-flex";
       }
@@ -242,7 +240,7 @@ function initActionButtons() {
       const workspaceId = btn.dataset.workspaceId;
 
       if (action === "delete") {
-        if (!confirm("Are you sure you want to permanently delete this workspace? The container and all persistent storage files will be erased.")) {
+        if (!confirm("Bu çalışma alanını kalıcı olarak silmek istediğinizden emin misiniz? Container ve kalıcı depolamadaki tüm dosyalar silinecektir.")) {
           return;
         }
       }
@@ -268,7 +266,7 @@ function initActionButtons() {
         const res = await fetch(url, { method: method });
         if (!res.ok) {
           const err = await res.json();
-          alert(err.detail || `Action ${action} failed.`);
+          alert(err.detail || `${action} işlemi başarısız.`);
           btn.disabled = false;
           btn.innerHTML = originalHtml;
           return;
@@ -283,7 +281,7 @@ function initActionButtons() {
         // Reload page to reflect state
         window.location.reload();
       } catch (err) {
-        alert("Action error: " + err.message);
+        alert("İşlem hatası: " + err.message);
         btn.disabled = false;
         btn.innerHTML = originalHtml;
       }
@@ -304,10 +302,10 @@ function initLogPolling() {
       const res = await fetch(`/api/workspaces/${workspaceId}/logs?tail=150`);
       if (res.ok) {
         const data = await res.json();
-        logTerminal.textContent = data.logs || "No logs yet.";
+        logTerminal.textContent = data.logs || "Henüz log yok.";
       }
     } catch (e) {
-      console.warn("Failed to fetch container logs:", e);
+      console.warn("Container logları alınamadı:", e);
     }
   }
 
@@ -329,13 +327,13 @@ function initQuotaForms() {
       const diskGbQuota = Number(form.elements.disk_gb_quota.value);
 
       if (![cpuQuota, memoryGbQuota, diskGbQuota].every(Number.isFinite)) {
-        status.textContent = "Enter valid numbers.";
+        status.textContent = "Geçerli sayılar girin.";
         status.className = "quota-form-status quota-status-error";
         return;
       }
 
       submitButton.disabled = true;
-      status.textContent = "Saving...";
+      status.textContent = "Kaydediliyor...";
       status.className = "quota-form-status";
       try {
         const response = await fetch(`/api/admin/users/${userId}/quota`, {
@@ -349,9 +347,9 @@ function initQuotaForms() {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(data.detail || `Quota update failed (${response.status})`);
+          throw new Error(data.detail || `Kota güncellenemedi (${response.status})`);
         }
-        status.textContent = "Saved";
+        status.textContent = "Kaydedildi";
         status.className = "quota-form-status quota-status-success";
         setTimeout(() => window.location.reload(), 650);
       } catch (error) {
@@ -375,12 +373,12 @@ function initDownloadUpdater() {
   let pollTimer = null;
 
   function badgeForState(state) {
-    if (state === "success") return ["badge badge-running", "Ready"];
-    if (state === "failed") return ["badge badge-error", "Failed"];
+    if (state === "success") return ["badge badge-running", "Hazır"];
+    if (state === "failed") return ["badge badge-error", "Başarısız"];
     if (state === "running" || state === "queued") {
-      return ["badge badge-creating", state === "queued" ? "Queued" : "Building"];
+      return ["badge badge-creating", state === "queued" ? "Sırada" : "Oluşturuluyor"];
     }
-    return ["badge badge-stopped", state === "disabled" ? "Disabled" : "Idle"];
+    return ["badge badge-stopped", state === "disabled" ? "Devre Dışı" : "Beklemede"];
   }
 
   function renderStatus(data) {
@@ -389,12 +387,12 @@ function initDownloadUpdater() {
     badge.className = badgeClass;
     badge.textContent = badgeText;
     message.textContent = data.enabled
-      ? (data.message || "Ready to build the current bundle.")
-      : "Updates are disabled. Enable DOWNLOADS_ENABLED and DOWNLOAD_UPDATES_ENABLED on the server.";
+      ? (data.message || "Güncel paket oluşturulmaya hazır.")
+      : "Güncellemeler devre dışı. Sunucuda DOWNLOADS_ENABLED ve DOWNLOAD_UPDATES_ENABLED ayarlarını etkinleştirin.";
 
     const active = data.state === "queued" || data.state === "running";
     button.disabled = !data.enabled || active;
-    button.textContent = active ? "Updating..." : "Update downloads";
+    button.textContent = active ? "Güncelleniyor..." : "İndirmeleri Güncelle";
 
     if (data.current) {
       currentLink.href = data.current.download_url;
@@ -407,7 +405,7 @@ function initDownloadUpdater() {
 
     const output = Array.isArray(data.logs) && data.logs.length
       ? data.logs.join("\n")
-      : "No update logs yet.";
+      : "Henüz güncelleme logu yok.";
     if (logs.textContent !== output) {
       logs.textContent = output;
       logs.scrollTop = logs.scrollHeight;
@@ -421,13 +419,13 @@ function initDownloadUpdater() {
       const response = await fetch("/api/admin/downloads/status", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || `Status request failed (${response.status})`);
+        throw new Error(data.detail || `Durum isteği başarısız (${response.status})`);
       }
       const active = renderStatus(data);
       pollTimer = setTimeout(refreshStatus, active ? 2000 : 10000);
     } catch (error) {
       badge.className = "badge badge-error";
-      badge.textContent = "Error";
+      badge.textContent = "Hata";
       message.textContent = error.message;
       button.disabled = true;
       pollTimer = setTimeout(refreshStatus, 10000);
@@ -436,26 +434,26 @@ function initDownloadUpdater() {
 
   button.addEventListener("click", async () => {
     const confirmed = confirm(
-      "Build and publish the current offline bundle? This rebuilds all five container images and may take several minutes."
+      "Güncel çevrim dışı paket oluşturulup yayımlansın mı? Bu işlem beş container image'ını yeniden oluşturur ve birkaç dakika sürebilir."
     );
     if (!confirmed) return;
 
     button.disabled = true;
-    button.textContent = "Queuing...";
+    button.textContent = "Sıraya alınıyor...";
     try {
       const response = await fetch("/api/admin/downloads/update", { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || `Update request failed (${response.status})`);
+        throw new Error(data.detail || `Güncelleme isteği başarısız (${response.status})`);
       }
       renderStatus(data);
       await refreshStatus();
     } catch (error) {
       badge.className = "badge badge-error";
-      badge.textContent = "Error";
+      badge.textContent = "Hata";
       message.textContent = error.message;
       button.disabled = false;
-      button.textContent = "Update downloads";
+      button.textContent = "İndirmeleri Güncelle";
     }
   });
 

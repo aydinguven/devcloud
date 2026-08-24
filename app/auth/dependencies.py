@@ -67,7 +67,7 @@ async def get_current_user(
     if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
+            detail="Giriş yapmanız gerekiyor",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return current_user
@@ -80,6 +80,6 @@ async def get_current_admin_user(
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator access required",
+            detail="Yönetici yetkisi gerekiyor",
         )
     return current_user

@@ -1,43 +1,43 @@
 {% extends "base.html" %}
 
-{% block title %}Create Account - {{ app_name }}{% endblock %}
+{% block title %}Hesap Oluştur - {{ app_name }}{% endblock %}
 
 {% block content %}
-<div style="max-width: 460px; margin: 3rem auto;">
-  <div class="card">
+<div class="auth-shell">
+  <div class="card auth-card">
     <div class="card-header" style="justify-content: center; flex-direction: column; text-align: center; gap: 0.5rem;">
-      <h1 class="card-title" style="font-size: 1.5rem;">Create Your Account</h1>
-      <p style="color: var(--text-muted); font-size: 0.875rem;">Includes {{ registration_cpu_quota|int }} CPU core, {{ registration_memory_gb_quota|int }} GB RAM, and {{ registration_disk_gb_quota|int }} GB disk</p>
+      <h1 class="card-title" style="font-size: 1.5rem;">Hesabınızı Oluşturun</h1>
+      <p style="color: var(--text-muted); font-size: 0.875rem;">{{ registration_cpu_quota|int }} CPU, {{ registration_memory_gb_quota|int }} GB RAM ve {{ registration_disk_gb_quota|int }} GB Disk kotası içerir</p>
     </div>
 
     <div id="register-error" style="display: none; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;"></div>
 
     <form id="register-form">
       <div class="form-group">
-        <label class="form-label" for="full_name">Full Name</label>
-        <input type="text" id="full_name" class="form-input" placeholder="e.g. John Doe">
+        <label class="form-label" for="full_name">Ad Soyad</label>
+        <input type="text" id="full_name" class="form-input" placeholder="örn. Aydın Yılmaz">
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="username">Username</label>
-        <input type="text" id="username" class="form-input" placeholder="e.g. jdoe" required minlength="3">
+        <label class="form-label" for="username">Kullanıcı Adı</label>
+        <input type="text" id="username" class="form-input" placeholder="örn. ayilmaz" required minlength="3">
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="email">Email Address</label>
-        <input type="email" id="email" class="form-input" placeholder="e.g. john@example.com" required>
+        <label class="form-label" for="email">E-posta Adresi</label>
+        <input type="email" id="email" class="form-input" placeholder="örn. ad.soyad@example.com" required>
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="password">Password (min 6 chars)</label>
+        <label class="form-label" for="password">Parola (en az 6 karakter)</label>
         <input type="password" id="password" class="form-input" placeholder="••••••••" required minlength="6">
       </div>
 
-      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Create Account</button>
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Hesap Oluştur</button>
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted);">
-      Already have an account? <a href="/login">Sign in</a>
+      Zaten hesabınız var mı? <a href="/login">Giriş yapın</a>
     </div>
   </div>
 </div>
@@ -64,15 +64,14 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
 
     if (!res.ok) {
       const data = await res.json();
-      errorBox.textContent = data.detail || "Registration failed.";
+      errorBox.textContent = data.detail || "Kayıt işlemi başarısız.";
       errorBox.style.display = "block";
       return;
     }
 
-    // Account created & cookie set
     window.location.href = "/";
   } catch (err) {
-    errorBox.textContent = "Network error: " + err.message;
+    errorBox.textContent = "Ağ hatası: " + err.message;
     errorBox.style.display = "block";
   }
 });

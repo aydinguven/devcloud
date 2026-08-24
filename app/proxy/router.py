@@ -31,18 +31,18 @@ async def get_authorized_workspace(
     workspace = res.scalar_one_or_none()
 
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
 
     if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required to access workspace.")
+        raise HTTPException(status_code=401, detail="Çalışma alanına erişmek için oturum açmalısınız.")
 
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Permission denied for this workspace.")
+        raise HTTPException(status_code=403, detail="Bu çalışma alanı için erişim reddedildi.")
 
     if require_running and workspace.status != WorkspaceStatus.RUNNING:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Workspace is not running (current status: {workspace.status}). Please start it first.",
+            detail=f"Çalışma alanı çalışmıyor (mevcut durum: {workspace.status}). Önce çalışma alanını başlatın.",
         )
 
     return workspace
@@ -57,40 +57,40 @@ def get_upstream_path(workspace_id: str, template_id: str, path: str) -> str:
 
 
 STARTING_PAGE_HTML = """<!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Starting __WORKSPACE_NAME__ - DevCloud</title>
+    <title>__WORKSPACE_NAME__ başlatılıyor - DevCloud</title>
     <style>
-        :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        :root { color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; color: #323a47; }
         * { box-sizing: border-box; }
-        body { min-height: 100vh; margin: 0; padding: 28px; background: radial-gradient(circle at top, #172554 0, #0f172a 42%, #020617 100%); color: #e2e8f0; }
+        body { min-height: 100vh; margin: 0; padding: 28px; background: #e6ecf5; color: #323a47; border-top: 5px solid #d50032; }
         .shell { width: min(940px, 100%); margin: 0 auto; }
         .header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-        .spinner { flex: 0 0 auto; width: 42px; height: 42px; border: 4px solid #334155; border-top-color: #38bdf8; border-radius: 50%; animation: spin 1s linear infinite; }
+        .spinner { flex: 0 0 auto; width: 42px; height: 42px; border: 4px solid #cfd7e5; border-top-color: #d50032; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         h1 { margin: 0 0 4px; font-size: clamp(1.3rem, 3vw, 1.8rem); }
-        .subtitle { margin: 0; color: #94a3b8; }
-        .panel { background: rgba(15, 23, 42, .92); border: 1px solid #334155; border-radius: 14px; box-shadow: 0 20px 50px rgba(0, 0, 0, .28); overflow: hidden; }
-        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: #334155; border-bottom: 1px solid #334155; }
-        .metric { min-height: 88px; padding: 16px; background: #111c31; }
-        .metric-label { display: block; margin-bottom: 9px; color: #64748b; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-        .metric-value { color: #f8fafc; font-size: .94rem; font-weight: 650; overflow-wrap: anywhere; }
+        .subtitle { margin: 0; color: #667085; }
+        .panel { background: #fff; border: 1px solid #cfd7e5; border-radius: 2px; box-shadow: 0 10px 30px rgba(50, 58, 71, .12); overflow: hidden; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: #cfd7e5; border-bottom: 1px solid #cfd7e5; }
+        .metric { min-height: 88px; padding: 16px; background: #f8fafc; }
+        .metric-label { display: block; margin-bottom: 9px; color: #667085; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+        .metric-value { color: #323a47; font-size: .94rem; font-weight: 650; overflow-wrap: anywhere; }
         .pill { display: inline-flex; align-items: center; gap: 7px; }
-        .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 12px currentColor; }
+        .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #a3953b; }
         .pill.ready::before { background: #22c55e; }
-        .pill.error::before { background: #ef4444; }
-        .log-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #1e293b; }
+        .pill.error::before { background: #d50032; }
+        .log-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #cfd7e5; }
         .log-head strong { font-size: .88rem; }
-        .log-head span { color: #64748b; font-size: .76rem; }
-        pre { min-height: 280px; max-height: 48vh; margin: 0; padding: 18px; overflow: auto; background: #020617; color: #cbd5e1; font: 12px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .log-head span { color: #667085; font-size: .76rem; }
+        pre { min-height: 280px; max-height: 48vh; margin: 0; padding: 18px; overflow: auto; background: #323a47; color: #f8fafc; font: 12px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
         .footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; }
-        .message { margin: 0; color: #94a3b8; font-size: .84rem; }
+        .message { margin: 0; color: #667085; font-size: .84rem; }
         .actions { display: flex; gap: 9px; flex-wrap: wrap; }
-        button, a { border: 1px solid #475569; border-radius: 8px; padding: 8px 12px; background: #1e293b; color: #e2e8f0; font: inherit; font-size: .82rem; text-decoration: none; cursor: pointer; }
-        button:hover, a:hover { border-color: #38bdf8; color: #fff; }
-        code { color: #7dd3fc; }
+        button, a { border: 1px solid #323a47; border-radius: 2px; padding: 8px 12px; background: #323a47; color: #fff; font: inherit; font-size: .82rem; text-decoration: none; cursor: pointer; }
+        button:hover, a:hover { border-color: #d50032; background: #d50032; color: #fff; }
+        code { color: #d50032; }
         @media (max-width: 620px) { body { padding: 18px 12px; } .footer { align-items: flex-start; flex-direction: column; } pre { min-height: 230px; } }
     </style>
 </head>
@@ -99,25 +99,25 @@ STARTING_PAGE_HTML = """<!DOCTYPE html>
     <div class="header">
         <div class="spinner" id="spinner"></div>
         <div>
-            <h1 id="headline">Initializing __WORKSPACE_NAME__...</h1>
-            <p class="subtitle">Waiting for the IDE service on host port <code>__HOST_PORT__</code>.</p>
+            <h1 id="headline">__WORKSPACE_NAME__ başlatılıyor...</h1>
+            <p class="subtitle">IDE servisinin <code>__HOST_PORT__</code> host portunda hazır olması bekleniyor.</p>
         </div>
     </div>
     <section class="panel" aria-live="polite">
         <div class="status-grid">
-            <div class="metric"><span class="metric-label">Workspace</span><span class="metric-value pill" id="workspace-status">running</span></div>
-            <div class="metric"><span class="metric-label">Container</span><span class="metric-value pill" id="container-status">checking</span></div>
-            <div class="metric"><span class="metric-label">IDE port</span><span class="metric-value pill" id="port-status">checking :__HOST_PORT__</span></div>
-            <div class="metric"><span class="metric-label">Elapsed</span><span class="metric-value" id="elapsed">0s</span></div>
-            <div class="metric"><span class="metric-label">Checks</span><span class="metric-value" id="attempts">0</span></div>
+            <div class="metric"><span class="metric-label">Çalışma Alanı</span><span class="metric-value pill" id="workspace-status">çalışıyor</span></div>
+            <div class="metric"><span class="metric-label">Container</span><span class="metric-value pill" id="container-status">kontrol ediliyor</span></div>
+            <div class="metric"><span class="metric-label">IDE Portu</span><span class="metric-value pill" id="port-status">kontrol ediliyor :__HOST_PORT__</span></div>
+            <div class="metric"><span class="metric-label">Geçen Süre</span><span class="metric-value" id="elapsed">0 sn</span></div>
+            <div class="metric"><span class="metric-label">Kontrol</span><span class="metric-value" id="attempts">0</span></div>
         </div>
-        <div class="log-head"><strong>Recent container output</strong><span>__TEMPLATE_ID__ · refreshes every 2 seconds</span></div>
-        <pre id="logs">Requesting container logs...</pre>
+        <div class="log-head"><strong>Son Container Çıktısı</strong><span>__TEMPLATE_ID__ · 2 saniyede bir yenilenir</span></div>
+        <pre id="logs">Container logları alınıyor...</pre>
         <div class="footer">
-            <p class="message" id="message">The page will open automatically when the IDE port accepts connections.</p>
+            <p class="message" id="message">IDE portu bağlantı kabul ettiğinde sayfa otomatik olarak açılacaktır.</p>
             <div class="actions">
-                <button type="button" id="retry">Retry now</button>
-                <a href="__DETAIL_URL__">Workspace details</a>
+                <button type="button" id="retry">Şimdi Yeniden Dene</button>
+                <a href="__DETAIL_URL__">Çalışma Alanı Ayrıntıları</a>
             </div>
         </div>
     </section>
@@ -142,9 +142,9 @@ STARTING_PAGE_HTML = """<!DOCTYPE html>
 
     const updateElapsed = () => {
         const seconds = Math.floor((Date.now() - startedAt) / 1000);
-        document.getElementById("elapsed").textContent = `${seconds}s`;
+        document.getElementById("elapsed").textContent = `${seconds} sn`;
         if (seconds >= 60 && !opening) {
-            message.textContent = "Startup is taking longer than expected. Check the latest container output below for the blocking step.";
+            message.textContent = "Başlatma beklenenden uzun sürüyor. Takılan adım için aşağıdaki son Container çıktısını inceleyin.";
         }
     };
 
@@ -153,28 +153,28 @@ STARTING_PAGE_HTML = """<!DOCTYPE html>
         document.getElementById("attempts").textContent = String(attempts);
         try {
             const response = await fetch(statusUrl, { credentials: "same-origin", cache: "no-store" });
-            if (!response.ok) throw new Error(`diagnostics returned HTTP ${response.status}`);
+            if (!response.ok) throw new Error(`tanılama HTTP ${response.status} döndürdü`);
             const data = await response.json();
             const containerReady = data.container_status === "running";
-            setPill("workspace-status", data.workspace_status, data.workspace_status === "running" ? "ready" : "error");
-            setPill("container-status", data.container_status, containerReady ? "ready" : "error");
-            setPill("port-status", data.port_ready ? `reachable :${data.host_port}` : `waiting :${data.host_port}`, data.port_ready ? "ready" : "");
-            logs.textContent = data.logs || "Container is running but has not emitted output yet.";
+            setPill("workspace-status", data.workspace_status === "running" ? "çalışıyor" : data.workspace_status, data.workspace_status === "running" ? "ready" : "error");
+            setPill("container-status", containerReady ? "çalışıyor" : data.container_status, containerReady ? "ready" : "error");
+            setPill("port-status", data.port_ready ? `erişilebilir :${data.host_port}` : `bekleniyor :${data.host_port}`, data.port_ready ? "ready" : "");
+            logs.textContent = data.logs || "Container çalışıyor ancak henüz çıktı üretmedi.";
             logs.scrollTop = logs.scrollHeight;
             if (data.error_message) {
-                message.textContent = `Workspace error: ${data.error_message}`;
+                message.textContent = `Çalışma alanı hatası: ${data.error_message}`;
             }
 
             if (data.port_ready && containerReady && !opening) {
                 opening = true;
-                headline.textContent = "IDE is ready";
-                message.textContent = "Connection established. Opening the workspace...";
+                headline.textContent = "IDE hazır";
+                message.textContent = "Bağlantı kuruldu. Çalışma alanı açılıyor...";
                 spinner.style.animationDuration = ".35s";
                 setTimeout(() => window.location.reload(), 650);
             }
         } catch (error) {
-            setPill("port-status", "diagnostics unavailable", "error");
-            message.textContent = `Could not refresh diagnostics: ${error.message}. Retrying automatically.`;
+            setPill("port-status", "tanılama kullanılamıyor", "error");
+            message.textContent = `Tanılama yenilenemedi: ${error.message}. Otomatik olarak yeniden deneniyor.`;
         }
     }
 
@@ -339,12 +339,12 @@ async def proxy_http_request(
 
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Could not connect to workspace container. It may still be starting up.",
+                    detail="Çalışma alanı Container servisine bağlanılamadı. Servis hâlâ başlatılıyor olabilir.",
                 )
         except Exception as e:
             await client.aclose()
             logger.error(f"Proxy error for workspace {workspace_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Proxy error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Proxy hatası: {str(e)}")
 
     # Build response streaming
     async def response_stream():

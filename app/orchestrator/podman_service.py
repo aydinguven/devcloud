@@ -119,7 +119,7 @@ class PodmanService:
                     return port
                 except OSError:
                     continue
-        raise RuntimeError("No available ports found in the configured range.")
+        raise RuntimeError("Yapılandırılan aralıkta kullanılabilir port bulunamadı.")
 
     async def find_available_port(self, db_used_ports: set[int]) -> int:
         """Find free port considering both database records and active Podman containers."""
@@ -138,8 +138,8 @@ class PodmanService:
         readme_file = workspace_dir / "README.md"
         if not readme_file.exists():
             readme_file.write_text(
-                f"# Workspace {workspace_id}\n\nWelcome to your cloud workspace!\n"
-                f"Files stored in this directory are persistent across container restarts.\n",
+                f"# Çalışma Alanı {workspace_id}\n\nBulut çalışma alanınıza hoş geldiniz.\n"
+                f"Bu dizindeki dosyalar Container yeniden başlatıldığında korunur.\n",
                 encoding="utf-8",
             )
         return str(workspace_dir.resolve())
@@ -157,25 +157,25 @@ class PodmanService:
         code, _, _ = await self.run_cmd("image", "exists", image_tag)
         if code == 0:
             if progress_callback:
-                await progress_callback(f"⚡ Verified image [{image_tag}] in local OCI store", "success")
+                await progress_callback(f"Image [{image_tag}] yerel OCI deposunda doğrulandı", "success")
             return True
 
         # Auto-build if Containerfile directory exists
         containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / template_id
         if containers_dir.exists() and (containers_dir / "Containerfile").exists():
             if progress_callback:
-                await progress_callback(f"🔨 Image [{image_tag}] not found. Auto-building from Containerfile (first run only)...", "info")
+                await progress_callback(f"Image [{image_tag}] bulunamadı. Containerfile üzerinden oluşturuluyor (yalnızca ilk çalıştırma)...", "info")
             logger.info(f"Image {image_tag} not found locally. Auto-building from {containers_dir}...")
             build_code, stdout, stderr = await self.run_cmd("build", "-t", image_tag, str(containers_dir))
             if build_code == 0:
                 logger.info(f"Successfully built image {image_tag}")
                 if progress_callback:
-                    await progress_callback(f"✅ Image [{image_tag}] built and cached successfully!", "success")
+                    await progress_callback(f"Image [{image_tag}] oluşturuldu ve cache'e alındı", "success")
                 return True
             else:
                 logger.error(f"Failed to auto-build {image_tag}: {stderr or stdout}")
                 if progress_callback:
-                    await progress_callback(f"⚠️ Build warning: {stderr or stdout}", "error")
+                    await progress_callback(f"Build uyarısı: {stderr or stdout}", "error")
         return False
 
     async def create_workspace_container(
@@ -198,11 +198,11 @@ class PodmanService:
 
         template = get_template(template_id)
         if not template:
-            raise ValueError(f"Unknown template: {template_id}")
+            raise ValueError(f"Bilinmeyen şablon: {template_id}")
 
         flavor = get_flavor(flavor_id)
         if not flavor:
-            raise ValueError(f"Unknown flavor: {flavor_id}")
+            raise ValueError(f"Bilinmeyen kaynak profili: {flavor_id}")
 
         storage_path = self.ensure_workspace_storage(user_id, workspace_id)
 
@@ -216,20 +216,20 @@ class PodmanService:
                 "host_port": host_port,
                 "storage_path": storage_path,
                 "logs": [
-                    f"[{container_name}] Initializing {template.name}...",
-                    f"[{container_name}] Persistent volume mounted at: {template.container_workdir}",
-                    f"[{container_name}] Allocated {flavor.cpus} CPU(s) and {flavor.memory_display} RAM",
-                    f"[{container_name}] Service listening on port {template.default_port}",
-                    f"[{container_name}] Workspace ready for connection.",
+                    f"[{container_name}] {template.name} başlatılıyor...",
+                    f"[{container_name}] Kalıcı volume bağlandı: {template.container_workdir}",
+                    f"[{container_name}] {flavor.cpus} CPU ve {flavor.memory_display} RAM ayrıldı",
+                    f"[{container_name}] Servis {template.default_port} portunu dinliyor",
+                    f"[{container_name}] Çalışma alanı bağlantıya hazır.",
                 ],
             }
             if progress_callback:
-                await progress_callback(f"⚡ Mock container ready on port {host_port}", "success")
+                await progress_callback(f"Mock Container {host_port} portunda hazır", "success")
             return container_id, storage_path
 
         # 1. Clean up any stale/dead container with the same name
         if progress_callback:
-            await progress_callback(f"🧹 Clearing prior instances of [{container_name}]...", "dim")
+            await progress_callback(f"[{container_name}] için önceki örnekler temizleniyor...", "dim")
         await self.run_cmd("rm", "-f", container_name)
 
         # 2. Check and ensure image exists or auto-build
@@ -237,7 +237,7 @@ class PodmanService:
 
         # 3. Podman run flags
         if progress_callback:
-            await progress_callback(f"🐳 Executing podman run with {flavor.cpus} CPU(s) & {flavor.memory_display} RAM...", "info")
+            await progress_callback(f"podman run çalıştırılıyor: {flavor.cpus} CPU ve {flavor.memory_display} RAM...", "info")
 
         cmd_args = [
             "run",
@@ -300,11 +300,11 @@ class PodmanService:
             code, stdout, stderr = 0, inspect_stdout, ""
             if progress_callback:
                 await progress_callback(
-                    "⚠️ Podman client response timed out; recovered the running container by name.",
+                    "Podman client yanıt süresi doldu; çalışan Container adıyla geri kazanıldı.",
                     "info",
                 )
         if code != 0:
-            raise PodmanExecutionError(f"Failed to start container: {stderr or stdout}")
+            raise PodmanExecutionError(f"Container başlatılamadı: {stderr or stdout}")
 
         container_id = stdout.strip()
         if not container_id:
@@ -313,13 +313,13 @@ class PodmanService:
             )
             if inspect_code != 0 or not inspect_stdout:
                 raise PodmanExecutionError(
-                    f"Container started without an ID: {inspect_stderr or 'inspect failed'}"
+                    f"Container ID olmadan başladı: {inspect_stderr or 'inspect başarısız'}"
                 )
             container_id = inspect_stdout.strip()
 
         # 4. Fast Readiness Health Check
         if progress_callback:
-            await progress_callback(f"⏳ Container started (ID: {container_id[:12]}). Verifying port {host_port} readiness...", "info")
+            await progress_callback(f"Container başladı (ID: {container_id[:12]}). {host_port} portu doğrulanıyor...", "info")
 
         start_time = time.monotonic()
         is_ready = False
@@ -334,13 +334,13 @@ class PodmanService:
                 is_ready = True
                 elapsed = time.monotonic() - start_time
                 if progress_callback:
-                    await progress_callback(f"⚡ Port {host_port} is UP and ACCEPTING connections (in {elapsed:.1f}s)!", "success")
+                    await progress_callback(f"Port {host_port} açık ve bağlantı kabul ediyor ({elapsed:.1f} sn)", "success")
                 break
             except Exception:
                 await asyncio.sleep(0.4)
 
         if not is_ready and progress_callback:
-            await progress_callback(f"ℹ️ Container is online; IDE server is finishing initialization on port {host_port}.", "info")
+            await progress_callback(f"Container çevrimiçi; IDE sunucusu {host_port} portunda başlatılmayı tamamlıyor.", "info")
 
         return container_id, storage_path
 
@@ -360,7 +360,7 @@ class PodmanService:
             if container_name in self._mock_containers:
                 self._mock_containers[container_name]["status"] = "running"
                 self._mock_containers[container_name]["logs"].append(
-                    f"[{container_name}] Container restarted."
+                    f"[{container_name}] Container yeniden başlatıldı."
                 )
             return True
 
@@ -376,7 +376,7 @@ class PodmanService:
             if container_name in self._mock_containers:
                 self._mock_containers[container_name]["status"] = "stopped"
                 self._mock_containers[container_name]["logs"].append(
-                    f"[{container_name}] Container stopped."
+                    f"[{container_name}] Container durduruldu."
                 )
             return True
 
@@ -418,14 +418,14 @@ class PodmanService:
         """Retrieve recent container stdout/stderr logs."""
         if self._mock_mode:
             logs = self._mock_containers.get(container_name, {}).get("logs", [])
-            return "\n".join(logs) or "No logs available."
+            return "\n".join(logs) or "Henüz log bulunmuyor."
 
         code, stdout, stderr = await self.run_cmd("logs", "--tail", str(tail), container_name)
         if code != 0:
             if "no container with name or ID" in stderr or "no such container" in stderr:
-                return f"Container '{container_name}' is not currently running or has not been spawned yet."
-            return f"Container logs ({container_name}): {stderr or stdout}"
-        return stdout or stderr or "Container is running. No output logged yet."
+                return f"Container '{container_name}' çalışmıyor veya henüz oluşturulmadı."
+            return f"Container logları ({container_name}): {stderr or stdout}"
+        return stdout or stderr or "Container çalışıyor. Henüz log çıktısı yok."
 
     async def load_offline_images(self, images_dir: Path | str) -> list[str]:
         """Load any .tar or .tar.gz image archives present in images_dir into Podman."""

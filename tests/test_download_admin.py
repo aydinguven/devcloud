@@ -67,5 +67,5 @@ async def test_download_update_controls_are_admin_only(
 
     page = await client.get("/admin", headers=admin_headers)
     assert page.status_code == 200
-    assert "Offline Downloads" in page.text
+    assert "Çevrim Dışı İndirmeler" in page.text
     assert 'id="btn-update-downloads"' in page.text

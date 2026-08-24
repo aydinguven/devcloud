@@ -112,7 +112,7 @@ class DownloadUpdateManager:
     def get_status(self) -> dict[str, Any]:
         status: dict[str, Any] = {
             "state": "idle",
-            "message": "No download update has been started.",
+            "message": "Henüz indirme güncellemesi başlatılmadı.",
             "logs": [],
         }
         if self.status_path.is_file():
@@ -125,11 +125,11 @@ class DownloadUpdateManager:
         if status.get("state") in {"queued", "running"} and self._remove_stale_lock():
             status["state"] = "failed"
             status["message"] = (
-                "The previous download update was interrupted. Start a new update."
+                "Önceki indirme güncellemesi kesildi. Yeni bir güncelleme başlatın."
             )
             status["finished_at"] = _utc_now()
             logs = status.setdefault("logs", [])
-            logs.append("ERROR: The update worker is no longer running.")
+            logs.append("HATA: Güncelleme worker işlemi artık çalışmıyor.")
             del logs[:-MAX_LOG_LINES]
             self._write_status(status)
         status["enabled"] = (
@@ -145,17 +145,17 @@ class DownloadUpdateManager:
     def start(self) -> dict[str, Any]:
         if not settings.DOWNLOADS_ENABLED or not settings.DOWNLOAD_UPDATES_ENABLED:
             raise DownloadUpdateDisabled(
-                "Download publishing is disabled. Set DOWNLOADS_ENABLED=True and "
-                "DOWNLOAD_UPDATES_ENABLED=True."
+                "İndirme yayını devre dışı. DOWNLOADS_ENABLED=True ve "
+                "DOWNLOAD_UPDATES_ENABLED=True olarak ayarlayın."
             )
         self._acquire_lock()
         try:
             status = {
                 "state": "queued",
-                "message": "Download bundle update queued.",
+                "message": "İndirme paketi güncellemesi sıraya alındı.",
                 "started_at": _utc_now(),
                 "finished_at": None,
-                "logs": ["Update accepted by the admin API."],
+                "logs": ["Güncelleme yönetim API tarafından kabul edildi."],
             }
             self._write_status(status)
             task = asyncio.create_task(self._run(status))
@@ -182,7 +182,7 @@ class DownloadUpdateManager:
                 if attempt == 0 and self._remove_stale_lock():
                     continue
                 raise DownloadUpdateInProgress(
-                    "Another download update is already running."
+                    "Başka bir indirme güncellemesi zaten çalışıyor."
                 )
 
     def _remove_stale_lock(self) -> bool:
@@ -235,7 +235,7 @@ class DownloadUpdateManager:
     async def _run(self, status: dict[str, Any]) -> None:
         try:
             status["state"] = "running"
-            status["message"] = "Preparing the current air-gap bundle..."
+            status["message"] = "Güncel çevrim dışı paket hazırlanıyor..."
             self._write_status(status)
             result = await self._build_and_publish(status)
             status.update(result)
@@ -261,10 +261,10 @@ class DownloadUpdateManager:
                     self._verify_pair, existing, existing.with_name(existing.name + ".sha256")
                 )
             except RuntimeError as exc:
-                self._append_log(status, f"Existing bundle is invalid; rebuilding: {exc}")
+                self._append_log(status, f"Mevcut paket geçersiz; yeniden oluşturuluyor: {exc}")
             else:
                 return {
-                    "message": f"The published bundle is already current at commit {commit[:12]}.",
+                    "message": f"Yayımlanan paket zaten {commit[:12]} commit sürümünde güncel.",
                     "published_filename": existing.name,
                 }
 
@@ -292,21 +292,21 @@ class DownloadUpdateManager:
             environment["TMPDIR"] = str(temp_dir)
             self._append_log(
                 status,
-                f"Building commit {commit[:12]} for CPython {target_python}.",
+                f"{commit[:12]} commit sürümü CPython {target_python} için oluşturuluyor.",
             )
             await self._run_process(command, status, environment)
 
             archives = list(output_dir.glob("devcloud-offline-*.tar.gz"))
             if len(archives) != 1:
                 raise RuntimeError(
-                    f"Expected one generated archive, found {len(archives)}."
+                    f"Bir arşiv bekleniyordu, {len(archives)} arşiv bulundu."
                 )
             archive = archives[0]
             checksum = archive.with_name(archive.name + ".sha256")
             await asyncio.to_thread(self._verify_pair, archive, checksum)
             await asyncio.to_thread(self._publish_pair, archive, checksum)
             return {
-                "message": f"Published {archive.name} successfully.",
+                "message": f"{archive.name} başarıyla yayımlandı.",
                 "published_filename": archive.name,
             }
 
@@ -322,11 +322,11 @@ class DownloadUpdateManager:
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             raise RuntimeError(
-                f"Could not identify the current Git commit: {stderr.decode().strip()}"
+                f"Güncel Git commit belirlenemedi: {stderr.decode().strip()}"
             )
         commit = stdout.decode("ascii").strip().lower()
         if len(commit) != 40 or any(character not in "0123456789abcdef" for character in commit):
-            raise RuntimeError("Git returned an invalid source commit.")
+            raise RuntimeError("Git geçersiz bir kaynak commit döndürdü.")
         return commit
 
     async def _run_process(
@@ -352,7 +352,7 @@ class DownloadUpdateManager:
             self._append_log(status, line.decode("utf-8", errors="replace"))
         return_code = await process.wait()
         if return_code != 0:
-            raise RuntimeError(f"Offline packager exited with code {return_code}.")
+            raise RuntimeError(f"Çevrim dışı paketleyici {return_code} koduyla kapandı.")
 
     def _verify_pair(
         self,
@@ -366,18 +366,18 @@ class DownloadUpdateManager:
             or archive.is_symlink()
             or checksum.is_symlink()
         ):
-            raise RuntimeError("Generated archive or checksum is missing.")
+            raise RuntimeError("Oluşturulan arşiv veya checksum dosyası eksik.")
         fields = checksum.read_text(encoding="ascii").strip().split("  ", maxsplit=1)
         if len(fields) != 2 or fields[1] != (expected_filename or archive.name):
-            raise RuntimeError("Generated checksum file has an invalid format.")
+            raise RuntimeError("Oluşturulan checksum dosyasının formatı geçersiz.")
         if _sha256_file(archive) != fields[0].lower():
-            raise RuntimeError("Generated archive checksum verification failed.")
+            raise RuntimeError("Oluşturulan arşivin checksum doğrulaması başarısız.")
 
     def _publish_pair(self, archive: Path, checksum: Path) -> None:
         root = self.download_root
         if root == Path(root.anchor) or root == self.project_root:
             raise RuntimeError(
-                "DOWNLOADS_ROOT must not be the filesystem root or project root."
+                "DOWNLOADS_ROOT dosya sistemi kökü veya proje kökü olamaz."
             )
         root.mkdir(parents=True, exist_ok=True)
         temporary_archive = root / f".{archive.name}.{uuid.uuid4().hex}.uploading"

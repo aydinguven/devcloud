@@ -49,9 +49,9 @@ def test_quota_violations_reports_cpu_ram_and_full_disk(tmp_path, monkeypatch):
 
     violations = quota_violations(user, workspaces, get_flavor("t1.nano"))
 
-    assert any("CPU would be 1.0/0.5 cores" in item for item in violations)
-    assert any("RAM would be 1024/512 MB" in item for item in violations)
-    assert any("disk usage" in item for item in violations)
+    assert any("CPU 1.0/0.5 olacak" in item for item in violations)
+    assert any("RAM 1024/512 MB olacak" in item for item in violations)
+    assert any("Disk kullanımı" in item for item in violations)
 
 
 def test_system_usage_exposes_cpu_memory_and_disk_metrics():

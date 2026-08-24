@@ -26,7 +26,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.nano": Flavor(
         id="t1.nano",
         name="t1.nano",
-        description="Ideal for light scripts, small configs, or low-memory tasks",
+        description="Hafif script, küçük yapılandırma ve düşük RAM gerektiren işler için",
         cpus=0.5,
         memory_mb=512,
         memory_display="512 MB",
@@ -34,7 +34,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.micro": Flavor(
         id="t1.micro",
         name="t1.micro",
-        description="Standard single-threaded dev environment for Python / basic apps",
+        description="Python ve temel uygulamalar için standart tek thread geliştirme ortamı",
         cpus=1.0,
         memory_mb=1024,
         memory_display="1 GB",
@@ -42,7 +42,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.mini": Flavor(
         id="t1.mini",
         name="t1.mini",
-        description="Double compute power for Java builds, notebooks, and multi-threaded tools",
+        description="Java build, notebook ve çok thread kullanan araçlar için iki kat işlem gücü",
         cpus=2.0,
         memory_mb=2048,
         memory_display="2 GB",

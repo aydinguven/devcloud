@@ -56,7 +56,7 @@ async def register_user(
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username is already taken.",
+            detail="Bu kullanıcı adı zaten kullanılıyor.",
         )
 
     # Check if email exists
@@ -65,7 +65,7 @@ async def register_user(
     if existing_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email address is already registered.",
+            detail="Bu e-posta adresi zaten kayıtlı.",
         )
 
     user = await auth_provider.create_user(user_in, db)
@@ -90,7 +90,7 @@ async def login_user(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
+            detail="Kullanıcı adı veya parola hatalı.",
         )
 
     token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
@@ -104,7 +104,7 @@ async def login_user(
 async def logout_user(response: Response):
     """Log out user by clearing the session cookie."""
     clear_session_cookie(response)
-    return {"message": "Logged out successfully."}
+    return {"message": "Çıkış yapıldı."}
 
 
 @auth_router.get("/me", response_model=UserOut)
@@ -124,7 +124,7 @@ async def update_profile(
     if update_data.email:
         stmt = select(User).where(User.email == update_data.email.lower(), User.id != current_user.id)
         if (await db.execute(stmt)).scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Email is already used by another account.")
+            raise HTTPException(status_code=400, detail="E-posta adresi başka bir hesap tarafından kullanılıyor.")
         current_user.email = update_data.email.lower()
 
     if update_data.full_name is not None:
