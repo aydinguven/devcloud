@@ -11,14 +11,21 @@
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <nav class="navbar" aria-label="Ana menü">
-    <a href="/" class="navbar-brand">
-      <span class="logo-icon" aria-hidden="true">DC</span>
-      <span class="brand-copy">
-        <span class="brand-name">DevCloud</span>
-        <span class="brand-subtitle">Kurum İçi Geliştirme Platformu</span>
+    <div class="navbar-brand-group">
+      <a href="/" class="navbar-brand">
+        <span class="logo-icon" aria-hidden="true">DC</span>
+        <span class="brand-copy">
+          <span class="brand-name">DevCloud</span>
+          <span class="brand-subtitle">Kurum İçi Geliştirme Platformu</span>
+        </span>
+      </a>
+      <span class="brand-meta">
+        <span class="version-chip" title="Uygulama sürümü">v{{ app_version }}</span>
+        <a class="repository-link" href="https://git.aydin.cloud/aydin/devcloud" target="_blank" rel="noopener noreferrer" title="DevCloud Git deposunu aç">
+          Git Deposu <span aria-hidden="true">↗</span>
+        </a>
       </span>
-      <span class="version-chip" title="Uygulama sürümü">v{{ app_version }}</span>
-    </a>
+    </div>
     <div class="nav-links">
       {% if user %}
         <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Çalışma Alanları</a>

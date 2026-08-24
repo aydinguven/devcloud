@@ -79,6 +79,10 @@ a:hover { color: var(--primary); }
   top: 4px;
 }
 
+.navbar-brand-group {
+  align-items: center;
+  display: flex;
+}
 .navbar-brand {
   align-items: center;
   color: var(--heading);
@@ -128,7 +132,9 @@ a:hover { color: var(--primary); }
   margin-top: 0.22rem;
   text-transform: uppercase;
 }
-.version-chip {
+.brand-meta { align-items: center; display: inline-flex; gap: 0.35rem; margin-left: 0.25rem; }
+.version-chip,
+.repository-link {
   background: var(--pale-blue);
   border: 1px solid #d4deeb;
   border-radius: 999px;
@@ -136,8 +142,22 @@ a:hover { color: var(--primary); }
   font-family: var(--font-mono);
   font-size: 0.62rem;
   font-weight: 700;
-  margin-left: 0.25rem;
   padding: 0.2rem 0.48rem;
+}
+.repository-link {
+  align-items: center;
+  background: #fff;
+  color: #536176;
+  display: inline-flex;
+  font-family: var(--font-sans);
+  gap: 0.2rem;
+  text-decoration: none;
+}
+.repository-link:hover {
+  background: var(--primary-soft);
+  border-color: #efb2c0;
+  color: var(--primary);
+  text-decoration: none;
 }
 
 .nav-links { gap: 0.2rem; }
