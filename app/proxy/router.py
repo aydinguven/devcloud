@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,7 +143,7 @@ async def proxy_http_request(
 
     response_headers = dict(resp.headers)
     # Remove hop-by-hop headers
-    for h in ["content-encoding", "transfer-encoding", "content-length"]:
+    for h in ["transfer-encoding", "content-length"]:
         response_headers.pop(h, None)
 
     return StreamingResponse(
