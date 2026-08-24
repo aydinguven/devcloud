@@ -1,0 +1,23 @@
+# VS Code (Empty Project)
+FROM docker.io/codercom/code-server:latest
+
+USER root
+
+# Install essential CLI tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    build-essential \
+    unzip \
+    htop \
+    tree \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+USER coder
+WORKDIR /home/coder/project
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "/home/coder/project"]

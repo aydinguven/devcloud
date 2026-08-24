@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">System Administration</h1>
+  <p style="color: var(--text-muted); font-size: 0.9rem;">Overview of all users, workspaces, and host container resources</p>
+</div>
+
+<!-- Stats row -->
+<div class="grid grid-cols-3" style="margin-bottom: 2rem;">
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Total Users</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: #fff; margin-top: 0.25rem;">{{ all_users|length }}</div>
+  </div>
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Total Workspaces</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{{ all_workspaces|length }}</div>
+  </div>
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Active Containers</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: #10b981; margin-top: 0.25rem;">
+      {{ all_workspaces|selectattr('status.value', 'equalto', 'running')|list|length }}
+    </div>
+  </div>
+</div>
+
+<!-- All Users -->
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h2 class="card-title">Registered Users</h2>
+  </div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Username</th>
+        <th>Full Name</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Source</th>
+        <th>Active</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in all_users %}
+        <tr>
+          <td>{{ u.id }}</td>
+          <td style="font-weight: 600; color: #fff;">{{ u.username }}</td>
+          <td>{{ u.full_name or '-' }}</td>
+          <td>{{ u.email }}</td>
+          <td>
+            <span class="badge" style="background: {% if u.role.value == 'admin' %}rgba(245, 158, 11, 0.2); color: #f59e0b;{% else %}rgba(59, 130, 246, 0.2); color: #3b82f6;{% endif %}">
+              {{ u.role.value }}
+            </span>
+          </td>
+          <td>{{ u.auth_source }}</td>
+          <td>{% if u.is_active %}<span style="color: #10b981;">✓</span>{% else %}<span style="color: #ef4444;">✗</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- All Workspaces -->
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">All Containers & Workspaces</h2>
+  </div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Owner ID</th>
+        <th>Template</th>
+        <th>Flavor</th>
+        <th>Host Port</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ws in all_workspaces %}
+        <tr>
+          <td style="font-weight: 600; color: #fff;">{{ ws.name }}</td>
+          <td>User #{{ ws.user_id }}</td>
+          <td>{{ ws.template_id }}</td>
+          <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
+          <td><code>{{ ws.host_port }}</code></td>
+          <td><span class="badge badge-{{ ws.status.value }}">{{ ws.status.value }}</span></td>
+          <td>
+            <div style="display: flex; gap: 0.5rem;">
+              <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">View</a>
+              <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Delete</button>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

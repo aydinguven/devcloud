@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}User Profile - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 2rem auto;">
+  <div class="card">
+    <div class="card-header">
+      <h1 class="card-title">Profile Settings</h1>
+    </div>
+
+    <div id="profile-success" style="display: none; background: var(--success-bg); color: var(--success); border: 1px solid var(--success); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;">
+      Profile updated successfully!
+    </div>
+    <div id="profile-error" style="display: none; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;"></div>
+
+    <form id="profile-form">
+      <div class="form-group">
+        <label class="form-label" for="profile-username">Username</label>
+        <input type="text" id="profile-username" class="form-input" value="{{ user.username }}" disabled style="opacity: 0.6; cursor: not-allowed;">
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Username cannot be changed.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="profile-fullname">Full Name</label>
+        <input type="text" id="profile-fullname" class="form-input" value="{{ user.full_name or '' }}" placeholder="Your name">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="profile-email">Email Address</label>
+        <input type="email" id="profile-email" class="form-input" value="{{ user.email }}" required>
+      </div>
+
+      <div class="form-group" style="padding-top: 1rem; border-top: 1px solid var(--border-color);">
+        <label class="form-label" for="profile-newpassword">Change Password</label>
+        <input type="password" id="profile-newpassword" class="form-input" placeholder="Leave blank to keep current password" minlength="6">
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Changes</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("profile-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const full_name = document.getElementById("profile-fullname").value.trim();
+  const email = document.getElementById("profile-email").value.trim();
+  const newPassword = document.getElementById("profile-newpassword").value;
+  const successBox = document.getElementById("profile-success");
+  const errorBox = document.getElementById("profile-error");
+
+  successBox.style.display = "none";
+  errorBox.style.display = "none";
+
+  const payload = { full_name, email };
+  if (newPassword && newPassword.length >= 6) {
+    payload.password = newPassword;
+  }
+
+  try {
+    const res = await fetch("/api/auth/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      errorBox.textContent = data.detail || "Failed to update profile.";
+      errorBox.style.display = "block";
+      return;
+    }
+
+    successBox.style.display = "block";
+    document.getElementById("profile-newpassword").value = "";
+  } catch (err) {
+    errorBox.textContent = "Error: " + err.message;
+    errorBox.style.display = "block";
+  }
+});
+</script>
+{% endblock %}

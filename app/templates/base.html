@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">
+      <span class="logo-icon">⚡</span>
+      <span>DevCloud</span>
+    </a>
+    <div class="nav-links">
+      {% if user %}
+        <a href="/" class="nav-link">Workspaces</a>
+        {% if user.role == "admin" %}
+          <a href="/admin" class="nav-link" style="color: #f59e0b;">Admin</a>
+        {% endif %}
+        <a href="/profile" class="nav-link">{{ user.full_name or user.username }}</a>
+        <button id="btn-logout" class="btn btn-secondary btn-sm" style="margin-left: 0.5rem;">Log out</button>
+      {% else %}
+        <a href="/login" class="nav-link">Login</a>
+        <a href="/register" class="btn btn-primary btn-sm">Sign Up</a>
+      {% endif %}
+    </div>
+  </nav>
+
+  <!-- Main Content Container -->
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    // Global Logout Handler
+    const logoutBtn = document.getElementById("btn-logout");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        await fetch("/api/auth/logout", { method: "POST" });
+        window.location.href = "/login";
+      });
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

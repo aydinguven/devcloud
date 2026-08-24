@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}{{ workspace.name }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+  <a href="/" style="color: var(--text-muted); font-size: 0.875rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-bottom: 0.75rem;">
+    &larr; Back to Workspaces
+  </a>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.75rem;">
+        <span>{{ workspace.name }}</span>
+        <span class="badge badge-{{ workspace.status.value }}">{{ workspace.status.value }}</span>
+      </h1>
+      <p style="color: var(--text-muted); font-size: 0.875rem;">{{ workspace.description or "No description" }}</p>
+    </div>
+
+    <!-- Action Toolbar -->
+    <div style="display: flex; gap: 0.75rem;">
+      {% if workspace.status.value == 'running' %}
+        <a href="{{ workspace.web_url }}" target="_blank" class="btn btn-success">
+          <span>🚀</span> Open IDE in New Tab
+        </a>
+        <button class="btn btn-secondary" data-action="stop" data-workspace-id="{{ workspace.id }}">
+          Stop Container
+        </button>
+      {% elif workspace.status.value == 'stopped' or workspace.status.value == 'error' %}
+        <button class="btn btn-primary" data-action="start" data-workspace-id="{{ workspace.id }}">
+          ▶ Start Container
+        </button>
+      {% endif %}
+      <button class="btn btn-danger" data-action="delete" data-workspace-id="{{ workspace.id }}">
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-3" style="margin-bottom: 1.5rem;">
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Environment Template</div>
+    <div style="font-size: 1.1rem; font-weight: 600; color: #fff; margin-top: 0.25rem;">{{ workspace.template_id }}</div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Internal Port: {{ workspace.container_port }}</div>
+  </div>
+
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Resource Flavor</div>
+    <div style="font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-top: 0.25rem;">{{ workspace.flavor_id }}</div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Host Bound Port: {{ workspace.host_port }}</div>
+  </div>
+
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Storage Path</div>
+    <div style="font-size: 0.8rem; font-family: var(--font-mono); color: #fff; margin-top: 0.35rem; word-break: break-all;">
+      {{ workspace.storage_path }}
+    </div>
+    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Persistent Host Mount</div>
+  </div>
+</div>
+
+{% if workspace.error_message %}
+  <div style="background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 1rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.5rem;">
+    <strong>Container Error:</strong> {{ workspace.error_message }}
+  </div>
+{% endif %}
+
+<!-- Container Logs -->
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title" style="font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+      <span>📟</span> Container Logs
+    </h2>
+    <span style="font-size: 0.75rem; color: var(--text-muted);">Polling every 3s</span>
+  </div>
+  <div id="workspace-logs-output" class="terminal-window" data-workspace-id="{{ workspace.id }}">Connecting to container logs...</div>
+</div>
+{% endblock %}

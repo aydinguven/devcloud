@@ -1,0 +1,30 @@
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Runtime Data & Storage
+data/devcloud.db
+data/workspaces/*
+!data/workspaces/.gitkeep
+data/test_*
+
+# Secrets & Environment
+.env
+
+# Offline Bundles & Large Image Tarballs
+offline/wheels/*.whl
+offline/images/*.tar
+offline/images/*.tar.gz
+*.tar.gz
+
+# OS specific
+.DS_Store
+Thumbs.db

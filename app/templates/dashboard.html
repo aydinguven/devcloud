@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Workspaces - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+  <div>
+    <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">My Workspaces</h1>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Manage and launch your isolated containerized development environments</p>
+  </div>
+  <button id="btn-open-create-modal" class="btn btn-primary" style="padding: 0.7rem 1.25rem; font-weight: 600;">
+    <span>+</span>
+    <span>New Workspace</span>
+  </button>
+</div>
+
+<!-- Workspaces Grid -->
+{% if workspaces %}
+  <div class="grid grid-cols-2">
+    {% for ws in workspaces %}
+      <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+            <div>
+              <h2 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 0.25rem;">
+                <a href="/workspaces/{{ ws.id }}" style="color: #fff; text-decoration: none;">{{ ws.name }}</a>
+              </h2>
+              <p style="font-size: 0.825rem; color: var(--text-muted);">{{ ws.description or "No description provided." }}</p>
+            </div>
+            <span class="badge badge-{{ ws.status.value }}">
+              {{ ws.status.value }}
+            </span>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; font-size: 0.8rem;">
+            <span class="badge badge-flavor">Flavor: {{ ws.flavor_id }}</span>
+            <span class="badge" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3);">
+              {{ ws.template_id }}
+            </span>
+            <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid var(--border-color);">
+              Port: {{ ws.host_port }}
+            </span>
+          </div>
+
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-input); padding: 0.4rem 0.6rem; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            📂 {{ ws.storage_path }}
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+          <div style="display: flex; gap: 0.5rem;">
+            {% if ws.status.value == 'running' %}
+              <a href="{{ ws.web_url }}" target="_blank" class="btn btn-success btn-sm">
+                <span>🚀</span> Launch IDE
+              </a>
+              <button class="btn btn-secondary btn-sm" data-action="stop" data-workspace-id="{{ ws.id }}">
+                Stop
+              </button>
+            {% elif ws.status.value == 'stopped' or ws.status.value == 'error' %}
+              <button class="btn btn-primary btn-sm" data-action="start" data-workspace-id="{{ ws.id }}">
+                ▶ Start
+              </button>
+            {% endif %}
+            <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">
+              Details & Logs
+            </a>
+          </div>
+
+          <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}" title="Delete Workspace">
+            🗑
+          </button>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card" style="text-align: center; padding: 3.5rem 1.5rem;">
+    <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+    <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff;">No Workspaces Created Yet</h2>
+    <p style="color: var(--text-muted); max-width: 450px; margin: 0 auto 1.5rem auto; font-size: 0.9rem;">
+      Create your first cloud workspace with your preferred IDE, language runtime, and resource allocation.
+    </p>
+    <button onclick="document.getElementById('btn-open-create-modal').click();" class="btn btn-primary">
+      Create Workspace
+    </button>
+  </div>
+{% endif %}
+
+<!-- Create Workspace Modal -->
+<div id="create-modal" class="modal-backdrop">
+  <div class="modal">
+    <div class="card-header" style="margin-bottom: 1.5rem;">
+      <h2 class="card-title">Create Cloud Workspace</h2>
+      <button id="btn-close-create-modal" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+
+    <form id="create-workspace-form">
+      <input type="hidden" id="input-template-id" value="{{ templates[0].id }}">
+      <input type="hidden" id="input-flavor-id" value="{{ flavors[1].id }}">
+
+      <!-- 1. Workspace Info -->
+      <div class="form-group">
+        <label class="form-label" for="input-workspace-name">Workspace Name</label>
+        <input type="text" id="input-workspace-name" class="form-input" placeholder="e.g. data-analysis or my-fastapi-app" required minlength="2">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="input-workspace-desc">Description (Optional)</label>
+        <input type="text" id="input-workspace-desc" class="form-input" placeholder="e.g. Machine learning experiments">
+      </div>
+
+      <!-- 2. Choose Template -->
+      <div class="form-group">
+        <label class="form-label">Select Development Environment Template</label>
+        <div class="grid grid-cols-2" style="gap: 0.75rem;">
+          {% for tpl in templates %}
+            <div class="selectable-card template-card {% if loop.first %}selected{% endif %}" data-template-id="{{ tpl.id }}">
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <span style="font-size: 1.25rem;">
+                  {% if 'python' in tpl.id %}🐍{% elif 'java' in tpl.id %}☕{% elif 'jupyter' in tpl.id %}🪐{% else %}💻{% endif %}
+                </span>
+                <span style="font-weight: 600; font-size: 0.9rem; color: #fff;">{{ tpl.name }}</span>
+              </div>
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">{{ tpl.description }}</p>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+                {% for feat in tpl.features[:2] %}
+                  <span style="font-size: 0.68rem; background: rgba(255,255,255,0.06); padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--text-muted);">
+                    {{ feat }}
+                  </span>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 3. Choose Flavor -->
+      <div class="form-group">
+        <label class="form-label">Select Resource Flavor</label>
+        <div class="grid grid-cols-3" style="gap: 0.75rem;">
+          {% for flav in flavors %}
+            <div class="selectable-card flavor-card {% if flav.id == 't1.micro' %}selected{% endif %}" data-flavor-id="{{ flav.id }}">
+              <div style="font-weight: 700; font-size: 0.95rem; color: #38bdf8; margin-bottom: 0.2rem;">{{ flav.name }}</div>
+              <div style="font-size: 0.8rem; font-weight: 600; color: #fff;">{{ flav.cpus }} CPU • {{ flav.memory_display }}</div>
+              <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem;">{{ flav.description }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Deploy Workspace</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
