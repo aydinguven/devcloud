@@ -23,7 +23,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
-- **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core and 1 GB RAM; admins can adjust individual quotas.
+- **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
 
 ---

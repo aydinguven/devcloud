@@ -25,13 +25,13 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert login_resp.status_code == 200
     assert "Welcome to DevCloud" in login_resp.text
     assert "Create New Account" in login_resp.text
-    assert "1 CPU core and 1 GB RAM" in login_resp.text
+    assert "1 CPU core, 1 GB RAM, and 10 GB disk" in login_resp.text
 
     # 2. Register page
     reg_resp = await client.get("/register")
     assert reg_resp.status_code == 200
     assert "Create Your Account" in reg_resp.text
-    assert "1 CPU core and 1 GB RAM" in reg_resp.text
+    assert "1 CPU core, 1 GB RAM, and 10 GB disk" in reg_resp.text
 
     # 3. Root redirect to /login for unauthenticated users
     root_resp = await client.get("/", follow_redirects=False)

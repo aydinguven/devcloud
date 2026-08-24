@@ -7,7 +7,7 @@
   <div class="card">
     <div class="card-header" style="justify-content: center; flex-direction: column; text-align: center; gap: 0.5rem;">
       <h1 class="card-title" style="font-size: 1.5rem;">Create Your Account</h1>
-      <p style="color: var(--text-muted); font-size: 0.875rem;">Includes {{ registration_cpu_quota|int }} CPU core and {{ registration_memory_gb_quota|int }} GB RAM</p>
+      <p style="color: var(--text-muted); font-size: 0.875rem;">Includes {{ registration_cpu_quota|int }} CPU core, {{ registration_memory_gb_quota|int }} GB RAM, and {{ registration_disk_gb_quota|int }} GB disk</p>
     </div>
 
     <div id="register-error" style="display: none; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;"></div>

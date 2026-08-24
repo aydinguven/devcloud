@@ -40,6 +40,7 @@ async def login_page(
             "user": None,
             "registration_cpu_quota": settings.DEFAULT_USER_CPU_QUOTA,
             "registration_memory_gb_quota": settings.DEFAULT_USER_MEMORY_MB_QUOTA / 1024,
+            "registration_disk_gb_quota": settings.DEFAULT_USER_DISK_MB_QUOTA / 1024,
         },
     )
 
@@ -60,6 +61,7 @@ async def register_page(
             "user": None,
             "registration_cpu_quota": settings.DEFAULT_USER_CPU_QUOTA,
             "registration_memory_gb_quota": settings.DEFAULT_USER_MEMORY_MB_QUOTA / 1024,
+            "registration_disk_gb_quota": settings.DEFAULT_USER_DISK_MB_QUOTA / 1024,
         },
     )
 
