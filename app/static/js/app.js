@@ -235,7 +235,7 @@ function initActionButtons() {
       const workspaceId = btn.dataset.workspaceId;
 
       if (action === "delete") {
-        if (!confirm("Are you sure you want to delete this workspace? Container will be stopped and removed.")) {
+        if (!confirm("Are you sure you want to permanently delete this workspace? The container and all persistent storage files will be erased.")) {
           return;
         }
       }

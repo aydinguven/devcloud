@@ -288,7 +288,7 @@ async def start_workspace_endpoint(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Start a stopped workspace container."""
+    """Resume / Start a stopped workspace container."""
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     result = await db.execute(stmt)
     workspace = result.scalar_one_or_none()
@@ -299,7 +299,9 @@ async def start_workspace_endpoint(
         raise HTTPException(status_code=403, detail="Access denied.")
 
     if workspace.status == WorkspaceStatus.RUNNING:
-        return WorkspaceOut.model_validate(workspace)
+        ws_out = WorkspaceOut.model_validate(workspace)
+        ws_out.web_url = f"/proxy/{workspace.id}/"
+        return ws_out
 
     success = await podman_service.start_container(workspace.container_name)
     if success:
@@ -313,7 +315,9 @@ async def start_workspace_endpoint(
     db.add(workspace)
     await db.commit()
     await db.refresh(workspace)
-    return WorkspaceOut.model_validate(workspace)
+    ws_out = WorkspaceOut.model_validate(workspace)
+    ws_out.web_url = f"/proxy/{workspace.id}/"
+    return ws_out
 
 
 @workspace_router.post("/{workspace_id}/stop", response_model=WorkspaceOut)
@@ -322,7 +326,7 @@ async def stop_workspace_endpoint(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Stop a running workspace container."""
+    """Pause / Stop a running workspace container (preserves all data to resume later)."""
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     result = await db.execute(stmt)
     workspace = result.scalar_one_or_none()
@@ -339,7 +343,9 @@ async def stop_workspace_endpoint(
     db.add(workspace)
     await db.commit()
     await db.refresh(workspace)
-    return WorkspaceOut.model_validate(workspace)
+    ws_out = WorkspaceOut.model_validate(workspace)
+    ws_out.web_url = f"/proxy/{workspace.id}/"
+    return ws_out
 
 
 @workspace_router.delete("/{workspace_id}")
@@ -348,7 +354,10 @@ async def delete_workspace_endpoint(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Delete a workspace container and mark workspace as removed."""
+    """Delete a workspace container, remove its persistent storage, and delete from DB."""
+    import os
+    import shutil
+
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     result = await db.execute(stmt)
     workspace = result.scalar_one_or_none()
@@ -358,11 +367,21 @@ async def delete_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
 
+    # 1. Stop and remove container in Podman
     await podman_service.delete_container(workspace.container_name)
-    
+
+    # 2. Permanently remove persistent storage directory on disk
+    if workspace.storage_path and os.path.exists(workspace.storage_path):
+        try:
+            shutil.rmtree(workspace.storage_path, ignore_errors=True)
+            logger.info(f"Deleted persistent storage folder at: {workspace.storage_path}")
+        except Exception as err:
+            logger.warning(f"Error removing storage folder {workspace.storage_path}: {err}")
+
+    # 3. Remove record from database
     await db.delete(workspace)
     await db.commit()
-    return {"message": f"Workspace {workspace_id} deleted successfully."}
+    return {"message": f"Workspace {workspace_id} and its persistent storage were deleted successfully."}
 
 
 @workspace_router.get("/{workspace_id}/logs")
