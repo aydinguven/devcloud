@@ -306,12 +306,15 @@ class PodmanService:
         return True
 
     async def delete_container(self, container_name: str) -> bool:
-        """Remove a container permanently."""
+        """Remove a container (and any associated pod) permanently."""
         if self._mock_mode:
             self._mock_containers.pop(container_name, None)
             return True
 
+        # Force remove container
         code, stdout, stderr = await self.run_cmd("rm", "-f", container_name)
+        # Also clean up any pod named container_name if present
+        await self.run_cmd("pod", "rm", "-f", container_name)
         if code != 0:
             logger.warning(f"Failed or already removed container {container_name}: {stderr}")
             return False
