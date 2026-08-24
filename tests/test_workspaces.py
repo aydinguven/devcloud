@@ -87,3 +87,24 @@ async def test_workspace_lifecycle(client: AsyncClient):
     # Verify deleted
     get_resp = await client.get(f"/api/workspaces/{ws_id}", headers=headers)
     assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deploy_workspace_stream(client: AsyncClient):
+    """Test creating a workspace with the streaming SSE log endpoint."""
+    headers = await get_authenticated_headers(client, "stream_tester")
+
+    payload = {
+        "name": "Streamed App",
+        "description": "SSE test project",
+        "template_id": "jupyter-python",
+        "flavor_id": "t1.nano",
+    }
+    resp = await client.post("/api/workspaces/deploy-stream", json=payload, headers=headers)
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    body = resp.text
+    assert "data: " in body
+    assert "Starting deployment" in body
+    assert "done" in body
+

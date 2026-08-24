@@ -144,13 +144,21 @@
               <div style="font-size: 0.8rem; font-weight: 600; color: #fff;">{{ flav.cpus }} CPU • {{ flav.memory_display }}</div>
               <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem;">{{ flav.description }}</div>
             </div>
-          {% endfor %}
+      <!-- 4. Real-time Deployment Log Terminal Box -->
+      <div id="deploy-terminal-box" style="display: none; margin-top: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+          <label class="form-label" style="margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem;">
+            <span class="pulse-dot"></span>
+            <span>Deployment Logs</span>
+          </label>
+          <span id="deploy-status-badge" class="badge badge-creating">Deploying...</span>
         </div>
+        <div id="deploy-terminal" class="terminal-window" style="max-height: 220px; font-size: 0.8rem; line-height: 1.4; padding: 0.75rem;"></div>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">Cancel</button>
-        <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Deploy Workspace</button>
+      <div id="modal-footer-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <button type="button" id="btn-cancel-deploy" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">Cancel</button>
+        <button type="submit" id="btn-submit-deploy" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Deploy Workspace</button>
       </div>
     </form>
   </div>
