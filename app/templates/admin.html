@@ -5,7 +5,7 @@
 {% block content %}
 <div style="margin-bottom: 2rem;">
   <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">System Administration</h1>
-  <p style="color: var(--text-muted); font-size: 0.9rem;">Overview of all users, workspaces, and host container resources</p>
+  <p style="color: var(--text-muted); font-size: 0.9rem;">Overview of users and workspaces, with per-user CPU, RAM, and disk quotas</p>
 </div>
 
 <!-- Stats row -->
@@ -27,7 +27,7 @@
 </div>
 
 <!-- All Users -->
-<div class="card" style="margin-bottom: 2rem;">
+<div class="card" style="margin-bottom: 2rem; overflow-x: auto;">
   <div class="card-header">
     <h2 class="card-title">Registered Users</h2>
   </div>
@@ -41,6 +41,8 @@
         <th>Role</th>
         <th>Source</th>
         <th>Active</th>
+        <th>Usage / Quota</th>
+        <th>Quota Controls</th>
       </tr>
     </thead>
     <tbody>
@@ -57,6 +59,34 @@
           </td>
           <td>{{ u.auth_source }}</td>
           <td>{% if u.is_active %}<span style="color: #10b981;">✓</span>{% else %}<span style="color: #ef4444;">✗</span>{% endif %}</td>
+          {% set quota_usage = usage_by_user[u.id] %}
+          <td class="quota-summary">
+            <span><strong>CPU</strong> {{ quota_usage.cpu.used_display }} / {{ quota_usage.cpu.limit_display }}</span>
+            <span><strong>RAM</strong> {{ quota_usage.memory.used_display }} / {{ quota_usage.memory.limit_display }}</span>
+            <span><strong>Disk</strong> {{ quota_usage.disk.used_display }} / {{ quota_usage.disk.limit_display }}</span>
+          </td>
+          <td>
+            <form class="quota-form" data-user-id="{{ u.id }}">
+              <div class="quota-input-grid">
+                <label class="quota-field">
+                  <span>CPU cores</span>
+                  <input class="form-input" type="number" name="cpu_quota" min="0" max="256" step="0.5" value="{{ u.cpu_quota }}" required>
+                </label>
+                <label class="quota-field">
+                  <span>RAM GB</span>
+                  <input class="form-input" type="number" name="memory_gb_quota" min="0" max="1024" step="0.25" value="{{ '%.2f'|format(u.memory_mb_quota / 1024) }}" required>
+                </label>
+                <label class="quota-field">
+                  <span>Disk GB</span>
+                  <input class="form-input" type="number" name="disk_gb_quota" min="0" max="1048576" step="0.25" value="{{ '%.2f'|format(u.disk_mb_quota / 1024) }}" required>
+                </label>
+              </div>
+              <div class="quota-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save quota</button>
+                <span class="quota-form-status" role="status"></span>
+              </div>
+            </form>
+          </td>
         </tr>
       {% endfor %}
     </tbody>

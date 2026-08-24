@@ -40,6 +40,9 @@ async def test_view_routes_render_html(client: AsyncClient):
     auth_dashboard = await client.get("/", headers=headers)
     assert auth_dashboard.status_code == 200
     assert "My Workspaces" in auth_dashboard.text
+    assert "Total System Usage" in auth_dashboard.text
+    assert "Total User Usage" in auth_dashboard.text
+    assert "Remaining User Quota" in auth_dashboard.text
     assert "Select Resource Flavor" in auth_dashboard.text
 
     # 5. Create a workspace and render dashboard + detail page
@@ -57,6 +60,14 @@ async def test_view_routes_render_html(client: AsyncClient):
     auth_dashboard_with_ws = await client.get("/", headers=headers)
     assert auth_dashboard_with_ws.status_code == 200
     assert "Dashboard Template Test" in auth_dashboard_with_ws.text
+
+    usage_resp = await client.get("/api/workspaces/usage", headers=headers)
+    assert usage_resp.status_code == 200
+    usage = usage_resp.json()
+    assert set(usage["system"]) == {"cpu", "memory", "disk"}
+    assert usage["user"]["cpu"]["used"] == 0.5
+    assert usage["user"]["memory"]["used_display"] == "512.0 MB"
+    assert usage["user"]["cpu"]["remaining"] == 3.5
 
     # Render workspace detail page
     detail_resp = await client.get(f"/workspaces/{ws_id}", headers=headers)

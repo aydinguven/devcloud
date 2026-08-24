@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initWorkspaceCreationModal();
   initActionButtons();
   initLogPolling();
+  initQuotaForms();
 });
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
@@ -312,4 +313,51 @@ function initLogPolling() {
   // Initial fetch and poll every 3 seconds
   fetchLogs();
   setInterval(fetchLogs, 3000);
+}
+
+// 4. Admin per-user quota editor
+function initQuotaForms() {
+  document.querySelectorAll(".quota-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const userId = form.dataset.userId;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const status = form.querySelector(".quota-form-status");
+      const cpuQuota = Number(form.elements.cpu_quota.value);
+      const memoryGbQuota = Number(form.elements.memory_gb_quota.value);
+      const diskGbQuota = Number(form.elements.disk_gb_quota.value);
+
+      if (![cpuQuota, memoryGbQuota, diskGbQuota].every(Number.isFinite)) {
+        status.textContent = "Enter valid numbers.";
+        status.className = "quota-form-status quota-status-error";
+        return;
+      }
+
+      submitButton.disabled = true;
+      status.textContent = "Saving...";
+      status.className = "quota-form-status";
+      try {
+        const response = await fetch(`/api/admin/users/${userId}/quota`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cpu_quota: cpuQuota,
+            memory_mb_quota: Math.round(memoryGbQuota * 1024),
+            disk_mb_quota: Math.round(diskGbQuota * 1024),
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Quota update failed (${response.status})`);
+        }
+        status.textContent = "Saved";
+        status.className = "quota-form-status quota-status-success";
+        setTimeout(() => window.location.reload(), 650);
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "quota-form-status quota-status-error";
+        submitButton.disabled = false;
+      }
+    });
+  });
 }

@@ -23,6 +23,9 @@ class UserOut(BaseModel):
     role: UserRole
     auth_source: str
     is_active: bool
+    cpu_quota: float
+    memory_mb_quota: int
+    disk_mb_quota: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -32,3 +35,9 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     full_name: str | None = None
     password: str | None = Field(default=None, min_length=6, max_length=100)
+
+
+class UserQuotaUpdate(BaseModel):
+    cpu_quota: float = Field(..., ge=0, le=256)
+    memory_mb_quota: int = Field(..., ge=0, le=1048576)
+    disk_mb_quota: int = Field(..., ge=0, le=1073741824)

@@ -363,3 +363,105 @@ a:hover {
 .log-error { color: #ef4444; }
 .log-dim { color: #64748b; }
 
+/* Resource usage dashboard */
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.usage-card {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.18);
+}
+.usage-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.usage-card-heading h2 {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 650;
+}
+.usage-eyebrow {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+}
+.usage-icon {
+  align-items: center;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  color: #38bdf8;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 1rem;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+.usage-icon-user {
+  background: rgba(139, 92, 246, 0.14);
+  border-color: rgba(139, 92, 246, 0.25);
+  color: #a78bfa;
+}
+.usage-icon-remaining {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+.usage-row + .usage-row { margin-top: 0.85rem; }
+.usage-row-label {
+  align-items: baseline;
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+.usage-row-label span { color: var(--text-muted); }
+.usage-row-label strong { color: #e2e8f0; font-size: 0.73rem; font-weight: 600; }
+.usage-row small { color: #64748b; display: block; font-size: 0.65rem; margin-top: 0.28rem; text-align: right; }
+.usage-track {
+  background: rgba(51, 65, 85, 0.85);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+.usage-track span {
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+.usage-track-user span { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.usage-track-remaining span { background: linear-gradient(90deg, #059669, #34d399); }
+
+/* Admin quota controls */
+.quota-summary { min-width: 180px; }
+.quota-summary span { color: var(--text-muted); display: block; font-size: 0.74rem; white-space: nowrap; }
+.quota-summary span + span { margin-top: 0.25rem; }
+.quota-summary strong { color: #e2e8f0; display: inline-block; width: 2.5rem; }
+.quota-form { min-width: 390px; }
+.quota-input-grid { display: grid; gap: 0.5rem; grid-template-columns: repeat(3, minmax(90px, 1fr)); }
+.quota-field span { color: var(--text-muted); display: block; font-size: 0.65rem; margin-bottom: 0.2rem; }
+.quota-field .form-input { padding: 0.4rem 0.5rem; }
+.quota-actions { align-items: center; display: flex; gap: 0.6rem; margin-top: 0.55rem; }
+.quota-form-status { color: var(--text-muted); font-size: 0.7rem; }
+.quota-status-success { color: var(--success); }
+.quota-status-error { color: var(--danger); }
+
+@media (max-width: 960px) {
+  .usage-grid { grid-template-columns: 1fr; }
+}

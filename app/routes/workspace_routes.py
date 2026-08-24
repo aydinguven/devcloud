@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 import logging
 import uuid
@@ -10,9 +11,10 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.flavors import get_flavor, list_flavors
+from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
 from app.orchestrator.templates import get_template, list_templates
 from app.orchestrator.podman_service import podman_service, PodmanExecutionError
+from app.resource_usage import get_system_usage, get_user_usage, quota_violations
 from app.schemas.workspace import (
     FlavorInfo,
     TemplateInfo,
@@ -25,6 +27,24 @@ logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 
 
+async def get_quota_error(
+    db: AsyncSession,
+    user: User,
+    flavor: Flavor,
+) -> str | None:
+    """Return a readable quota error for a proposed workspace allocation."""
+    result = await db.execute(
+        select(Workspace).where(Workspace.user_id == user.id)
+    )
+    workspaces = result.scalars().all()
+    violations = await asyncio.to_thread(
+        quota_violations, user, workspaces, flavor
+    )
+    if not violations:
+        return None
+    return "User quota exceeded: " + "; ".join(violations) + "."
+
+
 @workspace_router.get("/templates", response_model=list[TemplateInfo])
 async def get_templates():
     """List available project environment templates."""
@@ -35,6 +55,26 @@ async def get_templates():
 async def get_flavors():
     """List available resource flavors."""
     return list_flavors()
+
+
+@workspace_router.get("/usage")
+async def get_resource_usage(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return host usage plus the current user's allocation and quota."""
+    result = await db.execute(
+        select(Workspace).where(Workspace.user_id == current_user.id)
+    )
+    workspaces = result.scalars().all()
+    system_usage, user_usage = await asyncio.gather(
+        asyncio.to_thread(get_system_usage),
+        asyncio.to_thread(get_user_usage, current_user, workspaces),
+    )
+    return {
+        "system": system_usage,
+        "user": user_usage,
+    }
 
 
 @workspace_router.get("", response_model=list[WorkspaceOut])
@@ -74,6 +114,10 @@ async def create_workspace(
     flavor = get_flavor(data.flavor_id)
     if not flavor:
         raise HTTPException(status_code=400, detail=f"Invalid flavor ID: {data.flavor_id}")
+
+    quota_error = await get_quota_error(db, current_user, flavor)
+    if quota_error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=quota_error)
 
     # Fetch currently used ports from database
     stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
@@ -146,7 +190,6 @@ async def deploy_workspace_stream(
 ):
     """Create and deploy a workspace container with real-time SSE log streaming."""
     import json
-    import asyncio
     from fastapi.responses import StreamingResponse
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -178,8 +221,13 @@ async def deploy_workspace_stream(
                 await emit_error(f"Invalid flavor: {data.flavor_id}")
                 return
 
+            quota_error = await get_quota_error(db, current_user, flavor)
+            if quota_error:
+                await emit_error(quota_error)
+                return
+
             await emit_log(f"📋 Template: {template.name} ({template.image_tag})", "info")
-            await emit_log(f"⚡ Quota: {flavor.cpus} CPU(s), {flavor.memory_display} RAM ({flavor.name})", "info")
+            await emit_log(f"⚡ Workspace allocation: {flavor.cpus} CPU(s), {flavor.memory_display} RAM ({flavor.name})", "info")
 
             # Host port selection
             stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)

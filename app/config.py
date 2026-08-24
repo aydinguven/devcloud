@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/devcloud.db"
     STORAGE_ROOT: str = str(Path(__file__).resolve().parent.parent / "data" / "workspaces")
     
+    # Default per-user resource quotas (admins can override each user).
+    DEFAULT_USER_CPU_QUOTA: float = 4.0
+    DEFAULT_USER_MEMORY_MB_QUOTA: int = 4096
+    DEFAULT_USER_DISK_MB_QUOTA: int = 10240
+
     # Podman Configuration
     PODMAN_BIN: str = "podman"
     PODMAN_NETWORK: str = "bridge"

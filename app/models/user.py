@@ -1,9 +1,10 @@
 import enum
 from datetime import datetime, timezone
 from typing import List, TYPE_CHECKING
-from sqlalchemy import String, Boolean, DateTime, Enum
+from sqlalchemy import String, Boolean, DateTime, Enum, Float, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import settings
 from app.database import Base
 
 if TYPE_CHECKING:
@@ -27,6 +28,24 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER, nullable=False)
     auth_source: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cpu_quota: Mapped[float] = mapped_column(
+        Float,
+        default=lambda: settings.DEFAULT_USER_CPU_QUOTA,
+        server_default=str(settings.DEFAULT_USER_CPU_QUOTA),
+        nullable=False,
+    )
+    memory_mb_quota: Mapped[int] = mapped_column(
+        Integer,
+        default=lambda: settings.DEFAULT_USER_MEMORY_MB_QUOTA,
+        server_default=str(settings.DEFAULT_USER_MEMORY_MB_QUOTA),
+        nullable=False,
+    )
+    disk_mb_quota: Mapped[int] = mapped_column(
+        Integer,
+        default=lambda: settings.DEFAULT_USER_DISK_MB_QUOTA,
+        server_default=str(settings.DEFAULT_USER_DISK_MB_QUOTA),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         default=lambda: datetime.now(timezone.utc),

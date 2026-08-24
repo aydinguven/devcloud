@@ -22,6 +22,8 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - Pluggable `AuthProvider` interface ready for Active Directory / LDAP integration.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
+- **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
+- **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
 
 ---
 
@@ -218,6 +220,7 @@ intelligent-nobel/
 | `GET` | `/api/workspaces/flavors` | List resource flavors (`t1.nano`, `t1.micro`, `t1.mini`) | No |
 | `GET` | `/api/workspaces` | List current user's workspaces | Yes |
 | `POST` | `/api/workspaces` | Create & deploy new workspace container | Yes |
+| `GET` | `/api/workspaces/usage` | Host usage and current user's quota summary | Yes |
 | `GET` | `/api/workspaces/{id}` | Workspace detail | Yes |
 | `POST` | `/api/workspaces/{id}/start` | Start container | Yes |
 | `POST` | `/api/workspaces/{id}/stop` | Stop container | Yes |
@@ -225,6 +228,7 @@ intelligent-nobel/
 | `GET` | `/api/workspaces/{id}/logs` | Fetch container logs | Yes |
 | `GET` | `/proxy/{id}/{path}` | Reverse proxy to container IDE | Yes (Owner/Admin) |
 | `GET` | `/api/admin/users` | List all users | Yes (Admin) |
+| `PUT` | `/api/admin/users/{id}/quota` | Update a user's CPU/RAM/disk quota | Yes (Admin) |
 | `GET` | `/api/admin/workspaces` | List all workspaces | Yes (Admin) |
 | `GET` | `/api/admin/stats` | System statistics | Yes (Admin) |
 

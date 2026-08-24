@@ -179,3 +179,48 @@ async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, d
     assert response.status_code == 409
     assert "still in progress" in response.json()["detail"]
     assert await db_session.get(Workspace, workspace.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
+    client: AsyncClient,
+    db_session,
+):
+    headers = await get_authenticated_headers(client, "quota_workspace_tester")
+    result = await db_session.execute(
+        select(User).where(User.username == "quota_workspace_tester")
+    )
+    user = result.scalar_one()
+    user.cpu_quota = 0.5
+    user.memory_mb_quota = 512
+    user.disk_mb_quota = 1024
+    db_session.add(user)
+    await db_session.commit()
+
+    payload = {
+        "name": "Within Quota",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+    first = await client.post("/api/workspaces", json=payload, headers=headers)
+    assert first.status_code == 201
+
+    second = await client.post(
+        "/api/workspaces",
+        json={**payload, "name": "Over Quota"},
+        headers=headers,
+    )
+    assert second.status_code == 409
+    assert "User quota exceeded" in second.json()["detail"]
+    assert "CPU would be 1.0/0.5 cores" in second.json()["detail"]
+    assert "RAM would be 1024/512 MB" in second.json()["detail"]
+
+    streamed = await client.post(
+        "/api/workspaces/deploy-stream",
+        json={**payload, "name": "Stream Over Quota"},
+        headers=headers,
+    )
+    assert streamed.status_code == 200
+    assert "User quota exceeded" in streamed.text
+    assert '"type": "done"' not in streamed.text

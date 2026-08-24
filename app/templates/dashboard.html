@@ -14,6 +14,62 @@
   </button>
 </div>
 
+<section class="usage-grid" aria-label="Resource usage and quota">
+  <article class="usage-card">
+    <div class="usage-card-heading">
+      <div>
+        <span class="usage-eyebrow">Host capacity</span>
+        <h2>Total System Usage</h2>
+      </div>
+      <span class="usage-icon">◫</span>
+    </div>
+    {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk')] %}
+      {% set metric = system_usage[key] %}
+      <div class="usage-row">
+        <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong></div>
+        <div class="usage-track"><span style="width: {{ metric.percent }}%;"></span></div>
+        <small>{{ metric.percent }}% used</small>
+      </div>
+    {% endfor %}
+  </article>
+
+  <article class="usage-card">
+    <div class="usage-card-heading">
+      <div>
+        <span class="usage-eyebrow">Reserved by your workspaces</span>
+        <h2>Total User Usage</h2>
+      </div>
+      <span class="usage-icon usage-icon-user">◎</span>
+    </div>
+    {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk')] %}
+      {% set metric = user_usage[key] %}
+      <div class="usage-row">
+        <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong></div>
+        <div class="usage-track usage-track-user"><span style="width: {{ metric.percent }}%;"></span></div>
+        <small>{{ metric.percent }}% of quota</small>
+      </div>
+    {% endfor %}
+  </article>
+
+  <article class="usage-card">
+    <div class="usage-card-heading">
+      <div>
+        <span class="usage-eyebrow">Available for new workspaces</span>
+        <h2>Remaining User Quota</h2>
+      </div>
+      <span class="usage-icon usage-icon-remaining">✓</span>
+    </div>
+    {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk')] %}
+      {% set metric = user_usage[key] %}
+      <div class="usage-row usage-row-remaining">
+        <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.remaining_display }}</strong></div>
+        <div class="usage-track usage-track-remaining"><span style="width: {{ 100 - metric.percent }}%;"></span></div>
+        <small>of {{ metric.limit_display }} total</small>
+      </div>
+    {% endfor %}
+  </article>
+</section>
+
 <!-- Workspaces Grid -->
 {% if workspaces %}
   <div class="grid grid-cols-2">

@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request
@@ -14,6 +15,7 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
 from app.orchestrator.podman_service import podman_service
+from app.resource_usage import get_all_user_usage, get_system_usage, get_user_usage
 from app.schemas.workspace import WorkspaceOut
 
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
@@ -86,6 +88,11 @@ async def dashboard_page(
     for ws_out in ws_list:
         ws_out.web_url = f"/proxy/{ws_out.id}/"
 
+    system_usage, user_usage = await asyncio.gather(
+        asyncio.to_thread(get_system_usage),
+        asyncio.to_thread(get_user_usage, current_user, workspaces),
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -95,6 +102,8 @@ async def dashboard_page(
             "workspaces": ws_list,
             "templates": list_templates(),
             "flavors": list_flavors(),
+            "system_usage": system_usage,
+            "user_usage": user_usage,
         },
     )
 
@@ -177,6 +186,10 @@ async def admin_page(
     ws_stmt = select(Workspace).order_by(Workspace.created_at.desc())
     workspaces = (await db.execute(ws_stmt)).scalars().all()
 
+    usage_by_user = await asyncio.to_thread(
+        get_all_user_usage, users, workspaces
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
@@ -185,5 +198,6 @@ async def admin_page(
             "user": current_user,
             "all_users": users,
             "all_workspaces": workspaces,
+            "usage_by_user": usage_by_user,
         },
     )

@@ -12,6 +12,7 @@ async def test_admin_access_controls(client: AsyncClient):
         json={"username": "standard_user", "email": "std@test.com", "password": "Password123!"},
     )
     user_token = reg_user.json()["access_token"]
+    standard_user_id = reg_user.json()["user"]["id"]
     user_headers = {"Authorization": f"Bearer {user_token}"}
 
     forbidden_resp = await client.get("/api/admin/stats", headers=user_headers)
@@ -41,3 +42,32 @@ async def test_admin_access_controls(client: AsyncClient):
     admin_resp = await client.get("/api/admin/stats", headers=admin_headers)
     assert admin_resp.status_code == 200
     assert admin_resp.json()["total_users"] >= 2
+
+    forbidden_quota = await client.put(
+        f"/api/admin/users/{standard_user_id}/quota",
+        headers=user_headers,
+        json={"cpu_quota": 2, "memory_mb_quota": 2048, "disk_mb_quota": 8192},
+    )
+    assert forbidden_quota.status_code == 403
+
+    quota_resp = await client.put(
+        f"/api/admin/users/{standard_user_id}/quota",
+        headers=admin_headers,
+        json={"cpu_quota": 2.5, "memory_mb_quota": 3072, "disk_mb_quota": 12288},
+    )
+    assert quota_resp.status_code == 200
+    assert quota_resp.json()["cpu_quota"] == 2.5
+    assert quota_resp.json()["memory_mb_quota"] == 3072
+    assert quota_resp.json()["disk_mb_quota"] == 12288
+
+    invalid_quota = await client.put(
+        f"/api/admin/users/{standard_user_id}/quota",
+        headers=admin_headers,
+        json={"cpu_quota": -1, "memory_mb_quota": 1024, "disk_mb_quota": 1024},
+    )
+    assert invalid_quota.status_code == 422
+
+    admin_page = await client.get("/admin", headers=admin_headers)
+    assert admin_page.status_code == 200
+    assert "Quota Controls" in admin_page.text
+    assert 'class="quota-form"' in admin_page.text

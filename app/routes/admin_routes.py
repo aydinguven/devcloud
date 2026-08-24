@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
-from app.schemas.user import UserOut
+from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.workspace import WorkspaceOut
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -23,6 +23,26 @@ async def list_all_users(
     stmt = select(User).order_by(User.id.asc())
     result = await db.execute(stmt)
     return [UserOut.model_validate(u) for u in result.scalars().all()]
+
+
+@admin_router.put("/users/{user_id}/quota", response_model=UserOut)
+async def update_user_quota(
+    user_id: int,
+    quota: UserQuotaUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Update CPU, RAM, and persistent-disk quota for one user."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user.cpu_quota = quota.cpu_quota
+    user.memory_mb_quota = quota.memory_mb_quota
+    user.disk_mb_quota = quota.disk_mb_quota
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.model_validate(user)
 
 
 @admin_router.get("/workspaces", response_model=list[WorkspaceOut])
