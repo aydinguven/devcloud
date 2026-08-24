@@ -16,7 +16,7 @@ from app.models.user import User
 
 
 DOWNLOAD_NAME_PATTERN = re.compile(
-    r"^devcloud-offline-[0-9a-f]{12}\.tar\.gz(?:\.sha256)?$"
+    r"^devcloud-offline-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-)?[0-9a-f]{12}\.tar\.gz(?:\.sha256)?$"
 )
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent / "templates")

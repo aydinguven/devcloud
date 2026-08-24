@@ -173,8 +173,8 @@ Transfer both generated files to the target Linux VM via approved media, verify
 the outer checksum, extract it, and execute the offline installer:
 
 ```bash
-sha256sum -c devcloud-offline-<commit>.tar.gz.sha256
-tar -xzf devcloud-offline-<commit>.tar.gz
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 
 python3 deploy/package_offline.py --verify . --check-runtime

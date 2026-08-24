@@ -15,7 +15,7 @@ async def test_download_listing_file_and_range_support(
 ):
     download_root = tmp_path / "downloads"
     download_root.mkdir()
-    filename = "devcloud-offline-abcdef123456.tar.gz"
+    filename = "devcloud-offline-v2.0.0-20260825-abcdef123456.tar.gz"
     content = b"0123456789abcdef"
     archive = download_root / filename
     archive.write_bytes(content)

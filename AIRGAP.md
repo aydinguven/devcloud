@@ -37,8 +37,7 @@ to Git. On the connected build machine:
 
 ```bash
 git status
-git add deploy/package_offline.py deploy/package_offline.sh deploy/deploy_offline.sh \
-  AIRGAP.md README.md .gitignore tests/test_offline.py
+git add .
 git commit -m "harden air-gapped packaging"
 git push origin main
 ```
@@ -76,8 +75,8 @@ The builder:
 6. verifies the stage and creates these ignored files:
 
 ```text
-dist/devcloud-offline-<commit>.tar.gz
-dist/devcloud-offline-<commit>.tar.gz.sha256
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz.sha256
 ```
 
 If the five local image tags are already known-good, add
@@ -86,7 +85,7 @@ If the five local image tags are already known-good, add
 ## 4. Publish the binary artifact
 
 Push the source commit normally. In the Git server UI, create a release/tag
-such as `airgap-2026-08-24` at that commit and attach both files from `dist/`.
+such as `airgap-2026-08-25` at that commit and attach both files from `dist/`.
 Release assets keep multi-gigabyte images out of Git history while binding the
 bundle to a source commit. Git LFS or an internal artifact repository are also
 acceptable if your server has suitable quotas.
@@ -126,8 +125,8 @@ hostname behind Cloudflare Access if downloads should be restricted.
 Transfer both files using approved media. From the transfer directory:
 
 ```bash
-sha256sum -c devcloud-offline-<commit>.tar.gz.sha256
-tar -xzf devcloud-offline-<commit>.tar.gz
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 python3 deploy/package_offline.py --verify . --check-runtime
 bash deploy/deploy_offline.sh
@@ -137,15 +136,3 @@ The installer re-verifies every wheel and container archive before changing the
 system. It then installs Python packages without an index, loads exactly five
 container archives, applies the SELinux workspace policy, installs the systemd
 unit, and starts DevCloud.
-
-Validate the service:
-
-```bash
-sudo systemctl status devcloud --no-pager
-sudo journalctl -u devcloud -n 100 --no-pager
-curl -fsS http://127.0.0.1:8000/ >/dev/null
-podman images | grep devcloud
-```
-
-Keep the archive and checksum together for rollback or rebuilding an identical
-demo VM from the same source commit.

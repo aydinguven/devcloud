@@ -21,7 +21,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-BUNDLE_PATTERN = re.compile(r"^devcloud-offline-([0-9a-f]{12})\.tar\.gz$")
+BUNDLE_PATTERN = re.compile(
+    r"^devcloud-offline-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-)?([0-9a-f]{12})\.tar\.gz$"
+)
 MAX_LOG_LINES = 120
 ACTIVE_TASKS: set[asyncio.Task[None]] = set()
 
@@ -164,85 +166,84 @@ class DownloadUpdateManager:
             raise
         ACTIVE_TASKS.add(task)
         task.add_done_callback(ACTIVE_TASKS.discard)
-        return self.get_status()
+        return status
 
     def _acquire_lock(self) -> None:
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        for attempt in range(2):
-            try:
-                descriptor = os.open(
-                    self.lock_path,
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o600,
-                )
-                with os.fdopen(descriptor, "w", encoding="ascii") as handle:
-                    handle.write(str(os.getpid()))
-                return
-            except FileExistsError:
-                if attempt == 0 and self._remove_stale_lock():
-                    continue
-                raise DownloadUpdateInProgress(
-                    "Başka bir indirme güncellemesi zaten çalışıyor."
-                )
-
-    def _remove_stale_lock(self) -> bool:
+        self._remove_stale_lock()
+        payload = json.dumps(
+            {"pid": os.getpid(), "started_at": _utc_now()}, indent=2
+        )
         try:
-            owner_pid = int(self.lock_path.read_text(encoding="ascii").strip())
-        except (OSError, ValueError):
-            owner_pid = -1
-        if owner_pid > 0:
-            try:
-                os.kill(owner_pid, 0)
-                return False
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                return False
-        try:
-            self.lock_path.unlink()
-            return True
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
+            fd = os.open(
+                self.lock_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        except FileExistsError as exc:
+            raise DownloadUpdateInProgress(
+                "Zaten devam eden bir indirme paketi güncellemesi var."
+            ) from exc
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
 
     def _release_lock(self) -> None:
         try:
-            owner_pid = int(self.lock_path.read_text(encoding="ascii").strip())
-            if owner_pid == os.getpid():
-                self.lock_path.unlink(missing_ok=True)
-        except (OSError, ValueError):
-            logger.warning("Could not release download update lock", exc_info=True)
+            self.lock_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove download update lock", exc_info=True)
+
+    def _remove_stale_lock(self) -> bool:
+        if not self.lock_path.is_file():
+            return False
+        try:
+            data = json.loads(self.lock_path.read_text(encoding="utf-8"))
+            pid = int(data.get("pid", -1))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self._release_lock()
+            return True
+        if pid <= 0 or not self._process_is_alive(pid):
+            self._release_lock()
+            return True
+        return False
+
+    def _process_is_alive(self, pid: int) -> bool:
+        if os.name != "posix":
+            return True
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
     def _write_status(self, status: dict[str, Any]) -> None:
-        status["updated_at"] = _utc_now()
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.status_path.with_name(
-            f".{self.status_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            f".{self.status_path.name}.{uuid.uuid4().hex}.tmp"
         )
-        temporary.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, self.status_path)
+        temporary.write_text(json.dumps(status, indent=2), encoding="utf-8")
+        temporary.replace(self.status_path)
 
-    def _append_log(self, status: dict[str, Any], text: str) -> None:
-        line = text.strip().replace("\x00", "")
-        if not line:
+    def _append_log(self, status: dict[str, Any], message: str) -> None:
+        cleaned = message.rstrip()
+        if not cleaned:
             return
+        logger.info("[download-update] %s", cleaned)
         logs = status.setdefault("logs", [])
-        logs.append(line[-4000:])
+        logs.append(cleaned)
         del logs[:-MAX_LOG_LINES]
         self._write_status(status)
 
     async def _run(self, status: dict[str, Any]) -> None:
         try:
             status["state"] = "running"
-            status["message"] = "Güncel çevrim dışı paket hazırlanıyor..."
-            self._write_status(status)
+            self._append_log(status, "Çevrim dışı paket güncellemesi başlatıldı.")
             result = await self._build_and_publish(status)
             status.update(result)
             status["state"] = "success"
             status["finished_at"] = _utc_now()
             self._append_log(status, result["message"])
-        except Exception as exc:  # The background task must persist its failure state.
+        except Exception as exc:
             logger.exception("Download bundle update failed")
             status["state"] = "failed"
             status["message"] = str(exc)
@@ -253,9 +254,19 @@ class DownloadUpdateManager:
 
     async def _build_and_publish(self, status: dict[str, Any]) -> dict[str, Any]:
         commit = await self._git_commit()
+        short_commit = commit[:12]
         status["source_commit"] = commit
-        existing = self.download_root / f"devcloud-offline-{commit[:12]}.tar.gz"
-        if existing.is_file() and existing.with_name(existing.name + ".sha256").is_file():
+
+        existing = None
+        if self.download_root.is_dir():
+            for path in self.download_root.glob("devcloud-offline-*.tar.gz"):
+                if path.is_file() and not path.is_symlink():
+                    match = BUNDLE_PATTERN.fullmatch(path.name)
+                    if match and match.group(1) == short_commit:
+                        existing = path
+                        break
+
+        if existing and existing.is_file() and existing.with_name(existing.name + ".sha256").is_file():
             try:
                 await asyncio.to_thread(
                     self._verify_pair, existing, existing.with_name(existing.name + ".sha256")
@@ -264,7 +275,7 @@ class DownloadUpdateManager:
                 self._append_log(status, f"Mevcut paket geçersiz; yeniden oluşturuluyor: {exc}")
             else:
                 return {
-                    "message": f"Yayımlanan paket zaten {commit[:12]} commit sürümünde güncel.",
+                    "message": f"Yayımlanan paket zaten {existing.name} olarak güncel.",
                     "published_filename": existing.name,
                 }
 
@@ -292,7 +303,7 @@ class DownloadUpdateManager:
             environment["TMPDIR"] = str(temp_dir)
             self._append_log(
                 status,
-                f"{commit[:12]} commit sürümü CPython {target_python} için oluşturuluyor.",
+                f"{short_commit} commit sürümü CPython {target_python} için oluşturuluyor.",
             )
             await self._run_process(command, status, environment)
 
@@ -387,8 +398,9 @@ class DownloadUpdateManager:
         try:
             shutil.copy2(archive, temporary_archive)
             shutil.copy2(checksum, temporary_checksum)
-            os.chmod(temporary_archive, 0o644)
-            os.chmod(temporary_checksum, 0o644)
+            if os.name == "posix":
+                os.chmod(temporary_archive, 0o644)
+                os.chmod(temporary_checksum, 0o644)
             self._verify_pair(
                 temporary_archive, temporary_checksum, expected_filename=archive.name
             )

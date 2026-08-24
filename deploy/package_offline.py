@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -411,13 +412,25 @@ def write_outer_checksum(bundle_path: Path) -> Path:
     return checksum_path
 
 
+def get_app_version(root_dir: Path) -> str:
+    config_file = root_dir / "app" / "config.py"
+    if config_file.is_file():
+        content = config_file.read_text(encoding="utf-8")
+        match = re.search(r'APP_VERSION:\s*str\s*=\s*["\']([^"\']+)["\']', content)
+        if match:
+            return match.group(1)
+    return "2.0.0"
+
+
 def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
     root_dir = Path(__file__).resolve().parent.parent
     assert_clean_tracked_tree(root_dir)
     commit = git_output(root_dir, "rev-parse", "HEAD")
     short_commit = commit[:12]
+    version = get_app_version(root_dir)
+    today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     output_dir = Path(args.output_dir).resolve() if args.output_dir else root_dir / "dist"
-    output_path = output_dir / f"devcloud-offline-{short_commit}.tar.gz"
+    output_path = output_dir / f"devcloud-offline-v{version}-{today_str}-{short_commit}.tar.gz"
     checksum_path = output_path.with_name(output_path.name + ".sha256")
     if output_path.exists() or checksum_path.exists():
         raise PackageError(

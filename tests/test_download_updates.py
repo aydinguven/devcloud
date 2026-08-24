@@ -12,7 +12,7 @@ from app.download_updates import (
 
 def _write_bundle_pair(root: Path, revision: str, content: bytes) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
-    archive = root / f"devcloud-offline-{revision}.tar.gz"
+    archive = root / f"devcloud-offline-v2.0.0-20260825-{revision}.tar.gz"
     archive.write_bytes(content)
     checksum = archive.with_name(archive.name + ".sha256")
     checksum.write_text(
