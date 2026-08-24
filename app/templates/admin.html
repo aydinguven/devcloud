@@ -21,7 +21,7 @@
   <div class="card">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Active Containers</div>
     <div style="font-size: 1.75rem; font-weight: 700; color: #10b981; margin-top: 0.25rem;">
-      {{ all_workspaces|selectattr('status.value', 'equalto', 'running')|list|length }}
+      {{ all_workspaces|selectattr('status', 'equalto', 'running')|list|length }}
     </div>
   </div>
 </div>
@@ -51,8 +51,8 @@
           <td>{{ u.full_name or '-' }}</td>
           <td>{{ u.email }}</td>
           <td>
-            <span class="badge" style="background: {% if u.role.value == 'admin' %}rgba(245, 158, 11, 0.2); color: #f59e0b;{% else %}rgba(59, 130, 246, 0.2); color: #3b82f6;{% endif %}">
-              {{ u.role.value }}
+            <span class="badge" style="background: {% if u.role == 'admin' %}rgba(245, 158, 11, 0.2); color: #f59e0b;{% else %}rgba(59, 130, 246, 0.2); color: #3b82f6;{% endif %}">
+              {{ u.role }}
             </span>
           </td>
           <td>{{ u.auth_source }}</td>
@@ -88,7 +88,7 @@
           <td>{{ ws.template_id }}</td>
           <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
           <td><code>{{ ws.host_port }}</code></td>
-          <td><span class="badge badge-{{ ws.status.value }}">{{ ws.status.value }}</span></td>
+          <td><span class="badge badge-{{ ws.status }}">{{ ws.status }}</span></td>
           <td>
             <div style="display: flex; gap: 0.5rem;">
               <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">View</a>

@@ -27,8 +27,8 @@
               </h2>
               <p style="font-size: 0.825rem; color: var(--text-muted);">{{ ws.description or "No description provided." }}</p>
             </div>
-            <span class="badge badge-{{ ws.status.value }}">
-              {{ ws.status.value }}
+            <span class="badge badge-{{ ws.status }}">
+              {{ ws.status }}
             </span>
           </div>
 
@@ -49,14 +49,14 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-color);">
           <div style="display: flex; gap: 0.5rem;">
-            {% if ws.status.value == 'running' %}
+            {% if ws.status == 'running' %}
               <a href="{{ ws.web_url }}" target="_blank" class="btn btn-success btn-sm">
                 <span>🚀</span> Launch IDE
               </a>
               <button class="btn btn-secondary btn-sm" data-action="stop" data-workspace-id="{{ ws.id }}">
                 Stop
               </button>
-            {% elif ws.status.value == 'stopped' or ws.status.value == 'error' %}
+            {% elif ws.status == 'stopped' or ws.status == 'error' %}
               <button class="btn btn-primary btn-sm" data-action="start" data-workspace-id="{{ ws.id }}">
                 ▶ Start
               </button>
@@ -144,10 +144,6 @@
               <div style="font-size: 0.8rem; font-weight: 600; color: #fff;">{{ flav.cpus }} CPU • {{ flav.memory_display }}</div>
               <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem;">{{ flav.description }}</div>
             </div>
-          {% endfor %}
-        </div>
-      </div>
-
       <!-- 4. Real-time Deployment Log Terminal Box -->
       <div id="deploy-terminal-box" style="display: none; margin-top: 1.25rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">

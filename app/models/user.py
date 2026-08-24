@@ -27,14 +27,6 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER, nullable=False)
     auth_source: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # Git Credentials Configuration
-    git_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    git_email: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    git_username: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    git_token: Mapped[str] = mapped_column(String(256), default="", nullable=False)
-    git_server: Mapped[str] = mapped_column(String(128), default="git.aydin.cloud", nullable=False)
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         default=lambda: datetime.now(timezone.utc),

@@ -72,13 +72,8 @@ class PodmanService:
                     continue
         raise RuntimeError("No available ports found in the configured range.")
 
-    def ensure_workspace_storage(
-        self,
-        user_id: int,
-        workspace_id: str,
-        git_config: dict[str, str] | None = None,
-    ) -> str:
-        """Create and initialize the persistent directory on host for workspace with Git configs."""
+    def ensure_workspace_storage(self, user_id: int, workspace_id: str) -> str:
+        """Create and initialize the persistent directory on host for workspace."""
         user_dir = Path(settings.STORAGE_ROOT) / str(user_id)
         workspace_dir = user_dir / str(workspace_id)
         workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -91,30 +86,6 @@ class PodmanService:
                 f"Files stored in this directory are persistent across container restarts.\n",
                 encoding="utf-8",
             )
-
-        # Inject Git configuration (.gitconfig & .git-credentials) if provided
-        if git_config:
-            name = git_config.get("name") or "Developer"
-            email = git_config.get("email") or "dev@example.com"
-            gitconfig_text = (
-                f"[user]\n"
-                f"    name = {name}\n"
-                f"    email = {email}\n"
-                f"[credential]\n"
-                f"    helper = store\n"
-                f"[init]\n"
-                f"    defaultBranch = main\n"
-            )
-            (workspace_dir / ".gitconfig").write_text(gitconfig_text, encoding="utf-8")
-
-            username = git_config.get("username")
-            token = git_config.get("token")
-            server = git_config.get("server") or "git.aydin.cloud"
-            if username and token:
-                clean_srv = server.replace("https://", "").replace("http://", "").strip("/")
-                git_cred_line = f"https://{username}:{token}@{clean_srv}\n"
-                (workspace_dir / ".git-credentials").write_text(git_cred_line, encoding="utf-8")
-
         return str(workspace_dir.resolve())
 
     async def ensure_image_exists(self, template_id: str, image_tag: str) -> bool:
@@ -147,7 +118,6 @@ class PodmanService:
         flavor_id: str,
         host_port: int,
         workspace_token: str,
-        git_config: dict[str, str] | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
         
@@ -162,7 +132,7 @@ class PodmanService:
         if not flavor:
             raise ValueError(f"Unknown flavor: {flavor_id}")
 
-        storage_path = self.ensure_workspace_storage(user_id, workspace_id, git_config=git_config)
+        storage_path = self.ensure_workspace_storage(user_id, workspace_id)
 
         if self._mock_mode:
             container_id = f"mock-cid-{workspace_id[:12]}"
@@ -184,10 +154,7 @@ class PodmanService:
             return container_id, storage_path
 
         # 1. Clean up any stale/dead container with the same name
-        try:
-            await self.run_cmd("rm", "-f", container_name)
-        except Exception:
-            pass
+        await self.run_cmd("rm", "-f", container_name)
 
         # 2. Check and ensure image exists or auto-build
         await self.ensure_image_exists(template_id, template.image_tag)
@@ -203,15 +170,6 @@ class PodmanService:
             "-v", f"{storage_path}:{template.container_workdir}:Z",
             "--restart", "unless-stopped",
         ]
-
-        # Mount Git config into container user home directory if present
-        home_user = "coder" if "vscode" in template_id else "jovyan"
-        gitconfig_file = Path(storage_path) / ".gitconfig"
-        gitcred_file = Path(storage_path) / ".git-credentials"
-        if gitconfig_file.exists():
-            cmd_args.extend(["-v", f"{gitconfig_file}:/home/{home_user}/.gitconfig:Z"])
-        if gitcred_file.exists():
-            cmd_args.extend(["-v", f"{gitcred_file}:/home/{home_user}/.git-credentials:Z"])
 
         # Injected environment variables for auth & config
         if "vscode" in template_id:
@@ -279,15 +237,11 @@ class PodmanService:
             self._mock_containers.pop(container_name, None)
             return True
 
-        try:
-            code, stdout, stderr = await self.run_cmd("rm", "-f", container_name)
-            if code != 0:
-                logger.warning(f"Failed or already removed container {container_name}: {stderr}")
-                return False
-            return True
-        except Exception as exc:
-            logger.warning(f"Exception removing container {container_name}: {exc}")
+        code, stdout, stderr = await self.run_cmd("rm", "-f", container_name)
+        if code != 0:
+            logger.warning(f"Failed or already removed container {container_name}: {stderr}")
             return False
+        return True
 
     async def get_container_status(self, container_name: str) -> str:
         """Check if container is running, stopped, or missing."""

@@ -245,12 +245,14 @@ function initActionButtons() {
           return;
         }
 
-        // Redirect to dashboard if on detail page, or reload dashboard
-        if (action === "delete" && window.location.pathname.includes("/workspaces/")) {
+        // If on workspace detail page, return to dashboard
+        if (action === "delete" && window.location.pathname.startsWith("/workspaces/")) {
           window.location.href = "/";
-        } else {
-          window.location.reload();
+          return;
         }
+
+        // Reload page to reflect state
+        window.location.reload();
       } catch (err) {
         alert("Action error: " + err.message);
         btn.disabled = false;
