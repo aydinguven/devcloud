@@ -88,25 +88,38 @@ class PodmanService:
             )
         return str(workspace_dir.resolve())
 
-    async def ensure_image_exists(self, template_id: str, image_tag: str) -> bool:
+    async def ensure_image_exists(
+        self,
+        template_id: str,
+        image_tag: str,
+        progress_callback: Any | None = None,
+    ) -> bool:
         """Check if image exists in Podman; if not, attempt to build from containers/<template_id>."""
         if self._mock_mode:
             return True
 
         code, _, _ = await self.run_cmd("image", "exists", image_tag)
         if code == 0:
+            if progress_callback:
+                await progress_callback(f"⚡ Verified image [{image_tag}] in local OCI store", "success")
             return True
 
         # Auto-build if Containerfile directory exists
         containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / template_id
         if containers_dir.exists() and (containers_dir / "Containerfile").exists():
+            if progress_callback:
+                await progress_callback(f"🔨 Image [{image_tag}] not found. Auto-building from Containerfile (first run only)...", "info")
             logger.info(f"Image {image_tag} not found locally. Auto-building from {containers_dir}...")
             build_code, stdout, stderr = await self.run_cmd("build", "-t", image_tag, str(containers_dir))
             if build_code == 0:
                 logger.info(f"Successfully built image {image_tag}")
+                if progress_callback:
+                    await progress_callback(f"✅ Image [{image_tag}] built and cached successfully!", "success")
                 return True
             else:
                 logger.error(f"Failed to auto-build {image_tag}: {stderr or stdout}")
+                if progress_callback:
+                    await progress_callback(f"⚠️ Build warning: {stderr or stdout}", "error")
         return False
 
     async def create_workspace_container(
@@ -118,12 +131,15 @@ class PodmanService:
         flavor_id: str,
         host_port: int,
         workspace_token: str,
+        progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
         
         Returns:
             tuple of (container_id, storage_path)
         """
+        import time
+
         template = get_template(template_id)
         if not template:
             raise ValueError(f"Unknown template: {template_id}")
@@ -151,15 +167,22 @@ class PodmanService:
                     f"[{container_name}] Workspace ready for connection.",
                 ],
             }
+            if progress_callback:
+                await progress_callback(f"⚡ Mock container ready on port {host_port}", "success")
             return container_id, storage_path
 
         # 1. Clean up any stale/dead container with the same name
+        if progress_callback:
+            await progress_callback(f"🧹 Clearing prior instances of [{container_name}]...", "dim")
         await self.run_cmd("rm", "-f", container_name)
 
         # 2. Check and ensure image exists or auto-build
-        await self.ensure_image_exists(template_id, template.image_tag)
+        await self.ensure_image_exists(template_id, template.image_tag, progress_callback)
 
         # 3. Podman run flags
+        if progress_callback:
+            await progress_callback(f"🐳 Executing podman run with {flavor.cpus} CPU(s) & {flavor.memory_display} RAM...", "info")
+
         cmd_args = [
             "run",
             "-d",
@@ -197,6 +220,32 @@ class PodmanService:
             raise PodmanExecutionError(f"Failed to start container: {stderr or stdout}")
 
         container_id = stdout.strip()
+
+        # 4. Fast Readiness Health Check
+        if progress_callback:
+            await progress_callback(f"⏳ Container started (ID: {container_id[:12]}). Verifying port {host_port} readiness...", "info")
+
+        start_time = time.monotonic()
+        is_ready = False
+        for _ in range(15):
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", host_port),
+                    timeout=0.6,
+                )
+                writer.close()
+                await writer.wait_closed()
+                is_ready = True
+                elapsed = time.monotonic() - start_time
+                if progress_callback:
+                    await progress_callback(f"⚡ Port {host_port} is UP and ACCEPTING connections (in {elapsed:.1f}s)!", "success")
+                break
+            except Exception:
+                await asyncio.sleep(0.4)
+
+        if not is_ready and progress_callback:
+            await progress_callback(f"ℹ️ Container is online; IDE server is finishing initialization on port {host_port}.", "info")
+
         return container_id, storage_path
 
     async def start_container(self, container_name: str) -> bool:

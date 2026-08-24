@@ -105,6 +105,6 @@ async def test_deploy_workspace_stream(client: AsyncClient):
     assert "text/event-stream" in resp.headers.get("content-type", "")
     body = resp.text
     assert "data: " in body
-    assert "Starting deployment" in body
+    assert "Initializing deployment" in body
     assert "done" in body
 

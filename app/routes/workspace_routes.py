@@ -147,60 +147,72 @@ async def deploy_workspace_stream(
     import asyncio
     from fastapi.responses import StreamingResponse
 
-    async def log_generator():
-        yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'🚀 Starting deployment for workspace [{data.name}]...'})}\n\n"
-        await asyncio.sleep(0.1)
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        template = get_template(data.template_id)
-        if not template:
-            yield f"data: {json.dumps({'type': 'error', 'text': f'Invalid template: {data.template_id}'})}\n\n"
-            return
+    async def emit_log(text: str, level: str = "info"):
+        payload = json.dumps({"type": "log", "level": level, "text": text})
+        await queue.put(f"data: {payload}\n\n")
 
-        flavor = get_flavor(data.flavor_id)
-        if not flavor:
-            yield f"data: {json.dumps({'type': 'error', 'text': f'Invalid flavor: {data.flavor_id}'})}\n\n"
-            return
+    async def emit_error(text: str):
+        payload = json.dumps({"type": "error", "text": text})
+        await queue.put(f"data: {payload}\n\n")
 
-        yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'📋 Selected Template: {template.name} ({template.image_tag})'})}\n\n"
-        yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'⚡ Allocated Quota: {flavor.cpus} CPU(s), {flavor.memory_display} RAM ({flavor.name})'})}\n\n"
-        await asyncio.sleep(0.1)
+    async def emit_done(workspace_id: str, web_url: str):
+        payload = json.dumps({"type": "done", "workspace_id": workspace_id, "web_url": web_url})
+        await queue.put(f"data: {payload}\n\n")
 
-        # Port allocation
-        stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
-        result = await db.execute(stmt)
-        used_ports = set(result.scalars().all())
-
+    async def run_deployment():
         try:
-            host_port = podman_service.find_free_port(used_ports)
-            yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'🔌 Bound isolated host TCP port: {host_port}'})}\n\n"
-        except RuntimeError as e:
-            yield f"data: {json.dumps({'type': 'error', 'text': f'Port allocation failed: {str(e)}'})}\n\n"
-            return
+            await emit_log(f"🚀 Initializing deployment pipeline for '{data.name}'...", "info")
+            await asyncio.sleep(0.05)
 
-        # Initialize workspace record
-        workspace = Workspace(
-            name=data.name.strip(),
-            description=data.description.strip(),
-            user_id=current_user.id,
-            template_id=data.template_id,
-            flavor_id=data.flavor_id,
-            container_name=f"devcloud-{current_user.id}-{data.name.strip().lower().replace(' ', '-')[:10]}",
-            host_port=host_port,
-            container_port=template.default_port,
-            storage_path="",
-            status=WorkspaceStatus.CREATING,
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(workspace)
-        await db.commit()
-        await db.refresh(workspace)
+            template = get_template(data.template_id)
+            if not template:
+                await emit_error(f"Invalid template: {data.template_id}")
+                return
 
-        workspace.container_name = f"devcloud-{current_user.id}-{workspace.id[:8]}"
-        yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'💾 Preparing persistent volume directory for user #{current_user.id}...'})}\n\n"
+            flavor = get_flavor(data.flavor_id)
+            if not flavor:
+                await emit_error(f"Invalid flavor: {data.flavor_id}")
+                return
 
-        # Container launch
-        try:
-            yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'🐳 Spawning container [{workspace.container_name}] via Podman engine...'})}\n\n"
+            await emit_log(f"📋 Template: {template.name} ({template.image_tag})", "info")
+            await emit_log(f"⚡ Quota: {flavor.cpus} CPU(s), {flavor.memory_display} RAM ({flavor.name})", "info")
+
+            # Host port selection
+            stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
+            result = await db.execute(stmt)
+            used_ports = set(result.scalars().all())
+
+            try:
+                host_port = podman_service.find_free_port(used_ports)
+                await emit_log(f"🔌 Allocated host port: {host_port}", "info")
+            except RuntimeError as e:
+                await emit_error(f"Port allocation failed: {str(e)}")
+                return
+
+            # Workspace record
+            workspace = Workspace(
+                name=data.name.strip(),
+                description=data.description.strip(),
+                user_id=current_user.id,
+                template_id=data.template_id,
+                flavor_id=data.flavor_id,
+                container_name=f"devcloud-{current_user.id}-{data.name.strip().lower().replace(' ', '-')[:10]}",
+                host_port=host_port,
+                container_port=template.default_port,
+                storage_path="",
+                status=WorkspaceStatus.CREATING,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(workspace)
+            await db.commit()
+            await db.refresh(workspace)
+
+            workspace.container_name = f"devcloud-{current_user.id}-{workspace.id[:8]}"
+            await emit_log(f"💾 Initialized persistent volume for User #{current_user.id}", "info")
+
+            # Launch container with progress callback
             container_id, storage_path = await podman_service.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=current_user.id,
@@ -209,32 +221,43 @@ async def deploy_workspace_stream(
                 flavor_id=flavor.id,
                 host_port=host_port,
                 workspace_token=workspace.workspace_token,
+                progress_callback=emit_log,
             )
+
             workspace.container_id = container_id
             workspace.storage_path = storage_path
             workspace.status = WorkspaceStatus.RUNNING
             workspace.last_started_at = datetime.now(timezone.utc)
             workspace.error_message = None
 
-            yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'✅ Container online! ID: {container_id[:12]}'})}\n\n"
-            yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'📂 Persistent storage mounted at: {storage_path}'})}\n\n"
-            yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'🚀 Service active on port {host_port}. Workspace is ready!'})}\n\n"
-            
             db.add(workspace)
             await db.commit()
             await db.refresh(workspace)
 
-            yield f"data: {json.dumps({'type': 'done', 'workspace_id': workspace.id, 'web_url': f'/proxy/{workspace.id}/'})}\n\n"
+            await emit_log(f"📂 Persistent directory: {storage_path}", "success")
+            await emit_done(workspace.id, f"/proxy/{workspace.id}/")
 
         except Exception as exc:
-            logger.error(f"Error launching workspace {workspace.id}: {exc}")
-            workspace.status = WorkspaceStatus.ERROR
-            workspace.error_message = str(exc)
-            db.add(workspace)
-            await db.commit()
-            yield f"data: {json.dumps({'type': 'error', 'text': f'Deployment failed: {str(exc)}'})}\n\n"
+            logger.error(f"Error launching workspace: {exc}")
+            if "workspace" in locals():
+                workspace.status = WorkspaceStatus.ERROR
+                workspace.error_message = str(exc)
+                db.add(workspace)
+                await db.commit()
+            await emit_error(f"Deployment error: {str(exc)}")
+        finally:
+            await queue.put(None)
 
-    return StreamingResponse(log_generator(), media_type="text/event-stream")
+    async def stream_generator():
+        task = asyncio.create_task(run_deployment())
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+        await task
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 @workspace_router.get("/{workspace_id}", response_model=WorkspaceOut)
