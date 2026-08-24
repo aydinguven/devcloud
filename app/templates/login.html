@@ -26,11 +26,12 @@
       <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Sign In</button>
     </form>
 
-    <div style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted);">
-      Don't have an account? <a href="/register">Create one</a>
+    <div style="text-align: center; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); font-size: 0.875rem; color: var(--text-muted);">
+      <p style="margin-bottom: 0.75rem;">New users receive {{ registration_cpu_quota|int }} CPU core and {{ registration_memory_gb_quota|int }} GB RAM.</p>
+      <a href="/register" class="btn btn-secondary" style="width: 100%;">Create New Account</a>
     </div>
 
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); font-size: 0.8rem; color: var(--text-muted); text-align: center;">
+    <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted); text-align: center;">
       Default admin credentials: <code style="color: #38bdf8;">admin</code> / <code style="color: #38bdf8;">admin123</code>
     </div>
   </div>

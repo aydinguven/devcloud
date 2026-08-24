@@ -35,7 +35,12 @@ async def login_page(
     return templates.TemplateResponse(
         request=request,
         name="login.html",
-        context={"app_name": settings.APP_NAME, "user": None},
+        context={
+            "app_name": settings.APP_NAME,
+            "user": None,
+            "registration_cpu_quota": settings.DEFAULT_USER_CPU_QUOTA,
+            "registration_memory_gb_quota": settings.DEFAULT_USER_MEMORY_MB_QUOTA / 1024,
+        },
     )
 
 
@@ -50,7 +55,12 @@ async def register_page(
     return templates.TemplateResponse(
         request=request,
         name="register.html",
-        context={"app_name": settings.APP_NAME, "user": None},
+        context={
+            "app_name": settings.APP_NAME,
+            "user": None,
+            "registration_cpu_quota": settings.DEFAULT_USER_CPU_QUOTA,
+            "registration_memory_gb_quota": settings.DEFAULT_USER_MEMORY_MB_QUOTA / 1024,
+        },
     )
 
 

@@ -16,6 +16,8 @@ async def test_user_registration_and_login(client: AsyncClient):
     assert reg_resp.status_code == 201, reg_resp.text
     data = reg_resp.json()
     assert data["user"]["username"] == "coder_alice"
+    assert data["user"]["cpu_quota"] == 1.0
+    assert data["user"]["memory_mb_quota"] == 1024
     assert "access_token" in data
 
     token = data["access_token"]
