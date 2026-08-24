@@ -1,4 +1,6 @@
+// ==============================================================================
 // DevCloud Client Application Logic
+// ==============================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
   initWorkspaceCreationModal();
@@ -6,6 +8,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initLogPolling();
   initQuotaForms();
   initDownloadUpdater();
+  initLiveMetricsPolling();
+  initWorkspaceTabs();
+  initPortExposer();
+  initSnapshotModal();
+  initAdminPlatformUpdater();
 });
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
@@ -25,7 +32,6 @@ function initWorkspaceCreationModal() {
 
   if (openBtn) {
     openBtn.addEventListener("click", () => {
-      // Reset state on open
       if (terminalBox) terminalBox.style.display = "none";
       if (terminal) terminal.innerHTML = "";
       if (submitBtn) {
@@ -44,7 +50,6 @@ function initWorkspaceCreationModal() {
     });
   }
 
-  // Click outside to close (only if not actively deploying)
   modalBackdrop.addEventListener("click", (e) => {
     if (e.target === modalBackdrop && (!submitBtn || !submitBtn.disabled)) {
       modalBackdrop.classList.remove("open");
@@ -87,7 +92,6 @@ function initWorkspaceCreationModal() {
     terminal.scrollTop = terminal.scrollHeight;
   }
 
-  // Form Submit with Real-time SSE Stream
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -96,10 +100,11 @@ function initWorkspaceCreationModal() {
       const description = document.getElementById("input-workspace-desc")?.value.trim() || "";
       const templateId = templateInput.value;
       const flavorId = flavorInput.value;
+      const autoStopInput = document.getElementById("input-auto-stop");
+      const autoStopMinutes = autoStopInput ? parseInt(autoStopInput.value, 10) || 0 : 0;
 
       if (!name) return;
 
-      // Show terminal box
       if (terminalBox) terminalBox.style.display = "block";
       if (terminal) terminal.innerHTML = "";
       if (statusBadge) {
@@ -113,7 +118,7 @@ function initWorkspaceCreationModal() {
       }
       if (cancelBtn) cancelBtn.style.display = "none";
 
-      appendLog(`'${name}' için istek gönderiliyor (${templateId}, ${flavorId})...`, "dim");
+      appendLog(`'${name}' için kurulum süreci başlatılıyor (${templateId}, ${flavorId})...`, "dim");
 
       try {
         const response = await fetch("/api/workspaces/deploy-stream", {
@@ -124,22 +129,13 @@ function initWorkspaceCreationModal() {
             description: description,
             template_id: templateId,
             flavor_id: flavorId,
+            auto_stop_minutes: autoStopMinutes,
           }),
         });
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          appendLog(`Hata (${response.status}): ${errData.detail || "Kurulum isteği reddedildi"}`, "error");
-          if (statusBadge) {
-            statusBadge.className = "badge badge-error";
-            statusBadge.textContent = "Başarısız";
-          }
-          if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = "Kurulumu Yeniden Dene";
-          }
-          if (cancelBtn) cancelBtn.style.display = "inline-flex";
-          return;
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP Hatası: ${response.status}`);
         }
 
         const reader = response.body.getReader();
@@ -182,7 +178,6 @@ function initWorkspaceCreationModal() {
                 `;
               }
 
-              // Auto-refresh dashboard after 2 seconds so active workspace is shown
               setTimeout(() => {
                 window.location.reload();
               }, 2000);
@@ -198,14 +193,13 @@ function initWorkspaceCreationModal() {
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
-          buffer = lines.pop(); // keep last incomplete chunk
+          buffer = lines.pop();
 
           for (const line of lines) {
             processLine(line);
           }
         }
 
-        // Process any remaining buffered text
         if (buffer) {
           processLine(buffer);
         }
@@ -265,20 +259,18 @@ function initActionButtons() {
 
         const res = await fetch(url, { method: method });
         if (!res.ok) {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           alert(err.detail || `${action} işlemi başarısız.`);
           btn.disabled = false;
           btn.innerHTML = originalHtml;
           return;
         }
 
-        // If on workspace detail page, return to dashboard
         if (action === "delete" && window.location.pathname.startsWith("/workspaces/")) {
           window.location.href = "/";
           return;
         }
 
-        // Reload page to reflect state
         window.location.reload();
       } catch (err) {
         alert("İşlem hatası: " + err.message);
@@ -309,7 +301,6 @@ function initLogPolling() {
     }
   }
 
-  // Initial fetch and poll every 3 seconds
   fetchLogs();
   setInterval(fetchLogs, 3000);
 }
@@ -458,4 +449,444 @@ function initDownloadUpdater() {
   });
 
   refreshStatus();
+}
+
+// 6. Live Metrics Polling for Dashboard & Detail Views
+function initLiveMetricsPolling() {
+  const metricBoxes = document.querySelectorAll("[data-metrics-ws-id]");
+  const detailCpu = document.getElementById("detail-val-cpu");
+  const detailRam = document.getElementById("detail-val-ram");
+  const detailRamPct = document.getElementById("detail-val-ram-pct");
+  const detailDisk = document.getElementById("detail-val-disk");
+  const detailUptime = document.getElementById("detail-val-uptime");
+
+  if (!metricBoxes.length && !detailCpu) return;
+
+  async function pollStats() {
+    try {
+      const res = await fetch("/api/workspaces/stats/summary", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const statsMap = {};
+      (data.stats || []).forEach((s) => {
+        statsMap[s.workspace_id] = s;
+      });
+
+      metricBoxes.forEach((box) => {
+        const wsId = box.dataset.metricsWsId;
+        const st = statsMap[wsId];
+        if (st) {
+          const valCpu = box.querySelector(".val-cpu");
+          const valRam = box.querySelector(".val-ram");
+          const valDisk = box.querySelector(".val-disk");
+          const valUptime = box.querySelector(".val-uptime");
+          const barCpu = box.querySelector(".bar-cpu");
+          const barRam = box.querySelector(".bar-ram");
+
+          if (valCpu) valCpu.textContent = st.status === "running" ? `${st.cpu_percent}%` : "Kapalı";
+          if (valRam) valRam.textContent = st.status === "running" ? st.mem_usage_display : "--";
+          if (valDisk) valDisk.textContent = st.disk_usage_display || "--";
+          if (valUptime) valUptime.textContent = st.uptime_display || "--";
+          if (barCpu) barCpu.style.width = `${Math.min(st.cpu_percent * 2, 50)}%`;
+          if (barRam) barRam.style.width = `${Math.min(st.mem_percent / 2, 50)}%`;
+        }
+      });
+
+      const currentWsId = document.querySelector("[data-workspace-id]")?.dataset.workspaceId;
+      if (currentWsId && statsMap[currentWsId]) {
+        const st = statsMap[currentWsId];
+        if (detailCpu) detailCpu.textContent = st.status === "running" ? `${st.cpu_percent}%` : "Durduruldu";
+        if (detailRam) detailRam.textContent = st.status === "running" ? st.mem_usage_display : "--";
+        if (detailRamPct) detailRamPct.textContent = st.status === "running" ? `%${st.mem_percent} ayrılan RAM` : "--";
+        if (detailDisk) detailDisk.textContent = st.disk_usage_display || "--";
+        if (detailUptime) detailUptime.textContent = st.uptime_display || "0s";
+      }
+    } catch (err) {
+      console.warn("Metrics polling error:", err);
+    }
+  }
+
+  setInterval(pollStats, 4000);
+  pollStats();
+}
+
+// 7. Workspace Detail Tabs
+function initWorkspaceTabs() {
+  const tabBtns = document.querySelectorAll(".tab-btn");
+  if (!tabBtns.length) return;
+
+  tabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      tabBtns.forEach((b) => {
+        b.classList.remove("active");
+        b.style.color = "var(--text-muted)";
+        b.style.borderBottom = "2px solid transparent";
+      });
+      document.querySelectorAll(".tab-content").forEach((c) => (c.style.display = "none"));
+
+      btn.classList.add("active");
+      btn.style.color = "#fff";
+      btn.style.borderBottom = "2px solid var(--primary)";
+
+      const targetTab = document.getElementById(btn.dataset.tab);
+      if (targetTab) {
+        targetTab.style.display = "block";
+        if (btn.dataset.tab === "tab-files") {
+          DevCloudFileManager.init();
+        }
+      }
+    });
+  });
+}
+
+// 8. In-Browser File Manager
+const DevCloudFileManager = {
+  workspaceId: null,
+  currentPath: "",
+
+  init() {
+    const container = document.getElementById("tab-files");
+    if (!container) return;
+    this.workspaceId = container.dataset.workspaceId;
+    this.loadDir("");
+
+    const fileInput = document.getElementById("fm-file-input");
+    if (fileInput && !fileInput.dataset.bound) {
+      fileInput.dataset.bound = "true";
+      fileInput.addEventListener("change", () => this.handleUpload());
+    }
+  },
+
+  async loadDir(path = "") {
+    this.currentPath = path;
+    const listBody = document.getElementById("fm-file-list");
+    if (!listBody) return;
+
+    listBody.innerHTML = '<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--text-muted);">Yükleniyor...</td></tr>';
+
+    try {
+      const res = await fetch(`/api/workspaces/${this.workspaceId}/files?path=${encodeURIComponent(path)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        listBody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; color: var(--danger); text-align: center;">${err.detail || "Dosyalar listelenemedi"}</td></tr>`;
+        return;
+      }
+
+      const data = await res.json();
+      this.renderBreadcrumbs(data.current_path);
+
+      if (!data.items || !data.items.length) {
+        listBody.innerHTML = '<tr><td colspan="4" style="padding: 1.5rem; text-align: center; color: var(--text-muted);">Bu klasör boş.</td></tr>';
+        return;
+      }
+
+      let html = "";
+      data.items.forEach((item) => {
+        const icon = item.is_dir ? "📁" : "📄";
+        const nameLink = item.is_dir
+          ? `<a href="javascript:void(0)" onclick="DevCloudFileManager.loadDir('${item.path}')" style="color: #fff; font-weight: 600; text-decoration: none;">${icon} ${item.name}</a>`
+          : `<span style="color: #cbd5e1;">${icon} ${item.name}</span>`;
+
+        const downloadBtn = !item.is_dir
+          ? `<a href="/api/workspaces/${this.workspaceId}/files/download?path=${encodeURIComponent(item.path)}" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.72rem;">⬇</a>`
+          : "";
+
+        const deleteBtn = `<button class="btn btn-danger btn-sm" onclick="DevCloudFileManager.deleteItem('${item.path}')" style="padding: 0.2rem 0.5rem; font-size: 0.72rem;">🗑</button>`;
+
+        html += `
+          <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 0.5rem 0.8rem;">${nameLink}</td>
+            <td style="padding: 0.5rem 0.8rem; color: var(--text-muted);">${item.size_display}</td>
+            <td style="padding: 0.5rem 0.8rem; color: var(--text-muted);">${item.modified_at}</td>
+            <td style="padding: 0.5rem 0.8rem; text-align: right; display: flex; gap: 0.3rem; justify-content: flex-end;">${downloadBtn} ${deleteBtn}</td>
+          </tr>
+        `;
+      });
+      listBody.innerHTML = html;
+    } catch (err) {
+      listBody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; color: var(--danger); text-align: center;">Hata: ${err.message}</td></tr>`;
+    }
+  },
+
+  renderBreadcrumbs(curPath) {
+    const el = document.getElementById("fm-breadcrumbs");
+    if (!el) return;
+    let html = `<span style="cursor: pointer; color: var(--primary);" onclick="DevCloudFileManager.loadDir('')">root</span>`;
+    if (curPath) {
+      const parts = curPath.split("/");
+      let accum = "";
+      parts.forEach((p) => {
+        if (!p) return;
+        accum += (accum ? "/" : "") + p;
+        const thisPath = accum;
+        html += ` <span style="color: var(--text-muted);">/</span> <span style="cursor: pointer; color: var(--primary);" onclick="DevCloudFileManager.loadDir('${thisPath}')">${p}</span>`;
+      });
+    }
+    el.innerHTML = html;
+  },
+
+  async handleUpload() {
+    const input = document.getElementById("fm-file-input");
+    if (!input || !input.files.length) return;
+
+    const formData = new FormData();
+    formData.append("path", this.currentPath);
+    for (let i = 0; i < input.files.length; i++) {
+      formData.append("files", input.files[i]);
+    }
+
+    try {
+      const res = await fetch(`/api/workspaces/${this.workspaceId}/files/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Dosya yüklenemedi.");
+      }
+      input.value = "";
+      this.loadDir(this.currentPath);
+    } catch (err) {
+      alert("Yükleme hatası: " + err.message);
+    }
+  },
+
+  async promptNewFolder() {
+    const name = prompt("Yeni klasör adını girin:");
+    if (!name || !name.trim()) return;
+    const target = (this.currentPath ? this.currentPath + "/" : "") + name.trim();
+    try {
+      const res = await fetch(`/api/workspaces/${this.workspaceId}/files/mkdir?path=${encodeURIComponent(target)}`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Klasör oluşturulamadı.");
+      }
+      this.loadDir(this.currentPath);
+    } catch (err) {
+      alert("Hata: " + err.message);
+    }
+  },
+
+  async deleteItem(path) {
+    if (!confirm(`'${path}' kalıcı olarak silinsin mi?`)) return;
+    try {
+      const res = await fetch(`/api/workspaces/${this.workspaceId}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Silinemedi.");
+      }
+      this.loadDir(this.currentPath);
+    } catch (err) {
+      alert("Silme hatası: " + err.message);
+    }
+  },
+};
+
+// 9. Custom Port Exposer Controller
+function initPortExposer() {
+  const btn = document.getElementById("btn-open-custom-port");
+  const input = document.getElementById("input-custom-port");
+  if (!btn || !input) return;
+
+  const currentWsId = document.querySelector("[data-workspace-id]")?.dataset.workspaceId;
+  btn.addEventListener("click", () => {
+    const port = parseInt(input.value, 10);
+    if (!port || port < 1 || port > 65535) {
+      alert("Lütfen geçerli bir port numarası (1-65535) girin.");
+      return;
+    }
+    window.open(`/proxy/${currentWsId}/port/${port}/`, "_blank");
+  });
+}
+
+// 10. Snapshot Modal Controller
+function initSnapshotModal() {
+  const modal = document.getElementById("snapshot-modal");
+  const openBtn = document.getElementById("btn-open-snapshot-modal");
+  const closeBtn = document.getElementById("btn-close-snapshot-modal");
+  const form = document.getElementById("snapshot-form");
+  if (!modal || !openBtn) return;
+
+  openBtn.addEventListener("click", () => modal.classList.add("open"));
+  if (closeBtn) closeBtn.addEventListener("click", () => modal.classList.remove("open"));
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const wsId = form.dataset.workspaceId;
+      const name = document.getElementById("input-snap-name").value.trim();
+      const desc = document.getElementById("input-snap-desc").value.trim();
+      const submitBtn = document.getElementById("btn-submit-snapshot");
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Şablon oluşturuluyor (podman commit)...";
+
+      const fd = new FormData();
+      fd.append("template_name", name);
+      fd.append("template_description", desc);
+
+      try {
+        const res = await fetch(`/api/workspaces/${wsId}/snapshot`, {
+          method: "POST",
+          body: fd,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Şablon oluşturulamadı");
+        }
+        alert("🎉 " + data.message);
+        modal.classList.remove("open");
+      } catch (err) {
+        alert("Snapshot hatası: " + err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Şablonu Kaydet (podman commit)";
+      }
+    });
+  }
+}
+
+// 11. Admin 1-Click Platform Self-Updater & Custom Template Builder
+function initAdminPlatformUpdater() {
+  const commitCode = document.getElementById("admin-current-commit");
+  const updateBtn = document.getElementById("btn-run-platform-update");
+  const updateTerminalBox = document.getElementById("admin-update-terminal-box");
+  const updateTerminal = document.getElementById("admin-update-terminal");
+
+  if (commitCode) {
+    fetch("/api/admin/system/update-info")
+      .then((r) => r.json())
+      .then((d) => {
+        commitCode.textContent = `${d.branch} (${d.commit})`;
+      })
+      .catch(() => {
+        commitCode.textContent = "Bağlantı hatası";
+      });
+  }
+
+  if (updateBtn) {
+    updateBtn.addEventListener("click", async () => {
+      if (!confirm("Platform git sunucusundan en güncel sürüme yükseltilsin ve servis yeniden başlatılsın mı?")) return;
+
+      updateBtn.disabled = true;
+      updateBtn.textContent = "Güncelleniyor...";
+      if (updateTerminalBox) updateTerminalBox.style.display = "block";
+      if (updateTerminal) updateTerminal.textContent = "Güncelleme başlatılıyor...\n";
+
+      try {
+        const response = await fetch("/api/admin/system/update-stream", { method: "POST" });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === "log") {
+                  updateTerminal.textContent += data.text + "\n";
+                  updateTerminal.scrollTop = updateTerminal.scrollHeight;
+                } else if (data.type === "done") {
+                  updateTerminal.textContent += "\n🎉 " + data.text + "\n";
+                  setTimeout(() => window.location.reload(), 3000);
+                } else if (data.type === "error") {
+                  updateTerminal.textContent += "\n❌ " + data.text + "\n";
+                  updateBtn.disabled = false;
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (err) {
+        updateTerminal.textContent += "\nBağlantı kesildi (servis yeniden başlıyor olabilir): " + err.message + "\n";
+        setTimeout(() => window.location.reload(), 3500);
+      }
+    });
+  }
+
+  const tbModal = document.getElementById("template-builder-modal");
+  const tbOpenBtn = document.getElementById("btn-open-template-builder-modal");
+  const tbCloseBtn = document.getElementById("btn-close-template-builder-modal");
+  const tbForm = document.getElementById("template-builder-form");
+  const tbTerminalBox = document.getElementById("tb-terminal-box");
+  const tbTerminal = document.getElementById("tb-terminal");
+
+  if (tbOpenBtn && tbModal) {
+    tbOpenBtn.addEventListener("click", () => tbModal.classList.add("open"));
+  }
+  if (tbCloseBtn && tbModal) {
+    tbCloseBtn.addEventListener("click", () => tbModal.classList.remove("open"));
+  }
+
+  if (tbForm) {
+    tbForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById("btn-submit-tb");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Derleniyor (podman build)...";
+      if (tbTerminalBox) tbTerminalBox.style.display = "block";
+      if (tbTerminal) tbTerminal.textContent = "Container derlemesi başlatılıyor...\n";
+
+      const fd = new FormData();
+      fd.append("template_id", document.getElementById("tb-input-id").value.trim());
+      fd.append("name", document.getElementById("tb-input-name").value.trim());
+      fd.append("category", document.getElementById("tb-input-category").value.trim());
+      fd.append("default_port", document.getElementById("tb-input-port").value);
+      fd.append("ide_type", document.getElementById("tb-input-ide").value);
+      fd.append("description", document.getElementById("tb-input-desc").value.trim());
+      fd.append("containerfile", document.getElementById("tb-input-containerfile").value);
+
+      try {
+        const response = await fetch("/api/admin/templates/build-stream", {
+          method: "POST",
+          body: fd,
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === "log") {
+                  tbTerminal.textContent += data.text + "\n";
+                  tbTerminal.scrollTop = tbTerminal.scrollHeight;
+                } else if (data.type === "done") {
+                  tbTerminal.textContent += "\n🎉 Şablon başarıyla derlendi ve kaydedildi!\n";
+                  setTimeout(() => {
+                    tbModal.classList.remove("open");
+                    window.location.reload();
+                  }, 2000);
+                } else if (data.type === "error") {
+                  tbTerminal.textContent += "\n❌ " + data.text + "\n";
+                  submitBtn.disabled = false;
+                  submitBtn.textContent = "Yeniden Dene";
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (err) {
+        tbTerminal.textContent += "\nHata: " + err.message + "\n";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Yeniden Dene";
+      }
+    });
+  }
 }

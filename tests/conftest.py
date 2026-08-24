@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 from app.config import settings
 from app.database import Base, get_db
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.custom_template import CustomTemplate
 from app.main import app
 from app.orchestrator.podman_service import podman_service
 

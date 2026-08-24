@@ -99,3 +99,59 @@ def get_template(template_id: str) -> WorkspaceTemplate | None:
 
 def list_templates() -> list[TemplateInfo]:
     return [template.to_schema() for template in TEMPLATES.values()]
+
+
+def register_custom_template(
+    template_id: str,
+    name: str,
+    description: str,
+    category: str,
+    image_tag: str,
+    default_port: int = 8080,
+    ide_type: str = "vscode",
+    icon: str = "cube",
+) -> WorkspaceTemplate:
+    """Register a custom template into the runtime registry."""
+    workdir = "/home/jovyan/work" if ide_type == "jupyter" else "/home/coder/project"
+    features = ["Özel Şablon", f"Port: {default_port}", f"Görüntü: {image_tag}"]
+    
+    tpl = WorkspaceTemplate(
+        id=template_id,
+        name=name,
+        description=description,
+        category=category,
+        icon=icon,
+        default_port=default_port,
+        container_workdir=workdir,
+        image_tag=image_tag,
+        features=features,
+        env_vars={"DOCKER_USER": "coder"} if ide_type != "jupyter" else {"JUPYTER_ENABLE_LAB": "yes"},
+    )
+    TEMPLATES[template_id] = tpl
+    return tpl
+
+
+async def resolve_template(db, template_id: str) -> WorkspaceTemplate | None:
+    """Lookup template from memory or load from custom_templates database table."""
+    if template_id in TEMPLATES:
+        return TEMPLATES[template_id]
+
+    from sqlalchemy import select
+    from app.models.custom_template import CustomTemplate
+
+    stmt = select(CustomTemplate).where(CustomTemplate.id == template_id)
+    res = await db.execute(stmt)
+    db_tpl = res.scalar_one_or_none()
+    if db_tpl:
+        return register_custom_template(
+            template_id=db_tpl.id,
+            name=db_tpl.name,
+            description=db_tpl.description,
+            category=db_tpl.category,
+            image_tag=db_tpl.image_tag,
+            default_port=db_tpl.default_port,
+            ide_type=db_tpl.ide_type,
+            icon=db_tpl.icon,
+        )
+    return None
+

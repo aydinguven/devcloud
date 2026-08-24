@@ -92,6 +92,22 @@
             <span class="badge badge-flavor">Profil: {{ ws.flavor_id }}</span>
             <span class="badge badge-template">{{ ws.template_id }}</span>
             <span class="badge badge-neutral">Port: {{ ws.host_port }}</span>
+            {% if ws.auto_stop_minutes > 0 %}
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">⏱ {{ ws.auto_stop_minutes }}dk Oto-Durdur</span>
+            {% endif %}
+          </div>
+
+          <div class="ws-live-metrics-box" data-metrics-ws-id="{{ ws.id }}" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.6rem 0.75rem; margin-bottom: 0.75rem; font-size: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+              <span style="color: var(--text-muted);">CPU: <strong class="val-cpu" style="color: #fff;">--</strong></span>
+              <span style="color: var(--text-muted);">RAM: <strong class="val-ram" style="color: #fff;">--</strong></span>
+              <span style="color: var(--text-muted);">Disk: <strong class="val-disk" style="color: #fff;">--</strong></span>
+              <span style="color: var(--text-muted);">Süre: <strong class="val-uptime" style="color: #10b981;">--</strong></span>
+            </div>
+            <div style="height: 4px; width: 100%; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; display: flex;">
+              <div class="bar-cpu" style="width: 0%; background: #3b82f6; transition: width 0.4s ease;"></div>
+              <div class="bar-ram" style="width: 0%; background: #10b981; transition: width 0.4s ease;"></div>
+            </div>
           </div>
 
           <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-main); padding: 0.4rem 0.6rem; border-radius: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
@@ -100,7 +116,7 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
             {% if ws_st == 'running' %}
               <a href="{{ ws.web_url }}" target="_blank" class="btn btn-success btn-sm">
                 <span>↗</span> IDE'yi Aç
@@ -109,7 +125,8 @@
             {% elif ws_st == 'stopped' or ws_st == 'error' or ws_st == 'creating' %}
               <button class="btn btn-primary btn-sm" data-action="start" data-workspace-id="{{ ws.id }}">▶ Başlat</button>
             {% endif %}
-            <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Ayrıntılar ve Loglar</a>
+            <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Ayrıntılar & Dosyalar</a>
+            <a href="/api/workspaces/{{ ws.id }}/backup/download" class="btn btn-secondary btn-sm" title="Yedek İndir (.zip)">💾 Yedek</a>
           </div>
 
           <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}" title="Çalışma Alanını Sil">Sil</button>
@@ -150,13 +167,27 @@
       </div>
 
       <div class="form-group">
+        <label class="form-label" for="input-auto-stop">Hareketsizlik Otomatik Durdurma Zamanlayıcısı</label>
+        <select id="input-auto-stop" class="form-input" style="background: var(--bg-input); color: #fff;">
+          <option value="0">Devre Dışı (Sürekli Çalışsın)</option>
+          <option value="30">30 Dakika Hareketsizlik Sonrası Durdur</option>
+          <option value="60" selected>1 Saat Hareketsizlik Sonrası Durdur</option>
+          <option value="120">2 Saat Hareketsizlik Sonrası Durdur</option>
+          <option value="240">4 Saat Hareketsizlik Sonrası Durdur</option>
+        </select>
+        <small style="color: var(--text-muted); font-size: 0.72rem; display: block; margin-top: 0.25rem;">
+          RAM ve CPU tasarrufu sağlamak için container durdurulur; dosyalarınız eksiksiz saklanır ve tek tıkla devam ettirilebilir.
+        </small>
+      </div>
+
+      <div class="form-group">
         <label class="form-label">Geliştirme Ortamı Şablonu</label>
         <div class="grid grid-cols-2" style="gap: 0.75rem;">
           {% for tpl in templates %}
             <div class="selectable-card template-card {% if loop.first %}selected{% endif %}" data-template-id="{{ tpl.id }}">
               <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
                 <span style="font-size: 1.25rem;">
-                  {% if 'react' in tpl.id %}⚛{% elif 'python' in tpl.id %}Py{% elif 'java' in tpl.id %}J{% elif 'jupyter' in tpl.id %}Jp{% else %}&lt;/&gt;{% endif %}
+                  {% if 'react' in tpl.id %}⚛{% elif 'python' in tpl.id %}Py{% elif 'java' in tpl.id %}J{% elif 'jupyter' in tpl.id %}Jp{% else %}📦{% endif %}
                 </span>
                 <span class="template-card-title">{{ tpl.name }}</span>
               </div>

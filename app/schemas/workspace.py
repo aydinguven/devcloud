@@ -28,6 +28,7 @@ class WorkspaceCreate(BaseModel):
     description: str = Field(default="", max_length=255)
     template_id: str
     flavor_id: str
+    auto_stop_minutes: int = Field(default=0, ge=0, le=1440)
 
 
 class WorkspaceOut(BaseModel):
@@ -42,6 +43,7 @@ class WorkspaceOut(BaseModel):
     container_port: int
     status: WorkspaceStatus
     storage_path: str
+    auto_stop_minutes: int = 0
     created_at: datetime
     last_started_at: datetime | None = None
     last_stopped_at: datetime | None = None

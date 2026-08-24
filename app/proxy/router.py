@@ -458,3 +458,77 @@ async def proxy_websocket(
             await websocket.close()
         except Exception:
             pass
+
+
+@proxy_router.api_route(
+    "/{workspace_id}/port/{port}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+@proxy_router.api_route(
+    "/{workspace_id}/port/{port}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+async def proxy_custom_port_http(
+    workspace_id: str,
+    port: int,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    path: str = "",
+):
+    """Proxy HTTP traffic to a custom secondary port running inside the container (e.g. 5173, 5000, 3000)."""
+    workspace = await get_authorized_workspace(workspace_id, db, current_user)
+
+    container_ip = await podman_service.get_container_ip(workspace.container_name)
+    target_host = container_ip if container_ip else "127.0.0.1"
+
+    subpath = f"/{path.lstrip('/')}"
+    target_url = f"http://{target_host}:{port}{subpath}"
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in {"host", "connection"}
+    }
+    headers["Host"] = f"{target_host}:{port}"
+    body = await request.body()
+
+    client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
+    try:
+        req = client.build_request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            content=body,
+        )
+        upstream_resp = await client.send(req, stream=True)
+        resp_headers = {
+            k: v
+            for k, v in upstream_resp.headers.items()
+            if k.lower() not in {"transfer-encoding", "connection", "content-length"}
+        }
+
+        async def stream_body():
+            try:
+                async for chunk in upstream_resp.aiter_raw():
+                    yield chunk
+            finally:
+                await upstream_resp.aclose()
+                await client.aclose()
+
+        return StreamingResponse(
+            stream_body(),
+            status_code=upstream_resp.status_code,
+            headers=resp_headers,
+            media_type=upstream_resp.headers.get("content-type"),
+        )
+    except httpx.ConnectError:
+        await client.aclose()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not connect to port {port} inside container '{workspace.name}'. Ensure your app is listening on 0.0.0.0:{port}.",
+        )
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=500, detail=f"Custom port proxy error: {str(exc)}")
+

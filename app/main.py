@@ -51,13 +51,21 @@ async def seed_initial_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
+    import asyncio
+    from app.orchestrator.idle_reaper import idle_reaper_background_worker
+
     logger.info("Initializing DevCloud Database...")
     await init_db()
     await seed_initial_admin()
     logger.info(
         f"DevCloud ready. Podman mode: {'MOCK' if podman_service.is_mock else 'NATIVE'}"
     )
+
+    # Start idle inactivity auto-stop worker
+    reaper_task = asyncio.create_task(idle_reaper_background_worker(check_interval_seconds=60))
+
     yield
+    reaper_task.cancel()
     logger.info("DevCloud shutting down...")
 
 
@@ -85,8 +93,11 @@ static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Include routers
+from app.routes.file_routes import file_router
+
 app.include_router(auth_router)
 app.include_router(workspace_router)
+app.include_router(file_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(download_router)

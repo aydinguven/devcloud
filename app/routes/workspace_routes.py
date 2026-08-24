@@ -1,9 +1,13 @@
 import asyncio
 from datetime import datetime, timezone
 import logging
+import os
+from pathlib import Path
+import shutil
 import uuid
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +16,7 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
-from app.orchestrator.templates import get_template, list_templates
+from app.orchestrator.templates import get_template, list_templates, resolve_template
 from app.orchestrator.podman_service import podman_service, PodmanExecutionError
 from app.resource_usage import get_system_usage, get_user_usage, quota_violations
 from app.schemas.workspace import (
@@ -107,7 +111,7 @@ async def create_workspace(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Create a new persistent workspace and deploy container."""
-    template = get_template(data.template_id)
+    template = await resolve_template(db, data.template_id)
     if not template:
         raise HTTPException(status_code=400, detail=f"Geçersiz şablon ID: {data.template_id}")
 
@@ -145,6 +149,7 @@ async def create_workspace(
         container_port=template.default_port,
         storage_path="",  # will be set by orchestrator
         status=WorkspaceStatus.CREATING,
+        auto_stop_minutes=data.auto_stop_minutes,
         created_at=datetime.now(timezone.utc),
     )
     db.add(workspace)
@@ -211,7 +216,7 @@ async def deploy_workspace_stream(
             await emit_log(f"'{data.name}' için kurulum süreci başlatılıyor...", "info")
             await asyncio.sleep(0.05)
 
-            template = get_template(data.template_id)
+            template = await resolve_template(db, data.template_id)
             if not template:
                 await emit_error(f"Geçersiz şablon: {data.template_id}")
                 return
@@ -256,6 +261,7 @@ async def deploy_workspace_stream(
                 container_port=template.default_port,
                 storage_path="",
                 status=WorkspaceStatus.CREATING,
+                auto_stop_minutes=data.auto_stop_minutes,
                 created_at=datetime.now(timezone.utc),
             )
             db.add(workspace)
@@ -468,13 +474,13 @@ async def delete_workspace_endpoint(
 
 
 @workspace_router.get("/{workspace_id}/logs")
-async def get_workspace_logs_endpoint(
+async def get_workspace_logs(
     workspace_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     tail: int = 100,
 ):
-    """Retrieve logs from the workspace container."""
+    """Retrieve logs from container."""
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     result = await db.execute(stmt)
     workspace = result.scalar_one_or_none()
@@ -486,3 +492,131 @@ async def get_workspace_logs_endpoint(
 
     logs = await podman_service.get_logs(workspace.container_name, tail=tail)
     return {"workspace_id": workspace_id, "logs": logs}
+
+
+@workspace_router.get("/stats/summary")
+async def get_workspaces_stats_summary(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Retrieve live CPU, RAM, Disk, and uptime stats for all workspaces owned by the user."""
+    from app.orchestrator.metrics_service import get_workspace_live_metrics
+
+    stmt = (
+        select(Workspace)
+        .where(Workspace.user_id == current_user.id, Workspace.status != WorkspaceStatus.DELETED)
+    )
+    res = await db.execute(stmt)
+    workspaces = res.scalars().all()
+
+    metrics_list = []
+    for ws in workspaces:
+        m = await get_workspace_live_metrics(ws)
+        metrics_list.append(m)
+
+    return {"stats": metrics_list}
+
+
+@workspace_router.get("/{workspace_id}/stats")
+async def get_single_workspace_stats(
+    workspace_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Retrieve live CPU, RAM, Disk, and uptime stats for a single workspace."""
+    from app.orchestrator.metrics_service import get_workspace_live_metrics
+
+    stmt = select(Workspace).where(Workspace.id == workspace_id)
+    res = await db.execute(stmt)
+    workspace = res.scalar_one_or_none()
+
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    return await get_workspace_live_metrics(workspace)
+
+
+@workspace_router.get("/{workspace_id}/backup/download")
+async def download_workspace_backup(
+    workspace_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Download a full .zip backup archive of the workspace persistent directory."""
+    import tempfile
+    from fastapi.responses import FileResponse
+    from app.orchestrator.backup_service import create_workspace_zip_backup
+
+    stmt = select(Workspace).where(Workspace.id == workspace_id)
+    res = await db.execute(stmt)
+    workspace = res.scalar_one_or_none()
+
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    if not workspace.storage_path or not os.path.exists(workspace.storage_path):
+        raise HTTPException(status_code=404, detail="Storage path does not exist.")
+
+    tmp_zip = Path(tempfile.gettempdir()) / f"devcloud_backup_{workspace.name}_{workspace.id[:8]}.zip"
+    create_workspace_zip_backup(workspace.storage_path, tmp_zip)
+
+    return FileResponse(
+        path=str(tmp_zip),
+        filename=f"{workspace.name}-backup.zip",
+        media_type="application/zip",
+    )
+
+
+@workspace_router.post("/{workspace_id}/snapshot")
+async def snapshot_workspace_endpoint(
+    workspace_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    template_name: Annotated[str, Form()],
+    template_description: Annotated[str, Form()] = "",
+):
+    """Snapshot a running/stopped container into a reusable custom template."""
+    import re
+    from app.models.custom_template import CustomTemplate
+    from app.orchestrator.backup_service import snapshot_workspace_to_image
+
+    stmt = select(Workspace).where(Workspace.id == workspace_id)
+    res = await db.execute(stmt)
+    workspace = res.scalar_one_or_none()
+
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    slug = re.sub(r"[^a-zA-Z0-9_\-]", "", template_name.lower().replace(" ", "-"))[:30]
+    template_id = f"custom-{slug}"
+
+    success, image_tag_or_err = await snapshot_workspace_to_image(workspace, slug)
+    if not success:
+        raise HTTPException(status_code=500, detail=image_tag_or_err)
+
+    custom_tpl = CustomTemplate(
+        id=template_id,
+        name=template_name.strip(),
+        description=template_description.strip() or f"Snapshotted from {workspace.name}",
+        category="Özel",
+        icon="cube",
+        image_tag=image_tag_or_err,
+        default_port=workspace.container_port,
+        ide_type="jupyter" if "jupyter" in workspace.template_id else "vscode",
+        is_ready=True,
+    )
+    db.add(custom_tpl)
+    await db.commit()
+
+    return {
+        "message": f"Successfully created template '{template_name}' from workspace.",
+        "template_id": template_id,
+        "template_name": template_name,
+        "image_tag": image_tag_or_err,
+    }
+

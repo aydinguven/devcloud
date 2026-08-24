@@ -29,6 +29,49 @@
   </div>
 </div>
 
+<div class="grid grid-cols-2" style="margin-bottom: 2rem; gap: 1.5rem;">
+  <!-- 1-Click Platform Updater Card -->
+  <div class="card" style="border-top: 3px solid #10b981;">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">🚀 1-Tıkla Platform Güncelleme</h2>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+          Git sunucusundan en güncel kodları çeker, paketleri günceller ve servisi kesintisiz yeniden başlatır.
+        </p>
+      </div>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.02); padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.825rem;">
+      <div>
+        <span style="color: var(--text-muted);">Mevcut Revizyon:</span>
+        <code id="admin-current-commit" style="color: var(--primary);">Yükleniyor...</code>
+      </div>
+      <button id="btn-run-platform-update" class="btn btn-primary btn-sm" style="font-weight: 600;">
+        🚀 Platformu Güncelle
+      </button>
+    </div>
+    <div id="admin-update-terminal-box" style="display: none;">
+      <pre id="admin-update-terminal" class="terminal-window" style="max-height: 180px; font-size: 0.75rem;"></pre>
+    </div>
+  </div>
+
+  <!-- Custom Template Builder Trigger Card -->
+  <div class="card" style="border-top: 3px solid #8b5cf6;">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">🛠️ Özel Şablon Oluşturucu</h2>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+          Doğrudan Containerfile içeriği girerek yeni ortam şablonları derleyin ve kullanıcılara sunun.
+        </p>
+      </div>
+    </div>
+    <div style="margin-top: 0.5rem;">
+      <button id="btn-open-template-builder-modal" class="btn btn-secondary btn-sm" style="width: 100%; padding: 0.6rem; font-weight: 600;">
+        + Yeni Şablon Derle (Containerfile)
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="card download-update-card" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
@@ -158,5 +201,71 @@
       {% endfor %}
     </tbody>
   </table>
+</div>
+
+<!-- Custom Template Builder Modal -->
+<div id="template-builder-modal" class="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width: 680px;">
+    <div class="card-header" style="margin-bottom: 1.25rem;">
+      <h2 class="card-title">Yeni Ortam Şablonu Derle</h2>
+      <button id="btn-close-template-builder-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+    <form id="template-builder-form">
+      <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="tb-input-id">Şablon ID (Slug)</label>
+          <input type="text" id="tb-input-id" class="form-input" placeholder="örn. custom-rust" required pattern="^[a-z0-9\-]+$">
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="tb-input-name">Görünen Ad</label>
+          <input type="text" id="tb-input-name" class="form-input" placeholder="örn. Rust 1.80 + VS Code" required>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="tb-input-category">Kategori</label>
+          <input type="text" id="tb-input-category" class="form-input" value="Özel">
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="tb-input-port">Varsayılan Port</label>
+          <input type="number" id="tb-input-port" class="form-input" value="8080" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="tb-input-ide">IDE Türü</label>
+          <select id="tb-input-ide" class="form-input" style="background: var(--bg-input); color: #fff;">
+            <option value="vscode">VS Code (code-server)</option>
+            <option value="jupyter">JupyterLab</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="tb-input-desc">Açıklama</label>
+        <input type="text" id="tb-input-desc" class="form-input" placeholder="örn. Cargo ve Rust Analyzer yüklü geliştirme ortamı">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="tb-input-containerfile">Containerfile İçeriği</label>
+        <textarea id="tb-input-containerfile" class="form-input" rows="8" style="font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.4;" placeholder="FROM docker.io/codercom/code-server:latest
+USER root
+RUN apt-get update && apt-get install -y curl build-essential
+USER coder" required></textarea>
+      </div>
+
+      <div id="tb-terminal-box" style="display: none; margin-top: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+          <label class="form-label" style="margin-bottom: 0;">Derleme Logları</label>
+          <span id="tb-status-badge" class="badge badge-creating">Derleniyor...</span>
+        </div>
+        <pre id="tb-terminal" class="terminal-window" style="max-height: 180px; font-size: 0.75rem;"></pre>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('template-builder-modal').classList.remove('open');">İptal</button>
+        <button type="submit" id="btn-submit-tb" class="btn btn-primary">🔨 Derle ve Şablonu Kaydet</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}

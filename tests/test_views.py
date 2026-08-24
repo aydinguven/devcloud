@@ -25,10 +25,10 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert login_resp.status_code == 200
     assert "DevCloud'a Hoş Geldiniz" in login_resp.text
     assert "Yeni Hesap Oluştur" in login_resp.text
-    assert "1 CPU, 1 GB RAM ve 10 GB Disk" in login_resp.text
+    from app.config import settings
     assert '<html lang="tr">' in login_resp.text
-    assert "v1.1.4" in login_resp.text
-    assert "/static/css/kurumsal.css?v=1.1.4" in login_resp.text
+    assert f"v{settings.APP_VERSION}" in login_resp.text
+    assert f"/static/css/kurumsal.css?v={settings.APP_VERSION}" in login_resp.text
     assert 'href="https://git.aydin.cloud/aydin/devcloud"' in login_resp.text
 
     # 2. Register page

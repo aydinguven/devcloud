@@ -462,33 +462,122 @@ class PodmanService:
             return []
         return [line.strip() for line in stdout.splitlines() if line.strip()]
 
-    async def warm_image_cache_background(self):
-        """Pre-warm/build all workspace template images in background on server boot."""
+    async def get_container_stats(self, container_name: str) -> dict:
+        """Fetch real-time CPU, RAM, and IO metrics for a container."""
         if self._mock_mode:
-            return
+            import random
+            return {
+                "cpu_percent": round(random.uniform(0.5, 4.2), 1),
+                "mem_usage_bytes": 156 * 1024 * 1024,
+                "mem_limit_bytes": 1024 * 1024 * 1024,
+                "mem_usage_display": "156 MB / 1 GB",
+                "mem_percent": 15.2,
+                "net_io": "12.4 KB / 4.1 KB",
+                "block_io": "0 B / 0 B",
+                "pids": 4,
+            }
 
-        from app.orchestrator.templates import TEMPLATES
-        logger.info("Checking template images cache status in background...")
+        code, stdout, stderr = await self.run_cmd("stats", "--no-stream", "--format", "json", container_name, timeout=4)
+        if code != 0 or not stdout:
+            return {
+                "cpu_percent": 0.0,
+                "mem_usage_bytes": 0,
+                "mem_limit_bytes": 0,
+                "mem_usage_display": "0 MB",
+                "mem_percent": 0.0,
+                "net_io": "--",
+                "block_io": "--",
+                "pids": 0,
+            }
 
-        for tpl_id, tpl in TEMPLATES.items():
-            try:
-                code, _, _ = await self.run_cmd("image", "exists", tpl.image_tag)
-                if code == 0:
-                    logger.info(f"Image [{tpl.image_tag}] is pre-cached and READY.")
-                else:
-                    logger.info(f"Pre-warming missing image [{tpl.image_tag}] in background...")
-                    containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / tpl_id
-                    if containers_dir.exists() and (containers_dir / "Containerfile").exists():
-                        build_code, stdout, stderr = await self.run_cmd("build", "-t", tpl.image_tag, str(containers_dir))
-                        if build_code == 0:
-                            logger.info(f"Successfully pre-warmed image [{tpl.image_tag}].")
-                        else:
-                            logger.warning(f"Failed background build of [{tpl.image_tag}]: {stderr or stdout}")
-            except Exception as exc:
-                logger.warning(f"Background pre-warm error for {tpl_id}: {exc}")
-        logger.info("Template image cache verification complete. All templates ready!")
+        try:
+            data = json.loads(stdout)
+            if isinstance(data, list) and len(data) > 0:
+                data = data[0]
+
+            def parse_pct(val):
+                if isinstance(val, (int, float)):
+                    return float(val)
+                val_str = str(val).replace("%", "").strip()
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
+
+            return {
+                "cpu_percent": parse_pct(data.get("CPUPercent", data.get("CPU", 0))),
+                "mem_usage_bytes": data.get("MemUsageRaw", 0),
+                "mem_limit_bytes": data.get("MemLimitRaw", 0),
+                "mem_usage_display": str(data.get("MemUsage", data.get("MemUsageRaw", "--"))),
+                "mem_percent": parse_pct(data.get("MemPercent", 0)),
+                "net_io": str(data.get("NetIO", "--")),
+                "block_io": str(data.get("BlockIO", "--")),
+                "pids": data.get("PIDs", 0),
+            }
+        except Exception as exc:
+            logger.warning(f"Error parsing stats JSON for {container_name}: {exc}")
+            return {
+                "cpu_percent": 0.0,
+                "mem_usage_bytes": 0,
+                "mem_limit_bytes": 0,
+                "mem_usage_display": "--",
+                "mem_percent": 0.0,
+                "net_io": "--",
+                "block_io": "--",
+                "pids": 0,
+            }
+
+    async def get_container_ip(self, container_name: str) -> str | None:
+        """Get the internal bridge network IP address of a Podman container."""
+        if self._mock_mode:
+            return "127.0.0.1"
+
+        code, stdout, _ = await self.run_cmd("inspect", "--format", "{{.NetworkSettings.IPAddress}}", container_name, timeout=3)
+        if code == 0 and stdout.strip():
+            return stdout.strip()
+        return None
+
+    async def commit_container(self, container_name: str, target_image_tag: str) -> bool:
+        """Snapshot a running/stopped container into a reusable Podman image tag."""
+        if self._mock_mode:
+            logger.info(f"[MOCK] Committed container {container_name} to image {target_image_tag}")
+            return True
+
+        code, stdout, stderr = await self.run_cmd("commit", container_name, target_image_tag, timeout=120)
+        if code != 0:
+            logger.error(f"Failed to commit container {container_name} to {target_image_tag}: {stderr or stdout}")
+            return False
+        logger.info(f"Successfully committed container {container_name} -> {target_image_tag}")
+        return True
+
+    async def build_image_from_content(self, containerfile_content: str, image_tag: str, progress_callback=None) -> tuple[bool, str]:
+        """Build a container image on the fly from raw Containerfile text."""
+        import tempfile
+        if self._mock_mode:
+            if progress_callback:
+                await progress_callback(f"[MOCK] Successfully built {image_tag}")
+            return True, "Mock build successful"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfile = Path(tmpdir) / "Containerfile"
+            cfile.write_text(containerfile_content, encoding="utf-8")
+
+            if progress_callback:
+                await progress_callback(f"Starting build for {image_tag}...")
+
+            code, stdout, stderr = await self.run_cmd("build", "-t", image_tag, tmpdir, timeout=300)
+            logs = f"{stdout}\n{stderr}".strip()
+            if code == 0:
+                if progress_callback:
+                    await progress_callback(f"Build succeeded for {image_tag}!", "success")
+                return True, logs
+            else:
+                if progress_callback:
+                    await progress_callback(f"Build failed: {stderr or stdout}", "error")
+                return False, logs
 
 
 
 podman_service = PodmanService()
+
 

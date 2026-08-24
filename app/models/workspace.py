@@ -54,6 +54,7 @@ class Workspace(Base):
         Enum(WorkspaceStatus), default=WorkspaceStatus.CREATING, nullable=False
     )
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    auto_stop_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0 = disabled
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -65,3 +66,4 @@ class Workspace(Base):
 
     def __repr__(self) -> str:
         return f"<Workspace id={self.id} name='{self.name}' status='{self.status}'>"
+

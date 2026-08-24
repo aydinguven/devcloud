@@ -106,6 +106,26 @@ async def dashboard_page(
         asyncio.to_thread(get_user_usage, current_user, workspaces),
     )
 
+    from app.models.custom_template import CustomTemplate
+    from app.orchestrator.templates import register_custom_template
+
+    custom_res = await db.execute(select(CustomTemplate))
+    custom_db_templates = custom_res.scalars().all()
+    all_tpls = list_templates()
+    for ct in custom_db_templates:
+        tpl_obj = register_custom_template(
+            template_id=ct.id,
+            name=ct.name,
+            description=ct.description,
+            category=ct.category,
+            image_tag=ct.image_tag,
+            default_port=ct.default_port,
+            ide_type=ct.ide_type,
+            icon=ct.icon,
+        )
+        if not any(t.id == ct.id for t in all_tpls):
+            all_tpls.append(tpl_obj.to_schema())
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -113,7 +133,7 @@ async def dashboard_page(
             "app_name": settings.APP_NAME,
             "user": current_user,
             "workspaces": ws_list,
-            "templates": list_templates(),
+            "templates": all_tpls,
             "flavors": list_flavors(),
             "system_usage": system_usage,
             "user_usage": user_usage,
