@@ -302,13 +302,14 @@ async def start_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
 
-    if workspace.status == WorkspaceStatus.RUNNING:
-        ws_out = WorkspaceOut.model_validate(workspace)
-        ws_out.web_url = f"/proxy/{workspace.id}/"
-        return ws_out
-
     try:
-        if await podman_service.container_exists(workspace.container_name):
+        container_exists = await podman_service.container_exists(workspace.container_name)
+        if workspace.status == WorkspaceStatus.RUNNING and container_exists:
+            ws_out = WorkspaceOut.model_validate(workspace)
+            ws_out.web_url = f"/proxy/{workspace.id}/"
+            return ws_out
+
+        if container_exists:
             success = await podman_service.start_container(workspace.container_name)
         else:
             logger.info(

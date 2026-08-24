@@ -110,10 +110,7 @@ async def test_start_recreates_missing_container_with_same_workspace(client: Asy
     assert create_resp.status_code == 201
     workspace = create_resp.json()
 
-    stop_resp = await client.post(
-        f"/api/workspaces/{workspace['id']}/stop", headers=headers
-    )
-    assert stop_resp.status_code == 200
+    # Simulate out-of-band removal while the database still says "running".
     assert await podman_service.delete_container(workspace["container_name"]) is True
     assert await podman_service.container_exists(workspace["container_name"]) is False
 
