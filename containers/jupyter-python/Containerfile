@@ -25,4 +25,5 @@ RUN pip install --no-cache-dir \
 
 EXPOSE 8888
 
-CMD ["start-notebook.py", "--ServerApp.ip=0.0.0.0", "--ServerApp.port=8888", "--ServerApp.allow_origin='*'", "--ServerApp.root_dir=/home/jovyan/work"]
+CMD ["start-notebook.py", "--ServerApp.ip=0.0.0.0", "--ServerApp.port=8888", "--ServerApp.allow_origin='*'", "--ServerApp.token=''", "--ServerApp.password=''", "--ServerApp.disable_check_xsrf=True", "--ServerApp.root_dir=/home/jovyan/work"]
+

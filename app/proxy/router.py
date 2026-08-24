@@ -74,45 +74,84 @@ async def proxy_http_request(
     headers["Host"] = f"127.0.0.1:{workspace.host_port}"
 
     body = await request.body()
+    client = httpx.AsyncClient(timeout=30.0)
 
-    try:
-        client = httpx.AsyncClient(timeout=60.0)
-        req = client.build_request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            content=body,
-        )
-        resp = await client.send(req, stream=True)
+    # Retry loop to gracefully handle initial container service boot time (2-5s)
+    max_retries = 6
+    resp = None
 
-        # Build response streaming
-        async def response_stream():
-            try:
-                async for chunk in resp.aiter_raw():
-                    yield chunk
-            finally:
-                await resp.aclose()
+    for attempt in range(max_retries):
+        try:
+            req = client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+            )
+            resp = await client.send(req, stream=True)
+            break
+        except httpx.ConnectError:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0)
+            else:
                 await client.aclose()
+                # Return auto-refreshing HTML waiting screen for GET browser requests
+                if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+                    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="2">
+    <title>Starting {workspace.name} - DevCloud</title>
+    <style>
+        body {{ background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+        .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 2.5rem; text-align: center; max-width: 460px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }}
+        .spinner {{ width: 44px; height: 44px; border: 4px solid #334155; border-top-color: #38bdf8; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+        h1 {{ font-size: 1.35rem; margin-bottom: 0.5rem; }}
+        p {{ color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }}
+        code {{ background: #0f172a; padding: 0.2rem 0.5rem; border-radius: 4px; color: #38bdf8; font-size: 0.8rem; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="spinner"></div>
+        <h1>Initializing {workspace.name}...</h1>
+        <p>The container IDE service is starting up on port <code>{workspace.host_port}</code>. This page will connect automatically in a few seconds.</p>
+    </div>
+</body>
+</html>"""
+                    return HTMLResponse(content=html_content, status_code=200)
 
-        response_headers = dict(resp.headers)
-        # Remove hop-by-hop headers
-        for h in ["content-encoding", "transfer-encoding", "content-length"]:
-            response_headers.pop(h, None)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Could not connect to workspace container. It may still be starting up.",
+                )
+        except Exception as e:
+            await client.aclose()
+            logger.error(f"Proxy error for workspace {workspace_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Proxy error: {str(e)}")
 
-        return StreamingResponse(
-            response_stream(),
-            status_code=resp.status_code,
-            headers=response_headers,
-            media_type=resp.headers.get("content-type"),
-        )
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to workspace container. It may still be starting up.",
-        )
-    except Exception as e:
-        logger.error(f"Proxy error for workspace {workspace_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Proxy error: {str(e)}")
+    # Build response streaming
+    async def response_stream():
+        try:
+            async for chunk in resp.aiter_raw():
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    response_headers = dict(resp.headers)
+    # Remove hop-by-hop headers
+    for h in ["content-encoding", "transfer-encoding", "content-length"]:
+        response_headers.pop(h, None)
+
+    return StreamingResponse(
+        response_stream(),
+        status_code=resp.status_code,
+        headers=response_headers,
+        media_type=resp.headers.get("content-type"),
+    )
 
 
 @proxy_router.websocket("/{workspace_id}/{path:path}")
