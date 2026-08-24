@@ -121,17 +121,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now devcloud
 ```
 
-#### Bounded Service Restart
+#### Workspace-Safe Service Reload
 
-Use the project helper instead of a blocking `systemctl restart`:
+Use the project helper after application updates instead of `systemctl restart`:
 
 ```bash
 bash deploy/restart.sh
 ```
 
-The helper preserves Podman workspace containers, bounds stop/start waits,
-cleans up stale Uvicorn workers, verifies `http://127.0.0.1:8000/login`, and
-prints service logs if the application does not become healthy.
+The helper sends `SIGHUP` to Uvicorn's manager so its workers load the new code
+one at a time without stopping the systemd unit or its Podman workspace
+supervisors. It bounds the reload/start wait, verifies
+`http://127.0.0.1:8000/login`, and prints service logs if the application does
+not become healthy. The installed unit also supports `sudo systemctl reload
+devcloud` after `deploy/devcloud.service` has been copied into place.
 
 ---
 
