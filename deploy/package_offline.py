@@ -95,8 +95,17 @@ def main():
     )
 
     if podman_available:
-        print("Podman detected. Building and exporting images...")
+        print("Podman detected. Ensuring all 4 images are built and exported...")
         for name, tag in images:
+            # Check if image exists; if not, build it
+            exists_res = subprocess.run([podman_bin, "image", "exists", tag])
+            if exists_res.returncode != 0:
+                short_name = name.replace("devcloud-", "")
+                container_path = root_dir / "containers" / short_name
+                if container_path.exists():
+                    print(f"Building {tag} from {container_path.name}...")
+                    run([podman_bin, "build", "-t", tag, str(container_path)])
+
             tar_path = images_dir / f"{name}.tar"
             print(f"Exporting {tag} -> {tar_path.name}...")
             run([podman_bin, "save", "-o", str(tar_path), tag])
