@@ -50,18 +50,12 @@ async def seed_initial_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
-    import asyncio
-
     logger.info("Initializing DevCloud Database...")
     await init_db()
     await seed_initial_admin()
     logger.info(
         f"DevCloud ready. Podman mode: {'MOCK' if podman_service.is_mock else 'NATIVE'}"
     )
-
-    # Pre-warm template images in background so workspace deployments are instant
-    asyncio.create_task(podman_service.warm_image_cache_background())
-
     yield
     logger.info("DevCloud shutting down...")
 
