@@ -348,6 +348,95 @@ code { color: #8d0022; }
 .download-item + .download-item { border-top-color: var(--pale-blue); }
 .quota-summary strong { color: var(--heading); }
 
+/* Admin user and quota cards */
+.admin-users-panel {
+  margin-bottom: 2rem;
+  overflow: hidden;
+  padding: 0;
+}
+.admin-users-panel > .card-header {
+  align-items: center;
+  margin: 0;
+  padding: 1.25rem 1.4rem;
+}
+.admin-section-description {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 0.3rem;
+}
+.admin-section-count {
+  background: var(--pale-blue);
+  border: 1px solid #d4deeb;
+  border-radius: 999px;
+  color: #536176;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.28rem 0.6rem;
+}
+.admin-user-list { display: grid; }
+.admin-user-card {
+  align-items: center;
+  display: grid;
+  gap: 1.4rem;
+  grid-template-columns: minmax(230px, 0.85fr) minmax(230px, 0.8fr) minmax(360px, 1.35fr);
+  padding: 1.25rem 1.4rem;
+}
+.admin-user-card + .admin-user-card { border-top: 1px solid #e1e7ef; }
+.admin-user-card:nth-child(even) { background: #fafbfd; }
+.admin-user-header { min-width: 0; }
+.admin-user-identity { align-items: flex-start; display: flex; gap: 0.75rem; min-width: 0; }
+.admin-user-id {
+  align-items: center;
+  background: var(--secondary);
+  border-radius: 2px;
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 750;
+  height: 32px;
+  justify-content: center;
+  min-width: 38px;
+  padding: 0 0.4rem;
+}
+.admin-user-copy { display: flex; flex-direction: column; min-width: 0; }
+.admin-user-name { color: var(--heading); font-size: 0.95rem; }
+.admin-user-full-name { color: var(--text-main); font-size: 0.78rem; margin-top: 0.12rem; }
+.admin-user-email {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+}
+.admin-user-badges { align-items: center; display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; padding-left: 3.25rem; }
+.admin-user-status { align-items: center; display: inline-flex; font-size: 0.7rem; font-weight: 700; gap: 0.3rem; }
+.admin-user-status::before { border-radius: 50%; content: ""; height: 7px; width: 7px; }
+.admin-user-status.is-active { color: var(--success); }
+.admin-user-status.is-active::before { background: var(--success); }
+.admin-user-status.is-inactive { color: var(--danger); }
+.admin-user-status.is-inactive::before { background: var(--danger); }
+.admin-user-usage,
+.admin-quota-form { min-width: 0; }
+.admin-user-usage h3,
+.admin-quota-form h3 {
+  color: #5d6a7d;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  margin-bottom: 0.55rem;
+  text-transform: uppercase;
+}
+.admin-quota-metric + .admin-quota-metric { margin-top: 0.5rem; }
+.admin-quota-label { align-items: baseline; display: flex; font-size: 0.68rem; justify-content: space-between; margin-bottom: 0.2rem; }
+.admin-quota-label span { color: var(--heading); font-weight: 750; }
+.admin-quota-label strong { color: var(--text-muted); font-weight: 600; }
+.admin-quota-track { background: #e2e8f0; height: 4px; overflow: hidden; }
+.admin-quota-track span { background: var(--primary); display: block; height: 100%; }
+.admin-quota-form .quota-input-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-quota-form .quota-field .form-input { min-width: 0; width: 100%; }
+.admin-quota-form .quota-actions { justify-content: flex-start; }
+
 /* Footer */
 .site-footer {
   background: var(--secondary);
@@ -368,6 +457,15 @@ code { color: #8d0022; }
 .site-footer strong { color: #fff; }
 .site-footer-version { color: #d6ca84; font-family: var(--font-mono); }
 
+@media (max-width: 1050px) {
+  .admin-user-card {
+    align-items: stretch;
+    grid-template-columns: minmax(220px, 0.9fr) minmax(300px, 1.1fr);
+  }
+  .admin-user-header { grid-column: 1 / -1; }
+  .admin-user-badges { padding-left: 3.25rem; }
+}
+
 @media (max-width: 860px) {
   .navbar { align-items: flex-start; flex-direction: column; padding: 0.55rem 1rem 0; }
   .navbar-brand { padding: 0.4rem 0; }
@@ -378,6 +476,15 @@ code { color: #8d0022; }
   .page-heading .btn { align-self: flex-start; }
   .site-footer-inner { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .brand-subtitle { display: none; }
+}
+
+@media (max-width: 620px) {
+  .admin-users-panel > .card-header { align-items: flex-start; flex-direction: column; }
+  .admin-user-card { grid-template-columns: minmax(0, 1fr); padding: 1.1rem; }
+  .admin-user-header { grid-column: auto; }
+  .admin-user-badges { padding-left: 0; }
+  .admin-quota-form .quota-input-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-quota-form .quota-actions { align-items: stretch; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

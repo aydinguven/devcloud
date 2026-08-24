@@ -70,4 +70,5 @@ async def test_admin_access_controls(client: AsyncClient):
     admin_page = await client.get("/admin", headers=admin_headers)
     assert admin_page.status_code == 200
     assert "Kota Ayarları" in admin_page.text
-    assert 'class="quota-form"' in admin_page.text
+    assert 'class="admin-user-card"' in admin_page.text
+    assert 'class="quota-form admin-quota-form"' in admin_page.text

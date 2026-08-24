@@ -388,7 +388,7 @@ function initDownloadUpdater() {
     badge.textContent = badgeText;
     message.textContent = data.enabled
       ? (data.message || "Güncel paket oluşturulmaya hazır.")
-      : "Güncellemeler devre dışı. Sunucuda DOWNLOADS_ENABLED ve DOWNLOAD_UPDATES_ENABLED ayarlarını etkinleştirin.";
+      : "İndirme güncellemeleri bu kurulumda kapalı. Sunucuda sudo bash deploy/enable_downloads.sh komutunu çalıştırın.";
 
     const active = data.state === "queued" || data.state === "running";
     button.disabled = !data.enabled || active;

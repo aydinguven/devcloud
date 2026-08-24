@@ -93,41 +93,24 @@ acceptable if your server has suitable quotas.
 
 ### Optional: publish and update bundles from the admin page
 
-A connected DevCloud server can expose verified bundles at `/download/` and let
-an administrator rebuild them from the Admin page. This feature is disabled by
-default because it downloads wheels, rebuilds five Podman images, consumes
+A connected DevCloud server exposes verified bundles at `/download/` and lets
+an administrator rebuild them from the management page. New installations
+enable this feature and prepare its directories automatically. For an existing
+installation, enable it once with:
+
+```bash
+sudo bash deploy/enable_downloads.sh
+```
+
+The helper prepares writable build/publication directories, updates the
+project-root `.env`, restores standard SELinux file contexts when available,
+and reloads DevCloud. Then use **Yönetim > Çevrim Dışı İndirmeler > İndirmeleri
+Güncelle**.
+
+The update operation downloads wheels, rebuilds five Podman images, consumes
 substantial disk space, and requires access to package and container registries.
-It is not available on a truly disconnected server.
-
-Create writable build and publication directories for the systemd service user:
-
-```bash
-SERVICE_USER="$(systemctl show -p User --value devcloud)"
-test -n "${SERVICE_USER}" || SERVICE_USER=root
-SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
-
-sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0750 \
-  /var/lib/devcloud/download-builds
-sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 \
-  /srv/devcloud-downloads
-```
-
-Set these values in the project-root `.env`:
-
-```dotenv
-DOWNLOADS_ENABLED=True
-DOWNLOAD_UPDATES_ENABLED=True
-DOWNLOADS_ROOT=/srv/devcloud-downloads
-DOWNLOAD_BUILD_ROOT=/var/lib/devcloud/download-builds
-DOWNLOAD_TARGET_PYTHON_VERSION=3.12
-```
-
-Restart DevCloud, sign in as an administrator, and use **Admin > Offline
-Downloads > Update downloads**:
-
-```bash
-bash deploy/restart.sh
-```
+On a truly disconnected server, keep published downloads available but set
+`DOWNLOAD_UPDATES_ENABLED=False` to prevent rebuild attempts.
 
 The background job requires a clean tracked Git working tree. It builds into a
 temporary directory, verifies both the internal artifact manifest and outer

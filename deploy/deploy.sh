@@ -25,6 +25,16 @@ sudo mkdir -p "${WORKSPACES_DIR}"
 sudo chown "$USER:$USER" "${WORKSPACES_DIR}"
 sudo chmod 755 "${WORKSPACES_DIR}"
 
+DOWNLOADS_DIR="/srv/devcloud-downloads"
+DOWNLOAD_BUILD_DIR="/var/lib/devcloud/download-builds"
+echo "Preparing offline download publication directories..."
+sudo install -d -o "$USER" -g "$USER" -m 0755 "${DOWNLOADS_DIR}"
+sudo install -d -o "$USER" -g "$USER" -m 0750 "${DOWNLOAD_BUILD_DIR}"
+
+if command -v restorecon >/dev/null 2>&1; then
+    sudo restorecon -RF "${DOWNLOADS_DIR}" "${DOWNLOAD_BUILD_DIR}" || true
+fi
+
 echo "Configuring SELinux workspace labels when supported..."
 DEVCLOUD_SERVICE_USER="$USER" bash "${PROJECT_DIR}/deploy/configure_selinux.sh"
 

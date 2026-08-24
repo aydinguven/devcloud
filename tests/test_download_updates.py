@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config import settings
+from app.config import Settings, settings
 from app.download_updates import (
     DownloadUpdateDisabled,
     DownloadUpdateManager,
@@ -61,6 +61,12 @@ def test_publish_rejects_tampered_checksum(tmp_path: Path, monkeypatch):
     manager = DownloadUpdateManager()
     with pytest.raises(RuntimeError, match="checksum doğrulaması başarısız"):
         manager._verify_pair(archive, checksum)
+
+
+def test_download_publisher_is_enabled_by_default():
+    defaults = Settings(_env_file=None)
+    assert defaults.DOWNLOADS_ENABLED is True
+    assert defaults.DOWNLOAD_UPDATES_ENABLED is True
 
 
 def test_start_rejects_disabled_updates(monkeypatch):

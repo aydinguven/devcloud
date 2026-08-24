@@ -52,71 +52,75 @@
   </p>
 </div>
 
-<div class="card" style="margin-bottom: 2rem; overflow-x: auto;">
+<section class="card admin-users-panel">
   <div class="card-header">
-    <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
+    <div>
+      <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
+      <p class="admin-section-description">Hesap bilgilerini, kaynak kullanımını ve kullanıcı kotalarını tek görünümden yönetin.</p>
+    </div>
+    <span class="admin-section-count">{{ all_users|length }} kullanıcı</span>
   </div>
-  <table class="table">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Kullanıcı Adı</th>
-        <th>Ad Soyad</th>
-        <th>E-posta</th>
-        <th>Rol</th>
-        <th>Kaynak</th>
-        <th>Durum</th>
-        <th>Kullanım / Kota</th>
-        <th>Kota Ayarları</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for u in all_users %}
-        <tr>
-          <td>{{ u.id }}</td>
-          <td style="font-weight: 600; color: #fff;">{{ u.username }}</td>
-          <td>{{ u.full_name or '-' }}</td>
-          <td>{{ u.email }}</td>
-          <td>
+  <div class="admin-user-list">
+    {% for u in all_users %}
+      {% set quota_usage = usage_by_user[u.id] %}
+      <article class="admin-user-card">
+        <header class="admin-user-header">
+          <div class="admin-user-identity">
+            <span class="admin-user-id">#{{ u.id }}</span>
+            <div class="admin-user-copy">
+              <strong class="admin-user-name">{{ u.username }}</strong>
+              <span class="admin-user-full-name">{{ u.full_name or 'Ad soyad girilmemiş' }}</span>
+              <a class="admin-user-email" href="mailto:{{ u.email }}">{{ u.email }}</a>
+            </div>
+          </div>
+          <div class="admin-user-badges">
             <span class="badge {% if u.role == 'admin' %}badge-role-admin{% else %}badge-role-user{% endif %}">
               {% if u.role == 'admin' %}Yönetici{% else %}Kullanıcı{% endif %}
             </span>
-          </td>
-          <td>{{ {'internal': 'Dahili', 'active_directory': 'Active Directory'}.get(u.auth_source, u.auth_source) }}</td>
-          <td>{% if u.is_active %}<span style="color: var(--success);">Aktif</span>{% else %}<span style="color: var(--danger);">Pasif</span>{% endif %}</td>
-          {% set quota_usage = usage_by_user[u.id] %}
-          <td class="quota-summary">
-            <span><strong>CPU</strong> {{ quota_usage.cpu.used_display }} / {{ quota_usage.cpu.limit_display }}</span>
-            <span><strong>RAM</strong> {{ quota_usage.memory.used_display }} / {{ quota_usage.memory.limit_display }}</span>
-            <span><strong>Disk</strong> {{ quota_usage.disk.used_display }} / {{ quota_usage.disk.limit_display }}</span>
-          </td>
-          <td>
-            <form class="quota-form" data-user-id="{{ u.id }}">
-              <div class="quota-input-grid">
-                <label class="quota-field">
-                  <span>CPU</span>
-                  <input class="form-input" type="number" name="cpu_quota" min="0" max="256" step="0.5" value="{{ u.cpu_quota }}" required>
-                </label>
-                <label class="quota-field">
-                  <span>RAM GB</span>
-                  <input class="form-input" type="number" name="memory_gb_quota" min="0" max="1024" step="0.25" value="{{ '%.2f'|format(u.memory_mb_quota / 1024) }}" required>
-                </label>
-                <label class="quota-field">
-                  <span>Disk GB</span>
-                  <input class="form-input" type="number" name="disk_gb_quota" min="0" max="1048576" step="0.25" value="{{ '%.2f'|format(u.disk_mb_quota / 1024) }}" required>
-                </label>
+            <span class="badge badge-neutral">{{ {'internal': 'Dahili', 'active_directory': 'Active Directory'}.get(u.auth_source, u.auth_source) }}</span>
+            <span class="admin-user-status {% if u.is_active %}is-active{% else %}is-inactive{% endif %}">{% if u.is_active %}Aktif{% else %}Pasif{% endif %}</span>
+          </div>
+        </header>
+
+        <section class="admin-user-usage" aria-label="{{ u.username }} kaynak kullanımı">
+          <h3>Kullanım / Kota</h3>
+          {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk')] %}
+            {% set metric = quota_usage[key] %}
+            <div class="admin-quota-metric">
+              <div class="admin-quota-label">
+                <span>{{ label }}</span>
+                <strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong>
               </div>
-              <div class="quota-actions">
-                <button type="submit" class="btn btn-primary btn-sm">Kotayı Kaydet</button>
-                <span class="quota-form-status" role="status"></span>
-              </div>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+              <div class="admin-quota-track"><span style="width: {{ metric.percent }}%;"></span></div>
+            </div>
+          {% endfor %}
+        </section>
+
+        <form class="quota-form admin-quota-form" data-user-id="{{ u.id }}">
+          <h3>Kota Ayarları</h3>
+          <div class="quota-input-grid">
+            <label class="quota-field">
+              <span>CPU</span>
+              <input class="form-input" type="number" name="cpu_quota" min="0" max="256" step="0.5" value="{{ u.cpu_quota }}" required>
+            </label>
+            <label class="quota-field">
+              <span>RAM GB</span>
+              <input class="form-input" type="number" name="memory_gb_quota" min="0" max="1024" step="0.25" value="{{ '%.2f'|format(u.memory_mb_quota / 1024) }}" required>
+            </label>
+            <label class="quota-field">
+              <span>Disk GB</span>
+              <input class="form-input" type="number" name="disk_gb_quota" min="0" max="1048576" step="0.25" value="{{ '%.2f'|format(u.disk_mb_quota / 1024) }}" required>
+            </label>
+          </div>
+          <div class="quota-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Kotayı Kaydet</button>
+            <span class="quota-form-status" role="status"></span>
+          </div>
+        </form>
+      </article>
+    {% endfor %}
+  </div>
+</section>
 
 <div class="card" style="overflow-x: auto;">
   <div class="card-header">

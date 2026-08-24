@@ -145,8 +145,8 @@ class DownloadUpdateManager:
     def start(self) -> dict[str, Any]:
         if not settings.DOWNLOADS_ENABLED or not settings.DOWNLOAD_UPDATES_ENABLED:
             raise DownloadUpdateDisabled(
-                "İndirme yayını devre dışı. DOWNLOADS_ENABLED=True ve "
-                "DOWNLOAD_UPDATES_ENABLED=True olarak ayarlayın."
+                "İndirme yayını devre dışı. Sunucuda sudo bash "
+                "deploy/enable_downloads.sh komutunu çalıştırın."
             )
         self._acquire_lock()
         try:

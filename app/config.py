@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings and configuration."""
     
     APP_NAME: str = "DevCloud Çalışma Alanı Yönetimi"
-    APP_VERSION: str = "1.1.0"
+    APP_VERSION: str = "1.1.1"
     ENV: str = "development"
     DEBUG: bool = True
     
@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     DEFAULT_USER_MEMORY_MB_QUOTA: int = 1024
     DEFAULT_USER_DISK_MB_QUOTA: int = 10240
 
-    # Offline bundle publishing (admin-triggered and disabled by default).
-    DOWNLOADS_ENABLED: bool = False
-    DOWNLOAD_UPDATES_ENABLED: bool = False
+    # Offline bundle publishing (admin-only; disable updates on disconnected hosts).
+    DOWNLOADS_ENABLED: bool = True
+    DOWNLOAD_UPDATES_ENABLED: bool = True
     DOWNLOADS_ROOT: str = "/srv/devcloud-downloads"
     DOWNLOAD_BUILD_ROOT: str = str(BASE_DIR / "data" / "download-builds")
     DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
