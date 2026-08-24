@@ -6,16 +6,17 @@ After=network.target
 Type=simple
 User={{USER}}
 WorkingDirectory={{PROJECT_DIR}}
-ExecStart={{PROJECT_DIR}}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart={{PROJECT_DIR}}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --timeout-graceful-shutdown 1
 Restart=always
-RestartSec=5
+RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 Environment=STORAGE_ROOT=/var/lib/devcloud/workspaces
 
-# Security & Limits
+# Security & Fast Shutdown Limits
 LimitNOFILE=65535
-TimeoutStopSec=10
+TimeoutStopSec=3
 KillMode=mixed
+SendSIGKILL=yes
 
 [Install]
 WantedBy=multi-user.target
