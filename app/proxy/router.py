@@ -285,11 +285,21 @@ async def proxy_http_request(
         for key, value in request.headers.items()
         if key.lower() not in excluded_headers
     }
-    # Set host header to localhost target
-    headers["Host"] = f"127.0.0.1:{workspace.host_port}"
     if "jupyter" in workspace.template_id:
+        # Keep Jupyter's same-origin check intact. The TCP hop is loopback, but
+        # Origin must be compared with the browser-facing Host rather than the
+        # container port or Jupyter masks unsafe requests as a 404.
+        public_host = request.headers.get("host")
+        if public_host:
+            headers["Host"] = public_host
+            headers["X-Forwarded-Host"] = public_host
+        else:
+            headers["Host"] = f"127.0.0.1:{workspace.host_port}"
+        headers["X-Forwarded-Proto"] = request.url.scheme
         # Authenticate only the trusted loopback hop; never expose this token.
         headers["Authorization"] = f"token {workspace.workspace_token}"
+    else:
+        headers["Host"] = f"127.0.0.1:{workspace.host_port}"
 
     body = await request.body()
     client = httpx.AsyncClient(timeout=30.0)

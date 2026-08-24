@@ -213,7 +213,7 @@ async def test_proxy_preserves_multiple_jupyter_set_cookie_headers(
 
 @pytest.mark.asyncio
 async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClient, monkeypatch):
-    """Compressed upstream bytes must retain their Content-Encoding header."""
+    """Compressed bytes and Jupyter browser-facing headers must survive proxying."""
     html_body = b"<!doctype html><html><body>Code Server</body></html>"
     compressed_body = gzip.compress(html_body)
 
@@ -271,12 +271,23 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
 
     response = await client.get(
         f"/proxy/{workspace_id}/",
-        headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "gzip"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept-Encoding": "gzip",
+            "Origin": "http://test",
+        },
     )
 
     assert response.status_code == 200
     assert response.content == html_body
     assert response.headers["content-encoding"] == "gzip"
     assert captured_request["url"].endswith(f"/proxy/{workspace_id}/")
-    assert captured_request["headers"]["Authorization"].startswith("token ")
-    assert captured_request["headers"]["Authorization"] != f"Bearer {token}"
+    captured_headers = {
+        key.lower(): value for key, value in captured_request["headers"].items()
+    }
+    assert captured_headers["authorization"].startswith("token ")
+    assert captured_headers["authorization"] != f"Bearer {token}"
+    assert captured_headers["origin"] == "http://test"
+    assert captured_headers["host"] == "test"
+    assert captured_headers["x-forwarded-host"] == "test"
+    assert captured_headers["x-forwarded-proto"] == "http"
