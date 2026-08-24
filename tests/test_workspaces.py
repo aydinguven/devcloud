@@ -30,6 +30,7 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
     tpl_ids = [t["id"] for t in templates]
     assert "vscode-empty" in tpl_ids
     assert "vscode-python" in tpl_ids
+    assert "vscode-react" in tpl_ids
     assert "jupyter-python" in tpl_ids
     assert "vscode-java" in tpl_ids
 

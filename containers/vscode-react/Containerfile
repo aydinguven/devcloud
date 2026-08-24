@@ -1,0 +1,32 @@
+# VS Code (React / Node.js Environment)
+FROM docker.io/codercom/code-server:latest
+
+USER root
+
+# Install Node.js 22 LTS plus common native build dependencies used by npm packages.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    build-essential \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh \
+    && bash /tmp/nodesource_setup.sh \
+    && rm -f /tmp/nodesource_setup.sh \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install --global pnpm yarn \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER coder
+WORKDIR /home/coder/project
+
+# Editor support for modern React, TypeScript, formatting, and Tailwind projects.
+RUN code-server --install-extension dbaeumer.vscode-eslint || true
+RUN code-server --install-extension esbenp.prettier-vscode || true
+RUN code-server --install-extension bradlc.vscode-tailwindcss || true
+RUN code-server --install-extension formulahendry.auto-rename-tag || true
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "--auth", "none", "/home/coder/project"]

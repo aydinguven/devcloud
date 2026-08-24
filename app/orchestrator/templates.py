@@ -54,6 +54,18 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         features=["Python 3.14 Runtime", "VS Code Python Extension", "uv & pip", "Jupyter Interactive Extension"],
         env_vars={"DOCKER_USER": "coder"},
     ),
+    "vscode-react": WorkspaceTemplate(
+        id="vscode-react",
+        name="VS Code (React / Node.js)",
+        description="VS Code preloaded with Node.js 22 LTS, package managers, and React/TypeScript tooling.",
+        category="Web Development",
+        icon="code-bracket-square",
+        default_port=8080,
+        container_workdir="/home/coder/project",
+        image_tag="localhost/devcloud-vscode-react:latest",
+        features=["Node.js 22 LTS", "React & TypeScript Tooling", "npm, pnpm & Yarn", "ESLint & Prettier Extensions"],
+        env_vars={"DOCKER_USER": "coder"},
+    ),
     "jupyter-python": WorkspaceTemplate(
         id="jupyter-python",
         name="Jupyter Notebook / Lab (Python)",

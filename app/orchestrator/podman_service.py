@@ -453,6 +453,7 @@ class PodmanService:
             return [
                 "localhost/devcloud-vscode-empty:latest",
                 "localhost/devcloud-vscode-python:latest",
+                "localhost/devcloud-vscode-react:latest",
                 "localhost/devcloud-jupyter-python:latest",
                 "localhost/devcloud-vscode-java:latest",
             ]

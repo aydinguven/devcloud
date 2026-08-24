@@ -38,6 +38,7 @@ FastAPI Web App & Reverse Proxy (:8000)
             │
             ├── vscode-empty container    <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
             ├── vscode-python container   <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
+            ├── vscode-react container    <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
             ├── jupyter-python container  <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
             └── vscode-java container     <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
 ```
@@ -155,7 +156,7 @@ python deploy/package_offline.py
 ```
 This generates:
 - `offline/wheels/`: All downloaded `.whl` dependency packages.
-- `offline/images/`: Exported `.tar` container images for all 4 environments (`vscode-empty`, `vscode-python`, `jupyter-python`, `vscode-java`).
+- `offline/images/`: Exported `.tar` container images for all 5 environments (`vscode-empty`, `vscode-python`, `vscode-react`, `jupyter-python`, `vscode-java`).
 - `devcloud-offline-bundle.tar.gz`: Self-contained deployable archive.
 
 ### Step 2: Deploy on the Air-Gapped Linux VM
@@ -193,6 +194,7 @@ intelligent-nobel/
 │   ├── build_images.sh          # Podman batch builder
 │   ├── vscode-empty/
 │   ├── vscode-python/
+│   ├── vscode-react/
 │   ├── jupyter-python/
 │   └── vscode-java/
 ├── deploy/                      # Linux VM deployment scripts & systemd unit

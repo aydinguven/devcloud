@@ -85,6 +85,7 @@ def main():
     images = [
         ("devcloud-vscode-empty", "localhost/devcloud-vscode-empty:latest"),
         ("devcloud-vscode-python", "localhost/devcloud-vscode-python:latest"),
+        ("devcloud-vscode-react", "localhost/devcloud-vscode-react:latest"),
         ("devcloud-jupyter-python", "localhost/devcloud-jupyter-python:latest"),
         ("devcloud-vscode-java", "localhost/devcloud-vscode-java:latest"),
     ]
@@ -95,7 +96,7 @@ def main():
     )
 
     if podman_available:
-        print("Podman detected. Ensuring all 4 images are built and exported...")
+        print(f"Podman detected. Ensuring all {len(images)} images are built and exported...")
         for name, tag in images:
             # Check if image exists; if not, build it
             exists_res = subprocess.run([podman_bin, "image", "exists", tag])
@@ -113,7 +114,7 @@ def main():
         print("Podman not found on packaging host.")
         print(f"Note: Ensure images are saved into '{images_dir}' before deploying offline.")
         (images_dir / "README.txt").write_text(
-            "Place saved podman tarballs here: devcloud-vscode-empty.tar, devcloud-vscode-python.tar, devcloud-jupyter-python.tar, devcloud-vscode-java.tar",
+            "Place saved podman tarballs here: devcloud-vscode-empty.tar, devcloud-vscode-python.tar, devcloud-vscode-react.tar, devcloud-jupyter-python.tar, devcloud-vscode-java.tar",
             encoding="utf-8",
         )
 

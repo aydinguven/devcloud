@@ -28,6 +28,9 @@ podman save -o "${IMAGES_DIR}/devcloud-vscode-empty.tar" localhost/devcloud-vsco
 echo "Saving devcloud-vscode-python image..."
 podman save -o "${IMAGES_DIR}/devcloud-vscode-python.tar" localhost/devcloud-vscode-python:latest
 
+echo "Saving devcloud-vscode-react image..."
+podman save -o "${IMAGES_DIR}/devcloud-vscode-react.tar" localhost/devcloud-vscode-react:latest
+
 echo "Saving devcloud-jupyter-python image..."
 podman save -o "${IMAGES_DIR}/devcloud-jupyter-python.tar" localhost/devcloud-jupyter-python:latest
 
