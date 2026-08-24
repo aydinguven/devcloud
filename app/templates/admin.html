@@ -26,6 +26,34 @@
   </div>
 </div>
 
+<!-- Offline bundle publisher -->
+<div class="card download-update-card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Offline Downloads</h2>
+      <p class="download-update-description">
+        Build the current clean Git revision, verify it, and replace the bundle published at
+        <a href="/download/" target="_blank">/download/</a>.
+      </p>
+    </div>
+    <div class="download-update-actions">
+      <span id="download-update-badge" class="badge badge-stopped">Checking</span>
+      <button id="btn-update-downloads" class="btn btn-warning" type="button" disabled>
+        Update downloads
+      </button>
+    </div>
+  </div>
+  <div class="download-update-summary">
+    <span id="download-update-message" role="status" aria-live="polite">Loading status...</span>
+    <a id="download-current-link" href="/download/" target="_blank" style="display: none;"></a>
+  </div>
+  <pre id="download-update-logs" class="terminal-window download-update-logs">No update logs yet.</pre>
+  <p class="download-update-warning">
+    This operation downloads Python wheels, rebuilds five Podman images, and can take several
+    minutes. Existing downloads remain available until the replacement passes verification.
+  </p>
+</div>
+
 <!-- All Users -->
 <div class="card" style="margin-bottom: 2rem; overflow-x: auto;">
   <div class="card-header">

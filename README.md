@@ -176,6 +176,10 @@ python3 deploy/package_offline.py --verify . --check-runtime
 bash deploy/deploy_offline.sh
 ```
 
+A connected deployment can also publish bundles at `/download/`. Administrators
+can trigger a verified background rebuild from the Admin page after explicitly
+enabling the download settings documented in [AIRGAP.md](AIRGAP.md).
+
 See [AIRGAP.md](AIRGAP.md) for prerequisites, multi-version bundles, Git release
 publishing, SELinux notes, and validation commands.
 

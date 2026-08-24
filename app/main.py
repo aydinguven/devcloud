@@ -14,6 +14,7 @@ from app.orchestrator.podman_service import podman_service
 from app.proxy.router import proxy_router
 from app.routes.admin_routes import admin_router
 from app.routes.auth_routes import auth_router
+from app.routes.download_routes import download_router
 from app.routes.view_routes import view_router
 from app.routes.workspace_routes import workspace_router
 
@@ -88,4 +89,5 @@ app.include_router(auth_router)
 app.include_router(workspace_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
+app.include_router(download_router)
 app.include_router(view_router)

@@ -462,6 +462,34 @@ a:hover {
 .quota-status-success { color: var(--success); }
 .quota-status-error { color: var(--danger); }
 
+/* Admin offline download publisher */
+.download-update-card .card-header { gap: 1rem; }
+.download-update-description {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+  max-width: 720px;
+}
+.download-update-actions { align-items: center; display: flex; flex-shrink: 0; gap: 0.75rem; }
+.download-update-summary {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.8rem;
+}
+.download-update-logs { color: #cbd5e1; max-height: 260px; min-height: 90px; }
+.download-update-warning { color: #64748b; font-size: 0.72rem; margin-top: 0.8rem; }
+.download-item { align-items: center; display: flex; justify-content: space-between; gap: 1rem; }
+.download-item + .download-item { border-top: 1px solid var(--border-color); margin-top: 1rem; padding-top: 1rem; }
+.download-filename { color: #fff; font-family: var(--font-mono); font-size: 0.86rem; }
+.download-meta { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.2rem; }
+.download-actions { display: flex; flex-shrink: 0; gap: 0.6rem; }
+
 @media (max-width: 960px) {
   .usage-grid { grid-template-columns: 1fr; }
+  .download-update-card .card-header, .download-item { align-items: stretch; flex-direction: column; }
+  .download-update-actions, .download-actions { justify-content: flex-start; }
 }

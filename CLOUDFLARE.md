@@ -88,7 +88,26 @@ account. This preserves the in-app per-user quota demonstration.
 - Avoid challenge rules on this hostname after Access authentication, because
   repeated browser challenges can interrupt API and WebSocket traffic.
 
-## 6. Close the direct application port
+## 6. Publish offline downloads
+
+DevCloud can asynchronously stream verified files from `DOWNLOADS_ROOT` at
+`/download/`, including byte-range requests for resumable multi-gigabyte
+downloads. Enable `DOWNLOADS_ENABLED=True` only after the directory has been
+created with read access for the DevCloud systemd user. To expose the admin-only
+rebuild control, also set `DOWNLOAD_UPDATES_ENABLED=True` and configure the build
+directory described in [`AIRGAP.md`](AIRGAP.md).
+
+Cloudflare limits request/upload sizes but does not impose the same limit on a
+streamed response body. Add a cache rule that bypasses cache when the URI path
+starts with `/download/`; DevCloud also sends `Cache-Control: private, no-store`.
+Confirm the existing Access application covers `/download/*` so the archive is
+not unintentionally public.
+
+```bash
+curl -I https://dev.aydin.cloud/download/
+```
+
+## 7. Close the direct application port
 
 Only after the public hostname works, remove the external firewalld rule for port
 `8000`. The loopback origin remains reachable by `cloudflared`:

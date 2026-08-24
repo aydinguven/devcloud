@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initActionButtons();
   initLogPolling();
   initQuotaForms();
+  initDownloadUpdater();
 });
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
@@ -360,4 +361,103 @@ function initQuotaForms() {
       }
     });
   });
+}
+
+// 5. Admin offline-download publisher
+function initDownloadUpdater() {
+  const button = document.getElementById("btn-update-downloads");
+  if (!button) return;
+
+  const badge = document.getElementById("download-update-badge");
+  const message = document.getElementById("download-update-message");
+  const currentLink = document.getElementById("download-current-link");
+  const logs = document.getElementById("download-update-logs");
+  let pollTimer = null;
+
+  function badgeForState(state) {
+    if (state === "success") return ["badge badge-running", "Ready"];
+    if (state === "failed") return ["badge badge-error", "Failed"];
+    if (state === "running" || state === "queued") {
+      return ["badge badge-creating", state === "queued" ? "Queued" : "Building"];
+    }
+    return ["badge badge-stopped", state === "disabled" ? "Disabled" : "Idle"];
+  }
+
+  function renderStatus(data) {
+    const effectiveState = data.enabled ? data.state : "disabled";
+    const [badgeClass, badgeText] = badgeForState(effectiveState);
+    badge.className = badgeClass;
+    badge.textContent = badgeText;
+    message.textContent = data.enabled
+      ? (data.message || "Ready to build the current bundle.")
+      : "Updates are disabled. Enable DOWNLOADS_ENABLED and DOWNLOAD_UPDATES_ENABLED on the server.";
+
+    const active = data.state === "queued" || data.state === "running";
+    button.disabled = !data.enabled || active;
+    button.textContent = active ? "Updating..." : "Update downloads";
+
+    if (data.current) {
+      currentLink.href = data.current.download_url;
+      currentLink.textContent = `${data.current.filename} (${data.current.size_display})`;
+      currentLink.style.display = "inline";
+    } else {
+      currentLink.style.display = "none";
+      currentLink.textContent = "";
+    }
+
+    const output = Array.isArray(data.logs) && data.logs.length
+      ? data.logs.join("\n")
+      : "No update logs yet.";
+    if (logs.textContent !== output) {
+      logs.textContent = output;
+      logs.scrollTop = logs.scrollHeight;
+    }
+    return active;
+  }
+
+  async function refreshStatus() {
+    if (pollTimer) clearTimeout(pollTimer);
+    try {
+      const response = await fetch("/api/admin/downloads/status", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `Status request failed (${response.status})`);
+      }
+      const active = renderStatus(data);
+      pollTimer = setTimeout(refreshStatus, active ? 2000 : 10000);
+    } catch (error) {
+      badge.className = "badge badge-error";
+      badge.textContent = "Error";
+      message.textContent = error.message;
+      button.disabled = true;
+      pollTimer = setTimeout(refreshStatus, 10000);
+    }
+  }
+
+  button.addEventListener("click", async () => {
+    const confirmed = confirm(
+      "Build and publish the current offline bundle? This rebuilds all five container images and may take several minutes."
+    );
+    if (!confirmed) return;
+
+    button.disabled = true;
+    button.textContent = "Queuing...";
+    try {
+      const response = await fetch("/api/admin/downloads/update", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `Update request failed (${response.status})`);
+      }
+      renderStatus(data);
+      await refreshStatus();
+    } catch (error) {
+      badge.className = "badge badge-error";
+      badge.textContent = "Error";
+      message.textContent = error.message;
+      button.disabled = false;
+      button.textContent = "Update downloads";
+    }
+  });
+
+  refreshStatus();
 }

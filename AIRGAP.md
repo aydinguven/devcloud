@@ -91,6 +91,53 @@ Release assets keep multi-gigabyte images out of Git history while binding the
 bundle to a source commit. Git LFS or an internal artifact repository are also
 acceptable if your server has suitable quotas.
 
+### Optional: publish and update bundles from the admin page
+
+A connected DevCloud server can expose verified bundles at `/download/` and let
+an administrator rebuild them from the Admin page. This feature is disabled by
+default because it downloads wheels, rebuilds five Podman images, consumes
+substantial disk space, and requires access to package and container registries.
+It is not available on a truly disconnected server.
+
+Create writable build and publication directories for the systemd service user:
+
+```bash
+SERVICE_USER="$(systemctl show -p User --value devcloud)"
+test -n "${SERVICE_USER}" || SERVICE_USER=root
+SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
+
+sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0750 \
+  /var/lib/devcloud/download-builds
+sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 \
+  /srv/devcloud-downloads
+```
+
+Set these values in the project-root `.env`:
+
+```dotenv
+DOWNLOADS_ENABLED=True
+DOWNLOAD_UPDATES_ENABLED=True
+DOWNLOADS_ROOT=/srv/devcloud-downloads
+DOWNLOAD_BUILD_ROOT=/var/lib/devcloud/download-builds
+DOWNLOAD_TARGET_PYTHON_VERSION=3.12
+```
+
+Restart DevCloud, sign in as an administrator, and use **Admin > Offline
+Downloads > Update downloads**:
+
+```bash
+bash deploy/restart.sh
+```
+
+The background job requires a clean tracked Git working tree. It builds into a
+temporary directory, verifies both the internal artifact manifest and outer
+SHA-256 checksum, copies the new version into the download directory, and only
+then deletes older recognized bundle/checksum pairs. Status and the last 120
+build log lines are shared across Uvicorn workers and shown on the Admin page.
+
+The public listing is `https://dev.aydin.cloud/download/`. Keep the entire
+hostname behind Cloudflare Access if downloads should be restricted.
+
 ## 5. Verify and install inside the air gap
 
 Transfer both files using approved media. From the transfer directory:

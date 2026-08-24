@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Downloads - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <h1 style="font-size: 1.75rem; font-weight: 700; color: #fff;">Air-Gapped Downloads</h1>
+  <p style="color: var(--text-muted); font-size: 0.9rem;">
+    Download the current DevCloud offline installer and verify its SHA-256 checksum before extraction.
+  </p>
+</div>
+
+<div class="card">
+  {% if bundles %}
+    {% for bundle in bundles %}
+      <div class="download-item">
+        <div>
+          <div class="download-filename">{{ bundle.filename }}</div>
+          <div class="download-meta">{{ bundle.size_display }}</div>
+        </div>
+        <div class="download-actions">
+          {% if bundle.checksum_url %}
+            <a class="btn btn-secondary" href="{{ bundle.checksum_url }}">SHA-256</a>
+          {% endif %}
+          <a class="btn btn-primary" href="{{ bundle.url }}">Download bundle</a>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p style="color: var(--text-muted);">No offline bundle has been published yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

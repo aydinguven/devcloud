@@ -15,6 +15,9 @@ data/devcloud.db
 data/workspaces/*
 !data/workspaces/.gitkeep
 data/test_*
+data/download-builds/
+data/download_update.lock
+data/download_update_status.json
 
 # Secrets & Environment
 .env

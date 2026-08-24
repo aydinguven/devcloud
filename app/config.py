@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     DEFAULT_USER_MEMORY_MB_QUOTA: int = 1024
     DEFAULT_USER_DISK_MB_QUOTA: int = 10240
 
+    # Offline bundle publishing (admin-triggered and disabled by default).
+    DOWNLOADS_ENABLED: bool = False
+    DOWNLOAD_UPDATES_ENABLED: bool = False
+    DOWNLOADS_ROOT: str = "/srv/devcloud-downloads"
+    DOWNLOAD_BUILD_ROOT: str = str(BASE_DIR / "data" / "download-builds")
+    DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
+
     # Podman Configuration
     PODMAN_BIN: str = "podman"
     PODMAN_NETWORK: str = "bridge"
