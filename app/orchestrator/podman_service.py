@@ -352,6 +352,33 @@ class PodmanService:
             return []
         return [line.strip() for line in stdout.splitlines() if line.strip()]
 
+    async def warm_image_cache_background(self):
+        """Pre-warm/build all workspace template images in background on server boot."""
+        if self._mock_mode:
+            return
+
+        from app.orchestrator.templates import TEMPLATES
+        logger.info("Checking template images cache status in background...")
+
+        for tpl_id, tpl in TEMPLATES.items():
+            try:
+                code, _, _ = await self.run_cmd("image", "exists", tpl.image_tag)
+                if code == 0:
+                    logger.info(f"Image [{tpl.image_tag}] is pre-cached and READY.")
+                else:
+                    logger.info(f"Pre-warming missing image [{tpl.image_tag}] in background...")
+                    containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / tpl_id
+                    if containers_dir.exists() and (containers_dir / "Containerfile").exists():
+                        build_code, stdout, stderr = await self.run_cmd("build", "-t", tpl.image_tag, str(containers_dir))
+                        if build_code == 0:
+                            logger.info(f"Successfully pre-warmed image [{tpl.image_tag}].")
+                        else:
+                            logger.warning(f"Failed background build of [{tpl.image_tag}]: {stderr or stdout}")
+            except Exception as exc:
+                logger.warning(f"Background pre-warm error for {tpl_id}: {exc}")
+        logger.info("Template image cache verification complete. All templates ready!")
+
+
 
 podman_service = PodmanService()
 
