@@ -40,13 +40,14 @@ class PodmanService:
         return shutil.which(self.podman_bin) is not None
 
     async def run_cmd(self, *args: str) -> tuple[int, str, str]:
-        """Execute a podman CLI command asynchronously."""
+        """Execute a podman CLI command asynchronously with stdin closed."""
         cmd = [self.podman_bin, *args]
         logger.debug("Executing command: %s", " ".join(cmd))
         
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -86,6 +87,27 @@ class PodmanService:
                 encoding="utf-8",
             )
         return str(workspace_dir.resolve())
+
+    async def ensure_image_exists(self, template_id: str, image_tag: str) -> bool:
+        """Check if image exists in Podman; if not, attempt to build from containers/<template_id>."""
+        if self._mock_mode:
+            return True
+
+        code, _, _ = await self.run_cmd("image", "exists", image_tag)
+        if code == 0:
+            return True
+
+        # Auto-build if Containerfile directory exists
+        containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / template_id
+        if containers_dir.exists() and (containers_dir / "Containerfile").exists():
+            logger.info(f"Image {image_tag} not found locally. Auto-building from {containers_dir}...")
+            build_code, stdout, stderr = await self.run_cmd("build", "-t", image_tag, str(containers_dir))
+            if build_code == 0:
+                logger.info(f"Successfully built image {image_tag}")
+                return True
+            else:
+                logger.error(f"Failed to auto-build {image_tag}: {stderr or stdout}")
+        return False
 
     async def create_workspace_container(
         self,
@@ -131,7 +153,13 @@ class PodmanService:
             }
             return container_id, storage_path
 
-        # Podman flags
+        # 1. Clean up any stale/dead container with the same name
+        await self.run_cmd("rm", "-f", container_name)
+
+        # 2. Check and ensure image exists or auto-build
+        await self.ensure_image_exists(template_id, template.image_tag)
+
+        # 3. Podman run flags
         cmd_args = [
             "run",
             "-d",
@@ -145,7 +173,6 @@ class PodmanService:
 
         # Injected environment variables for auth & config
         if "vscode" in template_id:
-            # Code-server auth config
             cmd_args.extend([
                 "-e", f"PASSWORD={workspace_token}",
                 "-e", "DISABLE_TELEMETRY=true",
@@ -237,8 +264,10 @@ class PodmanService:
 
         code, stdout, stderr = await self.run_cmd("logs", "--tail", str(tail), container_name)
         if code != 0:
-            return f"Error retrieving logs: {stderr}"
-        return stdout or stderr or "No output logged yet."
+            if "no container with name or ID" in stderr or "no such container" in stderr:
+                return f"Container '{container_name}' is not currently running or has not been spawned yet."
+            return f"Container logs ({container_name}): {stderr or stdout}"
+        return stdout or stderr or "Container is running. No output logged yet."
 
     async def load_offline_images(self, images_dir: Path | str) -> list[str]:
         """Load any .tar or .tar.gz image archives present in images_dir into Podman."""
