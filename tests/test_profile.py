@@ -35,3 +35,22 @@ async def test_update_profile_and_change_password(client: AsyncClient):
         json={"username": "profile_user", "password": "OldPassword123!"},
     )
     assert login_old.status_code == 401
+
+    # 5. Update Git Credentials
+    git_update_resp = await client.put(
+        "/api/auth/profile",
+        json={
+            "git_name": "Aydin Guven",
+            "git_email": "aydin@aydin.cloud",
+            "git_username": "aydin",
+            "git_token": "glpat-secrettoken123",
+            "git_server": "git.aydin.cloud",
+        },
+        headers={"Authorization": f"Bearer {login_new.json()['access_token']}"},
+    )
+    assert git_update_resp.status_code == 200
+    git_data = git_update_resp.json()
+    assert git_data["git_name"] == "Aydin Guven"
+    assert git_data["git_username"] == "aydin"
+    assert git_data["git_server"] == "git.aydin.cloud"
+

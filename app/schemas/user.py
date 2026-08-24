@@ -23,6 +23,11 @@ class UserOut(BaseModel):
     role: UserRole
     auth_source: str
     is_active: bool
+    git_name: str = ""
+    git_email: str = ""
+    git_username: str = ""
+    git_token: str = ""
+    git_server: str = "git.aydin.cloud"
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -32,3 +37,9 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     full_name: str | None = None
     password: str | None = Field(default=None, min_length=6, max_length=100)
+    git_name: str | None = None
+    git_email: str | None = None
+    git_username: str | None = None
+    git_token: str | None = None
+    git_server: str | None = None
+

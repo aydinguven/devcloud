@@ -3,18 +3,19 @@
 {% block title %}User Profile - {{ app_name }}{% endblock %}
 
 {% block content %}
-<div style="max-width: 600px; margin: 2rem auto;">
+<div style="max-width: 650px; margin: 2rem auto;">
   <div class="card">
     <div class="card-header">
-      <h1 class="card-title">Profile Settings</h1>
+      <h1 class="card-title">Profile & Git Settings</h1>
     </div>
 
     <div id="profile-success" style="display: none; background: var(--success-bg); color: var(--success); border: 1px solid var(--success); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;">
-      Profile updated successfully!
+      Profile & Git credentials updated successfully!
     </div>
     <div id="profile-error" style="display: none; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1.25rem;"></div>
 
     <form id="profile-form">
+      <!-- Account Info -->
       <div class="form-group">
         <label class="form-label" for="profile-username">Username</label>
         <input type="text" id="profile-username" class="form-input" value="{{ user.username }}" disabled style="opacity: 0.6; cursor: not-allowed;">
@@ -23,7 +24,7 @@
 
       <div class="form-group">
         <label class="form-label" for="profile-fullname">Full Name</label>
-        <input type="text" id="profile-fullname" class="form-input" value="{{ user.full_name or '' }}" placeholder="Your name">
+        <input type="text" id="profile-fullname" class="form-input" value="{{ user.full_name or '' }}" placeholder="e.g. Aydin Guven">
       </div>
 
       <div class="form-group">
@@ -31,12 +32,51 @@
         <input type="email" id="profile-email" class="form-input" value="{{ user.email }}" required>
       </div>
 
+      <!-- Password Change -->
       <div class="form-group" style="padding-top: 1rem; border-top: 1px solid var(--border-color);">
         <label class="form-label" for="profile-newpassword">Change Password</label>
         <input type="password" id="profile-newpassword" class="form-input" placeholder="Leave blank to keep current password" minlength="6">
       </div>
 
-      <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Changes</button>
+      <!-- Git Credentials Integration -->
+      <div style="padding-top: 1.5rem; margin-top: 1.5rem; border-top: 1px solid var(--border-color);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <span style="font-size: 1.25rem;">🔑</span>
+          <h2 style="font-size: 1.1rem; font-weight: 600; color: #fff; margin: 0;">Git Credentials Integration</h2>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.4;">
+          Saved credentials are automatically mounted into your workspace containers (<code style="color: #38bdf8;">~/.gitconfig</code> and <code style="color: #38bdf8;">~/.git-credentials</code>). You can run <code style="color: #38bdf8;">git push</code>, <code style="color: #38bdf8;">git pull</code>, and <code style="color: #38bdf8;">git clone</code> inside VS Code and Jupyter without repeated password prompts.
+        </p>
+
+        <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="profile-gitname">Git Author Name</label>
+            <input type="text" id="profile-gitname" class="form-input" value="{{ user.git_name or user.full_name or '' }}" placeholder="e.g. Aydin Guven">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="profile-gitemail">Git Author Email</label>
+            <input type="email" id="profile-gitemail" class="form-input" value="{{ user.git_email or user.email or '' }}" placeholder="e.g. your-email@aydin.cloud">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="profile-gitserver">Git Server Host</label>
+          <input type="text" id="profile-gitserver" class="form-input" value="{{ user.git_server or 'git.aydin.cloud' }}" placeholder="git.aydin.cloud">
+        </div>
+
+        <div class="grid grid-cols-2" style="gap: 0.75rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="profile-gituser">Git Username</label>
+            <input type="text" id="profile-gituser" class="form-input" value="{{ user.git_username or '' }}" placeholder="e.g. aydin">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="profile-gittoken">Personal Access Token / Password</label>
+            <input type="password" id="profile-gittoken" class="form-input" value="{{ user.git_token or '' }}" placeholder="Personal Access Token or Password">
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="margin-top: 1.75rem; padding: 0.75rem 2rem; font-weight: 600;">Save All Settings</button>
     </form>
   </div>
 </div>
@@ -49,13 +89,26 @@ document.getElementById("profile-form").addEventListener("submit", async (e) => 
   const full_name = document.getElementById("profile-fullname").value.trim();
   const email = document.getElementById("profile-email").value.trim();
   const newPassword = document.getElementById("profile-newpassword").value;
+  const git_name = document.getElementById("profile-gitname").value.trim();
+  const git_email = document.getElementById("profile-gitemail").value.trim();
+  const git_server = document.getElementById("profile-gitserver").value.trim();
+  const git_username = document.getElementById("profile-gituser").value.trim();
+  const git_token = document.getElementById("profile-gittoken").value.trim();
   const successBox = document.getElementById("profile-success");
   const errorBox = document.getElementById("profile-error");
 
   successBox.style.display = "none";
   errorBox.style.display = "none";
 
-  const payload = { full_name, email };
+  const payload = { 
+    full_name, 
+    email,
+    git_name,
+    git_email,
+    git_server,
+    git_username,
+    git_token,
+  };
   if (newPassword && newPassword.length >= 6) {
     payload.password = newPassword;
   }

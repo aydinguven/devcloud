@@ -107,6 +107,13 @@ async def create_workspace(
     workspace.container_name = f"devcloud-{current_user.id}-{workspace.id[:8]}"
 
     # Launch container via Podman
+    git_config = {
+        "name": current_user.git_name or current_user.full_name or current_user.username,
+        "email": current_user.git_email or current_user.email,
+        "username": current_user.git_username,
+        "token": current_user.git_token,
+        "server": current_user.git_server or "git.aydin.cloud",
+    }
     try:
         container_id, storage_path = await podman_service.create_workspace_container(
             workspace_id=workspace.id,
@@ -116,6 +123,7 @@ async def create_workspace(
             flavor_id=flavor.id,
             host_port=host_port,
             workspace_token=workspace.workspace_token,
+            git_config=git_config,
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
@@ -199,6 +207,13 @@ async def deploy_workspace_stream(
         yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'💾 Preparing persistent volume directory for user #{current_user.id}...'})}\n\n"
 
         # Container launch
+        git_config = {
+            "name": current_user.git_name or current_user.full_name or current_user.username,
+            "email": current_user.git_email or current_user.email,
+            "username": current_user.git_username,
+            "token": current_user.git_token,
+            "server": current_user.git_server or "git.aydin.cloud",
+        }
         try:
             yield f"data: {json.dumps({'type': 'log', 'level': 'info', 'text': f'🐳 Spawning container [{workspace.container_name}] via Podman engine...'})}\n\n"
             container_id, storage_path = await podman_service.create_workspace_container(
@@ -209,6 +224,7 @@ async def deploy_workspace_stream(
                 flavor_id=flavor.id,
                 host_port=host_port,
                 workspace_token=workspace.workspace_token,
+                git_config=git_config,
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path
@@ -218,6 +234,9 @@ async def deploy_workspace_stream(
 
             yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'✅ Container online! ID: {container_id[:12]}'})}\n\n"
             yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'📂 Persistent storage mounted at: {storage_path}'})}\n\n"
+            if current_user.git_username and current_user.git_token:
+                srv = current_user.git_server or "git.aydin.cloud"
+                yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'🔑 Injected Git credentials for {current_user.git_username}@{srv}'})}\n\n"
             yield f"data: {json.dumps({'type': 'log', 'level': 'success', 'text': f'🚀 Service active on port {host_port}. Workspace is ready!'})}\n\n"
             
             db.add(workspace)
@@ -335,11 +354,15 @@ async def delete_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
 
-    await podman_service.delete_container(workspace.container_name)
+    try:
+        await podman_service.delete_container(workspace.container_name)
+    except Exception as e:
+        logger.warning(f"Failed deleting container {workspace.container_name}: {e}")
     
     await db.delete(workspace)
     await db.commit()
     return {"message": f"Workspace {workspace_id} deleted successfully."}
+
 
 
 @workspace_router.get("/{workspace_id}/logs")

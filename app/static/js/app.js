@@ -245,8 +245,12 @@ function initActionButtons() {
           return;
         }
 
-        // Reload page to reflect state
-        window.location.reload();
+        // Redirect to dashboard if on detail page, or reload dashboard
+        if (action === "delete" && window.location.pathname.includes("/workspaces/")) {
+          window.location.href = "/";
+        } else {
+          window.location.reload();
+        }
       } catch (err) {
         alert("Action error: " + err.message);
         btn.disabled = false;

@@ -123,6 +123,21 @@ async def update_profile(
     if update_data.password:
         await auth_provider.change_password(current_user, update_data.password, db)
 
+    if update_data.git_name is not None:
+        current_user.git_name = update_data.git_name.strip()
+
+    if update_data.git_email is not None:
+        current_user.git_email = update_data.git_email.strip()
+
+    if update_data.git_username is not None:
+        current_user.git_username = update_data.git_username.strip()
+
+    if update_data.git_token is not None:
+        current_user.git_token = update_data.git_token.strip()
+
+    if update_data.git_server is not None:
+        current_user.git_server = update_data.git_server.strip()
+
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
