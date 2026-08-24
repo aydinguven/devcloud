@@ -11,7 +11,7 @@ if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y podman python3 python3-pip python3-venv git curl
 elif command -v dnf >/dev/null 2>&1; then
     echo "Installing Podman & Python via DNF..."
-    sudo dnf install -y podman python3 python3-pip git curl
+    sudo dnf install -y podman python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
 else
     echo "Unsupported package manager. Please ensure Podman and Python 3.11+ are installed."
 fi
@@ -22,8 +22,11 @@ WORKSPACES_DIR="/var/lib/devcloud/workspaces"
 
 echo "Creating workspace directory at: ${WORKSPACES_DIR}"
 sudo mkdir -p "${WORKSPACES_DIR}"
-sudo chown -R "$USER:$USER" "${WORKSPACES_DIR}"
+sudo chown "$USER:$USER" "${WORKSPACES_DIR}"
 sudo chmod 755 "${WORKSPACES_DIR}"
+
+echo "Configuring SELinux workspace labels when supported..."
+DEVCLOUD_SERVICE_USER="$USER" bash "${PROJECT_DIR}/deploy/configure_selinux.sh"
 
 # 3. Create Python Virtual Environment & Install Dependencies
 echo "Setting up Python virtual environment..."

@@ -83,6 +83,7 @@ Visit `http://127.0.0.1:8000` in your browser.
 ## Production Deployment on Linux VM
 
 For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CLOUDFLARE.md).
+For Rocky/RHEL enforcing mode, follow [the SELinux deployment guide](SELINUX.md).
 
 ### 1. Automated Deployment Script
 We provide an automated setup script that installs Podman, configures permissions, builds workspace container images, and sets up a systemd service:
@@ -102,14 +103,12 @@ sudo apt-get update
 sudo apt-get install -y podman python3 python3-pip python3-venv git curl
 
 # On RHEL / CentOS / Rocky Linux / Fedora:
-sudo dnf install -y podman python3 python3-pip git curl
+sudo dnf install -y podman python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
 ```
 
 #### Step 2: Configure Workspace Storage Directory
 ```bash
-sudo mkdir -p /var/lib/devcloud/workspaces
-sudo chown -R $USER:$USER /var/lib/devcloud/workspaces
-sudo chmod 755 /var/lib/devcloud/workspaces
+DEVCLOUD_SERVICE_USER="$USER" bash deploy/configure_selinux.sh
 ```
 
 #### Step 3: Build Container Images

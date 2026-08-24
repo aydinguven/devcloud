@@ -38,15 +38,8 @@ echo "--> Detected Host OS: $(cat /etc/redhat-release 2>/dev/null || cat /etc/os
 
 # 2. Setup Persistent Storage Directory and SELinux
 echo "=== [1/5] Configuring workspace persistent storage directory ==="
-sudo mkdir -p "${WORKSPACES_DIR}"
-sudo chown -R "$USER:$USER" "${WORKSPACES_DIR}"
-sudo chmod 755 "${WORKSPACES_DIR}"
-
-# If SELinux is active (standard on Rocky/Fedora/RHEL), set container file label
-if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" != "Disabled" ]; then
-    echo "--> SELinux detected ($(getenforce)). Setting container_file_t context on workspace storage..."
-    sudo chcon -Rt container_file_t "${WORKSPACES_DIR}" 2>/dev/null || true
-fi
+echo "--> Configuring persistent SELinux workspace labels when supported..."
+DEVCLOUD_SERVICE_USER="$USER" bash "${PROJECT_DIR}/deploy/configure_selinux.sh"
 
 # 3. Create Virtualenv and Install Cached Linux Wheels
 echo "=== [2/5] Installing Python packages from offline wheels ==="
