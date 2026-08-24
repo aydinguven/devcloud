@@ -145,36 +145,39 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 
 ## Air-Gapped / Offline Installation
 
-DevCloud provides native support for 100% offline installation on isolated Linux VMs without internet access.
+DevCloud supports installation on isolated Linux x86_64 VMs. The target must
+already have its operating-system prerequisites (Python 3.11+, pip/venv,
+Podman, sudo/systemd, and SELinux tooling when enforcing).
 
 ### Step 1: Prepare the Offline Bundle (On Connected Machine)
-Run the offline packaging script to download all Python wheels and export all Podman container images to tar archives:
+Commit the source first, then run the fail-fast packager on an
+internet-connected machine. Select the exact CPython major/minor installed on
+the target VM:
 
 ```bash
-# On Linux / macOS:
-chmod +x deploy/package_offline.sh
-./deploy/package_offline.sh
-
-# Or cross-platform via Python:
-python deploy/package_offline.py
+git status
+python3 deploy/package_offline.py --python-version 3.12
 ```
-This generates:
-- `offline/wheels/`: All downloaded `.whl` dependency packages.
-- `offline/images/`: Exported `.tar` container images for all 5 environments (`vscode-empty`, `vscode-python`, `vscode-react`, `jupyter-python`, `vscode-java`).
-- `devcloud-offline-bundle.tar.gz`: Self-contained deployable archive.
+
+This generates an ignored archive and checksum under `dist/`. Upload those two
+files to a Git release or artifact repository; do not commit the multi-gigabyte
+archive to normal Git history.
 
 ### Step 2: Deploy on the Air-Gapped Linux VM
-Transfer `devcloud-offline-bundle.tar.gz` to the target Linux VM via USB / SCP, extract it, and execute the offline installer:
+Transfer both generated files to the target Linux VM via approved media, verify
+the outer checksum, extract it, and execute the offline installer:
 
 ```bash
-# Extract bundle
-tar -xzf devcloud-offline-bundle.tar.gz
+sha256sum -c devcloud-offline-<commit>.tar.gz.sha256
+tar -xzf devcloud-offline-<commit>.tar.gz
 cd devcloud
 
-# Run offline installer (loads images into Podman & installs wheels without internet)
-chmod +x deploy/deploy_offline.sh
-./deploy/deploy_offline.sh
+python3 deploy/package_offline.py --verify . --check-runtime
+bash deploy/deploy_offline.sh
 ```
+
+See [AIRGAP.md](AIRGAP.md) for prerequisites, multi-version bundles, Git release
+publishing, SELinux notes, and validation commands.
 
 ---
 

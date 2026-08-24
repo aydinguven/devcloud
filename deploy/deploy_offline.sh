@@ -3,7 +3,7 @@
 # DevCloud Air-Gapped / Offline Linux VM Deployment Script
 # Specifically optimized for Fedora-based distros (Rocky Linux, RHEL, Fedora, CentOS)
 # ==============================================================================
-set -e
+set -euo pipefail
 
 echo "=============================================================================="
 echo "Starting DevCloud Offline Deployment (Fedora / Rocky / RHEL Ecosystem)"
@@ -30,6 +30,9 @@ if [ ! -d "${WHEELS_DIR}" ]; then
     echo "ERROR: Offline wheels directory (${WHEELS_DIR}) not found!"
     exit 1
 fi
+
+echo "--> Verifying air-gap artifact manifest and checksums..."
+python3 "${PROJECT_DIR}/deploy/package_offline.py" --verify "${PROJECT_DIR}" --check-runtime
 
 # Print Detected Environment Info
 PYTHON_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
@@ -67,13 +70,22 @@ if [ -d "${IMAGES_DIR}" ]; then
     done
 fi
 
-if [ "$IMAGE_COUNT" -eq 0 ]; then
-    echo "WARNING: No pre-exported container images found in ${IMAGES_DIR}."
-    echo "If you have internet access or built images locally, building them now..."
-    if [ -f "${PROJECT_DIR}/containers/build_images.sh" ]; then
-        bash "${PROJECT_DIR}/containers/build_images.sh" || true
-    fi
+if [ "$IMAGE_COUNT" -ne 5 ]; then
+    echo "ERROR: Expected 5 verified container image archives, loaded ${IMAGE_COUNT}."
+    exit 1
 fi
+
+for required_image in \
+    localhost/devcloud-vscode-empty:latest \
+    localhost/devcloud-vscode-python:latest \
+    localhost/devcloud-vscode-react:latest \
+    localhost/devcloud-jupyter-python:latest \
+    localhost/devcloud-vscode-java:latest; do
+    if ! podman image exists "${required_image}"; then
+        echo "ERROR: Required image tag was not loaded: ${required_image}"
+        exit 1
+    fi
+done
 
 echo "Available Podman images:"
 podman images | grep -E "devcloud|REPOSITORY" || true

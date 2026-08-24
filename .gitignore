@@ -23,6 +23,7 @@ data/test_*
 offline/wheels/*.whl
 offline/images/*.tar
 offline/images/*.tar.gz
+dist/
 *.tar.gz
 
 # OS specific
