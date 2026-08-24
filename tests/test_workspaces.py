@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.orchestrator.flavors import get_flavor
 from app.orchestrator.podman_service import podman_service
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "dev_user") -> dict[str, str]:
@@ -46,9 +47,54 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
     assert flavor_resp.status_code == 200
     flavors = flavor_resp.json()
     flavor_ids = [f["id"] for f in flavors]
-    assert "t1.nano" in flavor_ids
-    assert "t1.micro" in flavor_ids
-    assert "t1.mini" in flavor_ids
+    assert flavor_ids == [
+        "t1.nano",
+        "t1.micro",
+        "t1.small",
+        "t1.medium",
+        "t1.large",
+        "t1.xlarge",
+    ]
+    flavor_resources = {
+        flavor["id"]: (flavor["cpus"], flavor["memory_mb"])
+        for flavor in flavors
+    }
+    assert flavor_resources == {
+        "t1.nano": (0.5, 512),
+        "t1.micro": (1.0, 1024),
+        "t1.small": (1.0, 2048),
+        "t1.medium": (2.0, 4096),
+        "t1.large": (4.0, 8192),
+        "t1.xlarge": (8.0, 16384),
+    }
+
+    legacy_mini = get_flavor("t1.mini")
+    assert legacy_mini is not None
+    assert legacy_mini.selectable is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_flavor_cannot_be_used_for_new_workspace(client: AsyncClient):
+    """Hidden legacy flavors remain restartable but cannot be newly deployed."""
+    headers = await get_authenticated_headers(client, "legacy_flavor_tester")
+    payload = {
+        "name": "Legacy Flavor",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.mini",
+    }
+
+    response = await client.post("/api/workspaces", json=payload, headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Geçersiz kaynak profili ID: t1.mini"
+
+    streamed = await client.post(
+        "/api/workspaces/deploy-stream", json=payload, headers=headers
+    )
+    assert streamed.status_code == 200
+    assert "Geçersiz kaynak profili: t1.mini" in streamed.text
+    assert '"type": "done"' not in streamed.text
 
 
 @pytest.mark.asyncio

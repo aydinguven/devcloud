@@ -15,8 +15,13 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, and Red Hat Java Language Support.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
-  - `t1.micro`: 1.0 CPU, 1 GB RAM (Standard single-threaded development)
-  - `t1.mini`: 2.0 CPU, 2 GB RAM (Java builds and multi-threaded data tasks)
+  - `t1.micro`: 1 CPU, 1 GB RAM (Default profile for newly registered users)
+  - `t1.small`: 1 CPU, 2 GB RAM (Python, React/Node.js, and standard VS Code development)
+  - `t1.medium`: 2 CPU, 4 GB RAM (Java, Jupyter, and medium builds)
+  - `t1.large`: 4 CPU, 8 GB RAM (Heavy builds, data analysis, and multi-service projects)
+  - `t1.xlarge`: 8 CPU, 16 GB RAM (Compute-intensive builds and large notebooks)
+
+  The former `t1.mini` profile remains internally available for existing workspaces but is no longer offered for new deployments.
 - **Modular Authentication**:
   - Internal Database Auth (Argon2 / Bcrypt + JWT + HTTP-only cookies).
   - Pluggable `AuthProvider` interface ready for Active Directory / LDAP integration.
@@ -226,7 +231,7 @@ intelligent-nobel/
 | `POST` | `/api/auth/logout` | Clear session cookie | Yes |
 | `GET` | `/api/auth/me` | Get current user profile | Yes |
 | `GET` | `/api/workspaces/templates` | List all available templates | No |
-| `GET` | `/api/workspaces/flavors` | List resource flavors (`t1.nano`, `t1.micro`, `t1.mini`) | No |
+| `GET` | `/api/workspaces/flavors` | List selectable resource flavors (`t1.nano` through `t1.xlarge`) | No |
 | `GET` | `/api/workspaces` | List current user's workspaces | Yes |
 | `POST` | `/api/workspaces` | Create & deploy new workspace container | Yes |
 | `GET` | `/api/workspaces/usage` | Host usage and current user's quota summary | Yes |

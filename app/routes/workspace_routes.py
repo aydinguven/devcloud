@@ -112,7 +112,7 @@ async def create_workspace(
         raise HTTPException(status_code=400, detail=f"Geçersiz şablon ID: {data.template_id}")
 
     flavor = get_flavor(data.flavor_id)
-    if not flavor:
+    if not flavor or not flavor.selectable:
         raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
 
     quota_error = await get_quota_error(db, current_user, flavor)
@@ -217,7 +217,7 @@ async def deploy_workspace_stream(
                 return
 
             flavor = get_flavor(data.flavor_id)
-            if not flavor:
+            if not flavor or not flavor.selectable:
                 await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
                 return
 

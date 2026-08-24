@@ -37,7 +37,7 @@ class Workspace(Base):
 
     # Specifications
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-empty, vscode-python, etc.
-    flavor_id: Mapped[str] = mapped_column(String(50), nullable=False)    # t1.nano, t1.micro, t1.mini
+    flavor_id: Mapped[str] = mapped_column(String(50), nullable=False)    # t1.nano through t1.xlarge
 
     # Container details
     container_id: Mapped[str] = mapped_column(String(128), nullable=True)
