@@ -30,8 +30,9 @@ async def login_page(
     if current_user:
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "app_name": settings.APP_NAME, "user": None},
+        request=request,
+        name="login.html",
+        context={"app_name": settings.APP_NAME, "user": None},
     )
 
 
@@ -44,8 +45,9 @@ async def register_page(
     if current_user:
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(
-        "register.html",
-        {"request": request, "app_name": settings.APP_NAME, "user": None},
+        request=request,
+        name="register.html",
+        context={"app_name": settings.APP_NAME, "user": None},
     )
 
 
@@ -70,9 +72,9 @@ async def dashboard_page(
     ws_list = [WorkspaceOut.model_validate(ws) for ws in workspaces]
 
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request=request,
+        name="dashboard.html",
+        context={
             "app_name": settings.APP_NAME,
             "user": current_user,
             "workspaces": ws_list,
@@ -97,16 +99,18 @@ async def workspace_detail_page(
     result = await db.execute(stmt)
     workspace = result.scalar_one_or_none()
 
-    if not workspace or (workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN):
+    if not workspace or (
+        workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN
+    ):
         return RedirectResponse(url="/", status_code=302)
 
     ws_out = WorkspaceOut.model_validate(workspace)
     ws_out.web_url = f"/proxy/{workspace.id}/"
 
     return templates.TemplateResponse(
-        "workspace_detail.html",
-        {
-            "request": request,
+        request=request,
+        name="workspace_detail.html",
+        context={
             "app_name": settings.APP_NAME,
             "user": current_user,
             "workspace": ws_out,
@@ -125,9 +129,9 @@ async def profile_page(
         return RedirectResponse(url="/login", status_code=302)
 
     return templates.TemplateResponse(
-        "profile.html",
-        {
-            "request": request,
+        request=request,
+        name="profile.html",
+        context={
             "app_name": settings.APP_NAME,
             "user": current_user,
         },
@@ -151,9 +155,9 @@ async def admin_page(
     workspaces = (await db.execute(ws_stmt)).scalars().all()
 
     return templates.TemplateResponse(
-        "admin.html",
-        {
-            "request": request,
+        request=request,
+        name="admin.html",
+        context={
             "app_name": settings.APP_NAME,
             "user": current_user,
             "all_users": users,
