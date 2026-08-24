@@ -2,6 +2,21 @@ import pytest
 from httpx import AsyncClient
 
 
+async def get_authenticated_headers(client: AsyncClient, username: str = "dev_user") -> dict[str, str]:
+    """Helper to register and return authorization headers."""
+    resp = await client.post(
+        "/api/auth/register",
+        json={
+            "username": username,
+            "email": f"{username}@test.com",
+            "password": "Password123!",
+            "full_name": "Dev User",
+        },
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.mark.asyncio
 async def test_view_routes_render_html(client: AsyncClient):
     """Test that HTML view routes render without 500 errors."""
@@ -20,7 +35,30 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert root_resp.status_code == 302
     assert root_resp.headers["location"] == "/login"
 
-    # Follow redirect to /login
-    followed_resp = await client.get("/", follow_redirects=True)
-    assert followed_resp.status_code == 200
-    assert "Welcome to DevCloud" in followed_resp.text
+    # 4. Authenticated dashboard rendering
+    headers = await get_authenticated_headers(client, "dashboard_view_user")
+    auth_dashboard = await client.get("/", headers=headers)
+    assert auth_dashboard.status_code == 200
+    assert "My Workspaces" in auth_dashboard.text
+    assert "Select Resource Flavor" in auth_dashboard.text
+
+    # 5. Create a workspace and render dashboard + detail page
+    create_payload = {
+        "name": "Dashboard Template Test",
+        "description": "Checking template render",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+    ws_res = await client.post("/api/workspaces", json=create_payload, headers=headers)
+    assert ws_res.status_code == 201
+    ws_id = ws_res.json()["id"]
+
+    # Render dashboard with existing workspace
+    auth_dashboard_with_ws = await client.get("/", headers=headers)
+    assert auth_dashboard_with_ws.status_code == 200
+    assert "Dashboard Template Test" in auth_dashboard_with_ws.text
+
+    # Render workspace detail page
+    detail_resp = await client.get(f"/workspaces/{ws_id}", headers=headers)
+    assert detail_resp.status_code == 200
+    assert "Dashboard Template Test" in detail_resp.text
