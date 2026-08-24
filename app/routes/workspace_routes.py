@@ -307,14 +307,39 @@ async def start_workspace_endpoint(
         ws_out.web_url = f"/proxy/{workspace.id}/"
         return ws_out
 
-    success = await podman_service.start_container(workspace.container_name)
+    try:
+        if await podman_service.container_exists(workspace.container_name):
+            success = await podman_service.start_container(workspace.container_name)
+        else:
+            logger.info(
+                "Recreating missing container %s with persistent storage %s",
+                workspace.container_name,
+                workspace.storage_path,
+            )
+            container_id, storage_path = await podman_service.create_workspace_container(
+                workspace_id=workspace.id,
+                user_id=workspace.user_id,
+                container_name=workspace.container_name,
+                template_id=workspace.template_id,
+                flavor_id=workspace.flavor_id,
+                host_port=workspace.host_port,
+                workspace_token=workspace.workspace_token,
+            )
+            workspace.container_id = container_id
+            workspace.storage_path = storage_path
+            success = True
+    except (PodmanExecutionError, ValueError, RuntimeError) as exc:
+        logger.exception("Failed to start workspace %s", workspace.id)
+        workspace.error_message = str(exc)
+        success = False
+
     if success:
         workspace.status = WorkspaceStatus.RUNNING
         workspace.last_started_at = datetime.now(timezone.utc)
         workspace.error_message = None
     else:
         workspace.status = WorkspaceStatus.ERROR
-        workspace.error_message = "Failed to restart container."
+        workspace.error_message = workspace.error_message or "Failed to restart container."
 
     db.add(workspace)
     await db.commit()

@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.orchestrator.podman_service import podman_service
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "dev_user") -> dict[str, str]:
     """Helper to register and return authorization headers."""
@@ -90,6 +91,40 @@ async def test_workspace_lifecycle(client: AsyncClient):
     # Verify deleted
     get_resp = await client.get(f"/api/workspaces/{ws_id}", headers=headers)
     assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_start_recreates_missing_container_with_same_workspace(client: AsyncClient):
+    """A removed container is recreated without deleting its workspace record or storage."""
+    headers = await get_authenticated_headers(client, "recreate_workspace_tester")
+    create_resp = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Recreate Me",
+            "description": "Persistent data stays mounted",
+            "template_id": "jupyter-python",
+            "flavor_id": "t1.micro",
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    workspace = create_resp.json()
+
+    stop_resp = await client.post(
+        f"/api/workspaces/{workspace['id']}/stop", headers=headers
+    )
+    assert stop_resp.status_code == 200
+    assert await podman_service.delete_container(workspace["container_name"]) is True
+    assert await podman_service.container_exists(workspace["container_name"]) is False
+
+    start_resp = await client.post(
+        f"/api/workspaces/{workspace['id']}/start", headers=headers
+    )
+
+    assert start_resp.status_code == 200
+    assert start_resp.json()["status"] == "running"
+    assert start_resp.json()["storage_path"] == workspace["storage_path"]
+    assert await podman_service.container_exists(workspace["container_name"]) is True
 
 
 @pytest.mark.asyncio

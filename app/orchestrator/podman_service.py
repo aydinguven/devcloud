@@ -341,6 +341,16 @@ class PodmanService:
 
         return container_id, storage_path
 
+    async def container_exists(self, container_name: str) -> bool:
+        """Return whether Podman still has a container with this name."""
+        if self._mock_mode:
+            return container_name in self._mock_containers
+
+        code, _, _ = await self.run_cmd(
+            "container", "exists", container_name, timeout=5
+        )
+        return code == 0
+
     async def start_container(self, container_name: str) -> bool:
         """Start an existing stopped container."""
         if self._mock_mode:

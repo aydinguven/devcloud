@@ -55,6 +55,7 @@ async def test_podman_service_mock_lifecycle():
     )
     assert cid.startswith("mock-cid-")
     assert "test-ws-12345" in storage_path
+    assert await svc.container_exists(container_name) is True
     
     # 2. Check status
     status = await svc.get_container_status(container_name)
@@ -74,6 +75,7 @@ async def test_podman_service_mock_lifecycle():
 
     # 6. Delete
     assert await svc.delete_container(container_name) is True
+    assert await svc.container_exists(container_name) is False
 
 
 @pytest.mark.asyncio
