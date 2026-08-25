@@ -36,3 +36,20 @@ def test_platform_updater_waits_for_new_healthy_service():
     assert "data.version" in javascript
     assert "90000" in javascript
     assert "window.location.replace" in javascript
+
+
+def test_institutional_brand_mark_replaces_text_placeholder():
+    template = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
+    css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(encoding="utf-8")
+    mark = (PROJECT_ROOT / "app/static/favicon.svg").read_text(encoding="utf-8")
+
+    assert 'class="logo-mark"' in template
+    assert 'aria-label="DevCloud ana sayfa"' in template
+    assert 'logo-icon" aria-hidden="true">DC' not in template
+    assert ".navbar-brand .logo-mark" in css
+    assert "flex: 0 0 46px" in css
+    assert "background: transparent" in css
+    assert "DevCloud kurumsal amblemi" in mark
+    assert '#d50032' in mark
+    assert '#263244' in mark
+    assert '#d6ca84' in mark

@@ -12,8 +12,10 @@
 <body class="{% block body_class %}{% endblock %}">
   <nav class="navbar" aria-label="Ana menü">
     <div class="navbar-brand-group">
-      <a href="/" class="navbar-brand">
-        <span class="logo-icon" aria-hidden="true">DC</span>
+      <a href="/" class="navbar-brand" aria-label="DevCloud ana sayfa">
+        <span class="logo-icon" aria-hidden="true">
+          <img class="logo-mark" src="/static/favicon.svg?v={{ app_version }}" alt="">
+        </span>
         <span class="brand-copy">
           <span class="brand-name">DevCloud</span>
           <span class="brand-subtitle">Kurum İçi Geliştirme Platformu</span>
