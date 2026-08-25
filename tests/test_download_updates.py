@@ -79,3 +79,40 @@ def test_start_rejects_disabled_updates(monkeypatch):
     monkeypatch.setattr(settings, "DOWNLOAD_UPDATES_ENABLED", True)
     with pytest.raises(DownloadUpdateDisabled):
         DownloadUpdateManager().start()
+
+
+def test_clean_old_bundles_cleans_stale_files_and_preserves_current(tmp_path: Path, monkeypatch):
+    download_root = tmp_path / "downloads"
+    build_root = tmp_path / "build"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    monkeypatch.setattr(settings, "BASE_DIR", source_root)
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(download_root))
+    monkeypatch.setattr(settings, "DOWNLOAD_BUILD_ROOT", str(build_root))
+
+    old_archive, old_checksum = _write_bundle_pair(
+        download_root, "111111111111", b"old bundle"
+    )
+    current_archive, current_checksum = _write_bundle_pair(
+        download_root, "999999999999", b"current bundle"
+    )
+    # Stale upload file
+    stale_tmp = download_root / ".stale.uploading"
+    stale_tmp.write_bytes(b"temp")
+
+    # Stale build folder
+    stale_build = build_root / "download-update-12345"
+    stale_build.mkdir(parents=True)
+    (stale_build / "test.txt").write_text("build garbage")
+
+    manager = DownloadUpdateManager()
+    result = manager.clean_old_bundles()
+
+    assert result["cleaned_count"] >= 3
+    assert not old_archive.exists()
+    assert not old_checksum.exists()
+    assert not stale_tmp.exists()
+    assert not stale_build.exists()
+    assert current_archive.exists()
+    assert current_checksum.exists()
+

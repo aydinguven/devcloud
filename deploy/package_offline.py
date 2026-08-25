@@ -430,13 +430,22 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
     version = get_app_version(root_dir)
     today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     output_dir = Path(args.output_dir).resolve() if args.output_dir else root_dir / "dist"
+    output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"devcloud-offline-v{version}-{today_str}-{short_commit}.tar.gz"
     checksum_path = output_path.with_name(output_path.name + ".sha256")
-    if output_path.exists() or checksum_path.exists():
-        raise PackageError(
-            f"Output already exists for commit {short_commit}; move or remove it first: "
-            f"{output_path}"
-        )
+
+    # Clean old offline packages to preserve disk
+    if getattr(args, "clean_old", True):
+        for old_file in output_dir.glob("devcloud-offline-*"):
+            if old_file.is_file() and old_file not in (output_path, checksum_path):
+                try:
+                    old_file.unlink()
+                    print(f"Removed older bundle to preserve disk: {old_file.name}")
+                except OSError:
+                    pass
+
+    output_path.unlink(missing_ok=True)
+    checksum_path.unlink(missing_ok=True)
 
     print("=" * 78)
     print(f"Building DevCloud air-gap bundle from Git commit {commit}")

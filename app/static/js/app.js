@@ -448,6 +448,31 @@ function initDownloadUpdater() {
     }
   });
 
+  const cleanButton = document.getElementById("btn-clean-downloads");
+  if (cleanButton) {
+    cleanButton.addEventListener("click", async () => {
+      const confirmed = confirm(
+        "Eski çevrim dışı kurulum paketleri ve geçici derleme dosyaları silinsin mi? Yalnızca en son yayımlanan paket korunacaktır."
+      );
+      if (!confirmed) return;
+
+      cleanButton.disabled = true;
+      cleanButton.textContent = "Temizleniyor...";
+      try {
+        const response = await fetch("/api/admin/downloads/clean", { method: "POST" });
+        const res = await response.json();
+        if (!response.ok) throw new Error(res.detail || "Temizleme başarısız.");
+        alert(`Temizlik tamamlandı: ${res.cleaned_count} öğe silindi, ${res.freed_display} disk alanı kazanıldı.`);
+        await refreshStatus();
+      } catch (err) {
+        alert(`Hata: ${err.message}`);
+      } finally {
+        cleanButton.disabled = false;
+        cleanButton.textContent = "🧹 Eski Paketleri Temizle";
+      }
+    });
+  }
+
   refreshStatus();
 }
 

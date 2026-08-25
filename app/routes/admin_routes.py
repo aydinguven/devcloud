@@ -291,3 +291,11 @@ async def start_download_update(
             detail=str(exc),
         ) from exc
 
+
+@admin_router.post("/downloads/clean")
+async def clean_old_downloads(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Admin: Remove older offline bundles and temporary files to reclaim disk space."""
+    return download_update_manager.clean_old_bundles()
+

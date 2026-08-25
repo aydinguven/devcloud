@@ -407,18 +407,83 @@ class DownloadUpdateManager:
             os.replace(temporary_archive, published_archive)
             os.replace(temporary_checksum, published_checksum)
 
-            for old_archive in root.glob("devcloud-offline-*.tar.gz"):
-                if (
-                    old_archive != published_archive
-                    and old_archive.is_file()
-                    and BUNDLE_PATTERN.fullmatch(old_archive.name)
-                ):
-                    old_checksum = old_archive.with_name(old_archive.name + ".sha256")
-                    old_archive.unlink()
-                    old_checksum.unlink(missing_ok=True)
+            self.clean_old_bundles(preserve_filename=archive.name)
         finally:
             temporary_archive.unlink(missing_ok=True)
             temporary_checksum.unlink(missing_ok=True)
+
+    def clean_old_bundles(self, preserve_filename: str | None = None) -> dict[str, Any]:
+        """Remove all older/stale bundles, orphan checksums, and temporary build directories to save disk."""
+        root = self.download_root
+        cleaned_files: list[str] = []
+        freed_bytes = 0
+
+        if not preserve_filename:
+            current = self.current_bundle()
+            preserve_filename = current["filename"] if current else None
+
+        if root.is_dir():
+            for path in root.glob("devcloud-offline-*"):
+                if preserve_filename and (
+                    path.name == preserve_filename
+                    or path.name == f"{preserve_filename}.sha256"
+                ):
+                    continue
+                if path.is_file() or path.is_symlink():
+                    try:
+                        sz = path.stat().st_size
+                        path.unlink()
+                        cleaned_files.append(path.name)
+                        freed_bytes += sz
+                    except OSError:
+                        pass
+
+            # Clean any stale uploading or tmp files
+            for pattern in ("*.uploading", ".*.uploading", "*.tmp", ".*.tmp"):
+                for path in root.glob(pattern):
+                    if path.is_file() or path.is_symlink():
+                        try:
+                            sz = path.stat().st_size
+                            path.unlink()
+                            cleaned_files.append(path.name)
+                            freed_bytes += sz
+                        except OSError:
+                            pass
+
+        # Clean build_root temporary directories
+        if self.build_root.is_dir():
+            for entry in self.build_root.glob("download-update-*"):
+                if entry.is_dir():
+                    try:
+                        shutil.rmtree(entry, ignore_errors=True)
+                        cleaned_files.append(entry.name)
+                    except OSError:
+                        pass
+
+        # Clean dist/ directory in project root
+        dist_dir = self.project_root / "dist"
+        if dist_dir.is_dir():
+            for path in dist_dir.glob("devcloud-offline-*"):
+                if path.is_file():
+                    try:
+                        sz = path.stat().st_size
+                        path.unlink()
+                        cleaned_files.append(path.name)
+                        freed_bytes += sz
+                    except OSError:
+                        pass
+
+        logger.info(
+            "Cleaned %d stale bundle files/folders, freed %s",
+            len(cleaned_files),
+            _format_size(freed_bytes),
+        )
+        return {
+            "cleaned_count": len(cleaned_files),
+            "freed_bytes": freed_bytes,
+            "freed_display": _format_size(freed_bytes),
+            "files": cleaned_files,
+        }
 
 
 download_update_manager = DownloadUpdateManager()

@@ -75,14 +75,15 @@
 <div class="card download-update-card" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Çevrim Dışı İndirmeler</h2>
+      <h2 class="card-title">Çevrim Dışı İndirmeler & Disk Yönetimi</h2>
       <p class="download-update-description">
-        Güncel ve temiz Git revizyonunu derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlanan paketi değiştirin.
+        Güncel ve temiz Git revizyonunu derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlanan paketi değiştirin. Eski sürümler disk tasarrufu için otomatik temizlenir.
       </p>
     </div>
-    <div class="download-update-actions">
+    <div class="download-update-actions" style="display: flex; gap: 0.5rem; align-items: center;">
       <span id="download-update-badge" class="badge badge-stopped">Kontrol ediliyor</span>
-      <button id="btn-update-downloads" class="btn btn-warning" type="button" disabled>İndirmeleri Güncelle</button>
+      <button id="btn-clean-downloads" class="btn btn-secondary btn-sm" type="button" title="Eski paketleri ve geçici derleme dosyalarını temizler">🧹 Eski Paketleri Temizle</button>
+      <button id="btn-update-downloads" class="btn btn-warning btn-sm" type="button" disabled>İndirmeleri Güncelle</button>
     </div>
   </div>
   <div class="download-update-summary">
@@ -93,6 +94,23 @@
   <p class="download-update-warning">
     Bu işlem Python wheel paketlerini indirir, beş Podman image'ını yeniden oluşturur ve birkaç dakika sürebilir. Yeni paket doğrulanana kadar mevcut indirme kullanılabilir kalır.
   </p>
+
+  <details style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+    <summary style="cursor: pointer; font-weight: 600; color: var(--text-main); font-size: 0.9rem; user-select: none;">
+      📖 Hızlı Çevrim Dışı Kurulum Adımları (Air-Gap Setup)
+    </summary>
+    <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+      <p style="margin-bottom: 0.5rem;">Hedef izole sunucuda paketi açıp kurmak için şu komutları sırasıyla çalıştırın:</p>
+      <pre class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># 1. Checksum doğrula ve aç
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
+cd devcloud
+
+# 2. Doğrula ve kur
+python3 deploy/package_offline.py --verify . --check-runtime
+sudo bash deploy/deploy_offline.sh</pre>
+    </div>
+  </details>
 </div>
 
 <section class="card admin-users-panel">

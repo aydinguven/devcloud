@@ -69,3 +69,11 @@ async def test_download_update_controls_are_admin_only(
     assert page.status_code == 200
     assert "Çevrim Dışı İndirmeler" in page.text
     assert 'id="btn-update-downloads"' in page.text
+    assert 'id="btn-clean-downloads"' in page.text
+
+    clean_response = await client.post(
+        "/api/admin/downloads/clean", headers=admin_headers
+    )
+    assert clean_response.status_code == 200
+    assert "cleaned_count" in clean_response.json()
+    assert "freed_display" in clean_response.json()

@@ -1,34 +1,115 @@
 {% extends "base.html" %}
 
-{% block title %}İndirmeler - {{ app_name }}{% endblock %}
+{% block title %}İndirmeler & Kurulum Kılavuzu - {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="page-heading">
   <div>
-    <span class="page-kicker">Çevrim Dışı Kurulum</span>
-    <h1>Kurulum Paketleri</h1>
-    <p>Güncel DevCloud çevrim dışı kurulum paketini indirin ve arşivi açmadan önce SHA-256 checksum değerini doğrulayın.</p>
+    <span class="page-kicker">Hava Boşluklu (Air-Gap) Dağıtım</span>
+    <h1>Kurulum Paketleri & Kılavuz</h1>
+    <p>Güncel DevCloud çevrim dışı kurulum paketini indirin ve hedef sunucuda internet bağlantısına ihtiyaç duymadan kurun.</p>
   </div>
 </div>
 
-<div class="card" style="border-top: 3px solid var(--secondary);">
+<div class="card" style="border-top: 3px solid var(--secondary); margin-bottom: 2rem;">
+  <div class="card-header" style="margin-bottom: 1rem;">
+    <h2 class="card-title">📦 Kullanılabilir Kurulum Paketleri</h2>
+  </div>
   {% if bundles %}
     {% for bundle in bundles %}
-      <div class="download-item">
+      <div class="download-item" style="padding: 1rem; background: var(--bg-card-hover); border-radius: var(--radius-md); margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <div class="download-filename">{{ bundle.filename }}</div>
-          <div class="download-meta">{{ bundle.size_display }}</div>
+          <div class="download-filename" style="font-weight: 600; font-family: var(--font-mono); color: #fff; font-size: 1rem;">{{ bundle.filename }}</div>
+          <div class="download-meta" style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+            Boyut: <strong style="color: var(--text-main);">{{ bundle.size_display }}</strong> &bull; Son Güncelleme: {{ bundle.modified_at[:10] if bundle.modified_at else 'Bilinmiyor' }}
+          </div>
         </div>
-        <div class="download-actions">
+        <div class="download-actions" style="display: flex; gap: 0.75rem;">
           {% if bundle.checksum_url %}
-            <a class="btn btn-secondary" href="{{ bundle.checksum_url }}">SHA-256 Checksum</a>
+            <a class="btn btn-secondary" href="{{ bundle.checksum_url }}">🔑 SHA-256 Checksum</a>
           {% endif %}
-          <a class="btn btn-primary" href="{{ bundle.url }}">Paketi İndir</a>
+          <a class="btn btn-primary" href="{{ bundle.url }}">⬇️ Paketi İndir</a>
         </div>
       </div>
     {% endfor %}
   {% else %}
-    <p style="color: var(--text-muted);">Henüz çevrim dışı kurulum paketi yayımlanmadı.</p>
+    <p style="color: var(--text-muted); padding: 1rem 0;">Henüz çevrim dışı kurulum paketi yayımlanmadı. Yönetici panelinden indirmeleri güncelleyebilirsiniz.</p>
   {% endif %}
+</div>
+
+<!-- Step-by-Step Installation Guide -->
+<div class="card" style="border-top: 3px solid var(--primary);">
+  <div class="card-header" style="margin-bottom: 1.25rem;">
+    <div>
+      <h2 class="card-title">📖 Adım Adım Çevrim Dışı Kurulum Kılavuzu</h2>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem;">
+        İndirilen paketi izole hedef sunucuya (Rocky Linux, RHEL, Fedora veya CentOS) aktardıktan sonra aşağıdaki adımları sırasıyla uygulayın.
+      </p>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    <!-- Step 1 -->
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <span class="badge badge-flavor" style="font-size: 0.875rem; padding: 0.25rem 0.6rem;">Adım 1</span>
+        <h3 style="font-size: 1.05rem; font-weight: 600; color: #fff; margin: 0;">Bütünlük Doğrulaması (SHA-256 Checksum)</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
+        Dosya aktarımı sırasında bozulma veya eksiklik olmadığını doğrulamak için paketin yanındaki <code>.sha256</code> dosyasıyla kontrol edin:
+      </p>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">sha256sum -c devcloud-offline-*.tar.gz.sha256</pre>
+      <small style="color: var(--color-success); font-size: 0.8rem; margin-top: 0.35rem; display: block;">&check; Çıktıda <code>...: OK</code> mesajını görmelisiniz.</small>
+    </div>
+
+    <!-- Step 2 -->
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <span class="badge badge-flavor" style="font-size: 0.875rem; padding: 0.25rem 0.6rem;">Adım 2</span>
+        <h3 style="font-size: 1.05rem; font-weight: 600; color: #fff; margin: 0;">Arşivi Açma ve Dizine Geçiş</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
+        Tarball arşivini açın ve oluşturulan <code>devcloud</code> klasörüne geçin:
+      </p>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">tar -xzf devcloud-offline-*.tar.gz
+cd devcloud</pre>
+    </div>
+
+    <!-- Step 3 -->
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <span class="badge badge-flavor" style="font-size: 0.875rem; padding: 0.25rem 0.6rem;">Adım 3</span>
+        <h3 style="font-size: 1.05rem; font-weight: 600; color: #fff; margin: 0;">İçerik ve Çalışma Zamanı Doğrulaması</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
+        Python wheel paketlerinin, container kalıplarının ve sistem gereksinimlerinin tam olduğunu test edin:
+      </p>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">python3 deploy/package_offline.py --verify . --check-runtime</pre>
+    </div>
+
+    <!-- Step 4 -->
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <span class="badge badge-flavor" style="font-size: 0.875rem; padding: 0.25rem 0.6rem;">Adım 4</span>
+        <h3 style="font-size: 1.05rem; font-weight: 600; color: #fff; margin: 0;">Otomatik Kurulumu Başlatma</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
+        Tek bir script ile Python ortamını kurun, 5 Podman image'ını yükleyin, SELinux politikalarını ayarlayın ve systemd servisini başlatın:
+      </p>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">sudo bash deploy/deploy_offline.sh</pre>
+    </div>
+
+    <!-- Step 5 -->
+    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <span class="badge badge-running" style="font-size: 0.875rem; padding: 0.25rem 0.6rem;">Tamamlandı</span>
+        <h3 style="font-size: 1.05rem; font-weight: 600; color: #fff; margin: 0;">DevCloud Web Arayüzüne Giriş</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
+        Tarayıcınızdan sunucu IP adresine bağlanarak ilk yönetici hesabınızı oluşturabilir ve geliştirme ortamlarınızı kullanmaya başlayabilirsiniz:
+      </p>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">http://&lt;SUNUCU-IP-ADRESI&gt;:8000/</pre>
+    </div>
+  </div>
 </div>
 {% endblock %}
