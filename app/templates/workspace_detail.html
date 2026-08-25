@@ -45,7 +45,7 @@
 </div>
 
 <!-- Live Metrics & Specs Overview -->
-<div class="grid grid-cols-4" style="margin-bottom: 1.5rem; gap: 1rem;">
+<div class="workspace-metrics-grid" data-detail-metrics-ws-id="{{ workspace.id }}">
   <div class="card">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">CPU Kullanımı</div>
     <div id="detail-val-cpu" style="font-size: 1.25rem; font-weight: 700; color: #3b82f6; margin-top: 0.25rem;">--</div>
@@ -79,14 +79,14 @@
 
 <!-- Workspace Tabs: Logs, File Manager, Port Exposer -->
 <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 2rem;">
-  <div style="display: flex; border-bottom: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02);">
-    <button class="tab-btn active" data-tab="tab-logs" style="padding: 0.85rem 1.25rem; font-weight: 600; border: none; background: transparent; color: #fff; cursor: pointer; border-bottom: 2px solid var(--primary);">
+  <div class="workspace-tabs-nav">
+    <button class="tab-btn active" data-tab="tab-logs">
       ▣ Container Logları
     </button>
-    <button class="tab-btn" data-tab="tab-files" style="padding: 0.85rem 1.25rem; font-weight: 600; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;">
+    <button class="tab-btn" data-tab="tab-files">
       📁 Dosya Yöneticisi
     </button>
-    <button class="tab-btn" data-tab="tab-ports" style="padding: 0.85rem 1.25rem; font-weight: 600; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;">
+    <button class="tab-btn" data-tab="tab-ports">
       🌐 Web Uygulaması / Port Önizleme
     </button>
   </div>

@@ -1,13 +1,16 @@
 import os
 from pathlib import Path
+from typing import ClassVar
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app import __version__
 
 
 class Settings(BaseSettings):
     """Application settings and configuration."""
     
     APP_NAME: str = "DevCloud Çalışma Alanı Yönetimi"
-    APP_VERSION: str = "2.0.2"
+    APP_VERSION: ClassVar[str] = __version__
     ENV: str = "development"
     DEBUG: bool = True
     

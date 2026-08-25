@@ -484,18 +484,34 @@ function initLiveMetricsPolling() {
   const detailRamPct = document.getElementById("detail-val-ram-pct");
   const detailDisk = document.getElementById("detail-val-disk");
   const detailUptime = document.getElementById("detail-val-uptime");
+  const detailMetricsRoot = document.querySelector("[data-detail-metrics-ws-id]");
+  const detailWorkspaceId = detailMetricsRoot?.dataset.detailMetricsWsId;
 
-  if (!metricBoxes.length && !detailCpu) return;
+  if (!metricBoxes.length && !detailWorkspaceId) return;
 
   async function pollStats() {
     try {
-      const res = await fetch("/api/workspaces/stats/summary", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
       const statsMap = {};
-      (data.stats || []).forEach((s) => {
-        statsMap[s.workspace_id] = s;
-      });
+
+      if (metricBoxes.length) {
+        const res = await fetch("/api/workspaces/stats/summary", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Metrik özeti alınamadı (HTTP ${res.status})`);
+        const data = await res.json();
+        (data.stats || []).forEach((s) => {
+          statsMap[s.workspace_id] = s;
+        });
+      }
+
+      if (detailWorkspaceId) {
+        const detailRes = await fetch(
+          `/api/workspaces/${encodeURIComponent(detailWorkspaceId)}/stats`,
+          { cache: "no-store" }
+        );
+        if (!detailRes.ok) {
+          throw new Error(`Çalışma alanı metrikleri alınamadı (HTTP ${detailRes.status})`);
+        }
+        statsMap[detailWorkspaceId] = await detailRes.json();
+      }
 
       metricBoxes.forEach((box) => {
         const wsId = box.dataset.metricsWsId;
@@ -517,7 +533,7 @@ function initLiveMetricsPolling() {
         }
       });
 
-      const currentWsId = document.querySelector("[data-workspace-id]")?.dataset.workspaceId;
+      const currentWsId = detailWorkspaceId;
       if (currentWsId && statsMap[currentWsId]) {
         const st = statsMap[currentWsId];
         if (detailCpu) detailCpu.textContent = st.status === "running" ? `${st.cpu_percent}%` : "Durduruldu";
@@ -528,6 +544,12 @@ function initLiveMetricsPolling() {
       }
     } catch (err) {
       console.warn("Metrics polling error:", err);
+      if (detailCpu) {
+        detailCpu.textContent = "Metrik hatası";
+        detailCpu.title = err.message;
+      }
+      if (detailRam) detailRam.textContent = "Yeniden deneniyor…";
+      if (detailRamPct) detailRamPct.textContent = err.message;
     }
   }
 
@@ -550,7 +572,7 @@ function initWorkspaceTabs() {
       document.querySelectorAll(".tab-content").forEach((c) => (c.style.display = "none"));
 
       btn.classList.add("active");
-      btn.style.color = "#fff";
+      btn.style.color = "var(--heading)";
       btn.style.borderBottom = "2px solid var(--primary)";
 
       const targetTab = document.getElementById(btn.dataset.tab);

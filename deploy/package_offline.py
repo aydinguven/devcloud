@@ -413,13 +413,13 @@ def write_outer_checksum(bundle_path: Path) -> Path:
 
 
 def get_app_version(root_dir: Path) -> str:
-    config_file = root_dir / "app" / "config.py"
-    if config_file.is_file():
-        content = config_file.read_text(encoding="utf-8")
-        match = re.search(r'APP_VERSION:\s*str\s*=\s*["\']([^"\']+)["\']', content)
+    version_file = root_dir / "app" / "__init__.py"
+    if version_file.is_file():
+        content = version_file.read_text(encoding="utf-8")
+        match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
         if match:
             return match.group(1)
-    return "2.0.1"
+    return "2.0.3"
 
 
 def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:

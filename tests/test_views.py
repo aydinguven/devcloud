@@ -87,3 +87,6 @@ async def test_view_routes_render_html(client: AsyncClient):
     detail_resp = await client.get(f"/workspaces/{ws_id}", headers=headers)
     assert detail_resp.status_code == 200
     assert "Dashboard Template Test" in detail_resp.text
+    assert f'data-detail-metrics-ws-id="{ws_id}"' in detail_resp.text
+    assert 'class="workspace-metrics-grid"' in detail_resp.text
+    assert 'class="workspace-tabs-nav"' in detail_resp.text
