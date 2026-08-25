@@ -46,7 +46,10 @@ def test_platform_updater_is_atomic_and_uses_bounded_restart_helper():
 
     assert "flock -n 9" in script
     assert "sudo -n true" in script
-    assert "git pull --ff-only" in script
+    assert 'TARGET_BRANCH="${DEVCLOUD_UPDATE_BRANCH:-main}"' in script
+    assert 'git fetch origin "${TARGET_BRANCH}"' in script
+    assert 'git switch "${TARGET_BRANCH}"' in script
+    assert 'git merge --ff-only "origin/${TARGET_BRANCH}"' in script
     assert "git status --porcelain --untracked-files=no" in script
     assert "systemctl show --property User --value devcloud" in script
     assert ".venv/bin/python -m pip install" in script

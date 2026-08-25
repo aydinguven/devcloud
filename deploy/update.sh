@@ -46,13 +46,19 @@ if [ -n "${TRACKED_CHANGES}" ]; then
     fail "Tracked files contain local changes. Commit or revert them before updating."
 fi
 
-CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD)" || \
-    fail "The checkout is in detached HEAD state."
+TARGET_BRANCH="${DEVCLOUD_UPDATE_BRANCH:-main}"
+git check-ref-format --branch "${TARGET_BRANCH}" >/dev/null 2>&1 || \
+    fail "Invalid update branch: ${TARGET_BRANCH}"
 OLD_COMMIT="$(git rev-parse HEAD)"
 
-echo "--> [1/4] Fetching origin/${CURRENT_BRANCH}..."
-git fetch origin "${CURRENT_BRANCH}"
-git pull --ff-only origin "${CURRENT_BRANCH}"
+echo "--> [1/4] Fetching origin/${TARGET_BRANCH}..."
+git fetch origin "${TARGET_BRANCH}"
+if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
+    git switch "${TARGET_BRANCH}"
+else
+    git switch --track -c "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+fi
+git merge --ff-only "origin/${TARGET_BRANCH}"
 NEW_COMMIT="$(git rev-parse HEAD)"
 echo "    ${OLD_COMMIT:0:12} -> ${NEW_COMMIT:0:12}"
 
