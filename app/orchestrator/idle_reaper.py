@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
+from app.time_utils import ensure_utc
 
 logger = logging.getLogger("devcloud.reaper")
 
@@ -27,7 +28,7 @@ async def run_idle_reaper_cycle() -> int:
             if not ws.last_started_at:
                 continue
 
-            elapsed_minutes = (now - ws.last_started_at).total_seconds() / 60.0
+            elapsed_minutes = (now - ensure_utc(ws.last_started_at)).total_seconds() / 60.0
             if elapsed_minutes >= ws.auto_stop_minutes:
                 logger.info(
                     f"Auto-stopping idle workspace [{ws.name}] (ID: {ws.id}) "

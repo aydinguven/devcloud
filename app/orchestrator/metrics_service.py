@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from app.orchestrator.podman_service import podman_service
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.time_utils import ensure_utc
 
 
 def get_dir_size_bytes(directory_path: str | Path) -> int:
@@ -46,7 +47,7 @@ async def get_workspace_live_metrics(workspace: Workspace) -> dict:
     
     if workspace.status == WorkspaceStatus.RUNNING and workspace.last_started_at:
         now = datetime.now(timezone.utc)
-        uptime_seconds = int((now - workspace.last_started_at).total_seconds())
+        uptime_seconds = max(int((now - ensure_utc(workspace.last_started_at)).total_seconds()), 0)
         if uptime_seconds < 60:
             uptime_display = f"{uptime_seconds}s"
         elif uptime_seconds < 3600:

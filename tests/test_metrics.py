@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient
 from app.models.workspace import Workspace, WorkspaceStatus
 
@@ -35,6 +36,7 @@ async def test_get_workspace_stats_summary(client: AsyncClient, db_session):
         container_port=8888,
         storage_path="/tmp/devcloud_test_metrics",
         status=WorkspaceStatus.RUNNING,
+        last_started_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5),
     )
     db_session.add(ws)
     await db_session.commit()
@@ -48,6 +50,8 @@ async def test_get_workspace_stats_summary(client: AsyncClient, db_session):
     assert stat is not None
     assert "cpu_percent" in stat
     assert "disk_usage_display" in stat
+    assert stat["uptime_seconds"] >= 299
+    assert stat["uptime_display"].startswith("5m")
 
 
 @pytest.mark.asyncio

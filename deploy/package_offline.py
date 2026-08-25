@@ -419,7 +419,7 @@ def get_app_version(root_dir: Path) -> str:
         match = re.search(r'APP_VERSION:\s*str\s*=\s*["\']([^"\']+)["\']', content)
         if match:
             return match.group(1)
-    return "2.0.0"
+    return "2.0.1"
 
 
 def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
