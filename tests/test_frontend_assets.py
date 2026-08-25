@@ -24,3 +24,15 @@ def test_app_version_cannot_be_pinned_by_stale_environment(monkeypatch):
     monkeypatch.setenv("APP_VERSION", "0.0.0")
 
     assert Settings(_env_file=None).APP_VERSION == __version__
+
+
+def test_platform_updater_waits_for_new_healthy_service():
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
+
+    assert "waitForPlatformReady" in javascript
+    assert "/api/admin/system/update-info?ts=" in javascript
+    assert 'cache: "no-store"' in javascript
+    assert "response.ok" in javascript
+    assert "data.version" in javascript
+    assert "90000" in javascript
+    assert "window.location.replace" in javascript

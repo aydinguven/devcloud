@@ -2,35 +2,83 @@
 # ==============================================================================
 # DevCloud Platform 1-Click Self-Update Script
 # ==============================================================================
-set -e
+set -Eeuo pipefail
 
-PROJECT_DIR="/opt/devcloud"
-if [ -d "$PROJECT_DIR" ]; then
-    cd "$PROJECT_DIR"
-fi
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${DEVCLOUD_PROJECT_DIR:-$(dirname "${SCRIPT_DIR}")}"
+DATA_DIR="${PROJECT_DIR}/data"
+LOCK_FILE="${DATA_DIR}/platform-update.lock"
+RESTART_LOG="${DATA_DIR}/platform-update-restart.log"
+SERVICE_FILE="/etc/systemd/system/devcloud.service"
+UNIT_TMP=""
 
-echo "--> [1/4] Fetching latest commits from git.aydin.cloud..."
-git fetch origin
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-git pull origin "$CURRENT_BRANCH"
-
-echo "--> [2/4] Updating Python dependencies..."
-if [ -f ".venv/bin/pip" ]; then
-    .venv/bin/pip install --upgrade pip --no-warn-script-location
-    if [ -f "requirements.txt" ]; then
-        .venv/bin/pip install -r requirements.txt --no-warn-script-location
+cleanup() {
+    if [ -n "${UNIT_TMP}" ] && [ -f "${UNIT_TMP}" ]; then
+        rm -f -- "${UNIT_TMP}"
     fi
+}
+trap cleanup EXIT
+
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+cd "${PROJECT_DIR}" || fail "Project directory is unavailable: ${PROJECT_DIR}"
+mkdir -p "${DATA_DIR}"
+
+command -v flock >/dev/null 2>&1 || fail "The 'flock' command is required."
+exec 9>"${LOCK_FILE}"
+flock -n 9 || fail "Another platform update is already running."
+
+# Fail before pulling if the service account cannot update the systemd unit.
+if [ "$(id -u)" -ne 0 ]; then
+    sudo -n true >/dev/null 2>&1 || fail \
+        "Passwordless sudo is required for the DevCloud service account."
 fi
 
-echo "--> [3/4] Updating systemd unit file..."
-if [ -f "deploy/devcloud.service" ]; then
-    sudo cp deploy/devcloud.service /etc/systemd/system/devcloud.service
-    sudo sed -i "s|{{USER}}|$USER|g" /etc/systemd/system/devcloud.service
-    sudo sed -i "s|{{PROJECT_DIR}}|$PROJECT_DIR|g" /etc/systemd/system/devcloud.service
-    sudo systemctl daemon-reload
+command -v git >/dev/null 2>&1 || fail "Git is not installed."
+[ -d .git ] || fail "${PROJECT_DIR} is not a Git checkout."
+
+TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
+if [ -n "${TRACKED_CHANGES}" ]; then
+    echo "${TRACKED_CHANGES}" >&2
+    fail "Tracked files contain local changes. Commit or revert them before updating."
 fi
 
-echo "--> [4/4] Scheduling fast daemon restart..."
-(sleep 1 && sudo systemctl restart devcloud) &
+CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD)" || \
+    fail "The checkout is in detached HEAD state."
+OLD_COMMIT="$(git rev-parse HEAD)"
 
-echo "--> Update completed successfully! Service is reloading in background."
+echo "--> [1/4] Fetching origin/${CURRENT_BRANCH}..."
+git fetch origin "${CURRENT_BRANCH}"
+git pull --ff-only origin "${CURRENT_BRANCH}"
+NEW_COMMIT="$(git rev-parse HEAD)"
+echo "    ${OLD_COMMIT:0:12} -> ${NEW_COMMIT:0:12}"
+
+echo "--> [2/4] Checking Python dependencies..."
+[ -x .venv/bin/python ] || fail "Python virtual environment is missing."
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+
+echo "--> [3/4] Installing the current systemd unit..."
+[ -f deploy/devcloud.service ] || fail "deploy/devcloud.service is missing."
+SERVICE_USER="${DEVCLOUD_SERVICE_USER:-}"
+if [ -z "${SERVICE_USER}" ]; then
+    SERVICE_USER="$(systemctl show --property User --value devcloud 2>/dev/null || true)"
+fi
+SERVICE_USER="${SERVICE_USER:-$(id -un)}"
+UNIT_TMP="$(mktemp)"
+sed -e "s|{{USER}}|${SERVICE_USER}|g" \
+    -e "s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
+    deploy/devcloud.service >"${UNIT_TMP}"
+sudo install -m 0644 "${UNIT_TMP}" "${SERVICE_FILE}"
+sudo systemctl daemon-reload
+
+echo "--> [4/4] Scheduling a health-checked worker reload..."
+[ -f deploy/restart.sh ] || fail "deploy/restart.sh is missing."
+nohup bash -c 'sleep 2; exec bash "$1"' _ "${PROJECT_DIR}/deploy/restart.sh" \
+    >>"${RESTART_LOG}" 2>&1 </dev/null &
+disown || true
+
+echo "--> Update completed successfully."
+echo "    Restart log: ${RESTART_LOG}"

@@ -800,11 +800,59 @@ function initAdminPlatformUpdater() {
   const updateTerminalBox = document.getElementById("admin-update-terminal-box");
   const updateTerminal = document.getElementById("admin-update-terminal");
 
+  const appendUpdateLine = (text) => {
+    if (!updateTerminal) return;
+    updateTerminal.textContent += text + "\n";
+    updateTerminal.scrollTop = updateTerminal.scrollHeight;
+  };
+
+  const resetUpdateButton = () => {
+    if (!updateBtn) return;
+    updateBtn.disabled = false;
+    updateBtn.textContent = "Platformu Güncelle";
+  };
+
+  const waitForPlatformReady = async (expectedVersion = null) => {
+    appendUpdateLine("Servisin yeniden yüklenmesi ve sağlık kontrolü bekleniyor...");
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`/api/admin/system/update-info?ts=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (response.ok) {
+          const info = await response.json();
+          if (!expectedVersion || info.version === expectedVersion) {
+            appendUpdateLine(`Servis hazır: v${info.version} (${info.commit})`);
+            return true;
+          }
+        }
+      } catch (_) {
+        // A short connection failure is expected while systemd reloads workers.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    appendUpdateLine("❌ Servis 90 saniye içinde doğrulanamadı. Restart logunu kontrol edin.");
+    return false;
+  };
+
+  const reloadWithoutCache = () => {
+    const target = new URL(window.location.href);
+    target.searchParams.set("_updated", Date.now().toString());
+    window.location.replace(target.toString());
+  };
+
   if (commitCode) {
-    fetch("/api/admin/system/update-info")
-      .then((r) => r.json())
+    fetch(`/api/admin/system/update-info?ts=${Date.now()}`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
       .then((d) => {
-        commitCode.textContent = `${d.branch} (${d.commit})`;
+        commitCode.textContent = `v${d.version} · ${d.branch} (${d.commit})`;
       })
       .catch(() => {
         commitCode.textContent = "Bağlantı hatası";
@@ -820,8 +868,15 @@ function initAdminPlatformUpdater() {
       if (updateTerminalBox) updateTerminalBox.style.display = "block";
       if (updateTerminal) updateTerminal.textContent = "Güncelleme başlatılıyor...\n";
 
+      let streamEstablished = false;
       try {
         const response = await fetch("/api/admin/system/update-stream", { method: "POST" });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || `HTTP ${response.status}`);
+        }
+        if (!response.body) throw new Error("Sunucu canlı güncelleme akışı döndürmedi.");
+        streamEstablished = true;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -838,22 +893,34 @@ function initAdminPlatformUpdater() {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (data.type === "log") {
-                  updateTerminal.textContent += data.text + "\n";
-                  updateTerminal.scrollTop = updateTerminal.scrollHeight;
+                  appendUpdateLine(data.text);
                 } else if (data.type === "done") {
-                  updateTerminal.textContent += "\n🎉 " + data.text + "\n";
-                  setTimeout(() => window.location.reload(), 3000);
+                  appendUpdateLine("\n🎉 " + data.text);
+                  if (await waitForPlatformReady(data.version)) reloadWithoutCache();
+                  else resetUpdateButton();
+                  return;
                 } else if (data.type === "error") {
-                  updateTerminal.textContent += "\n❌ " + data.text + "\n";
-                  updateBtn.disabled = false;
+                  appendUpdateLine("\n❌ " + data.text);
+                  resetUpdateButton();
+                  return;
                 }
               } catch (_) {}
             }
           }
         }
+
+        appendUpdateLine("Güncelleme akışı kapandı; servis durumu kontrol ediliyor...");
+        if (await waitForPlatformReady()) reloadWithoutCache();
+        else resetUpdateButton();
       } catch (err) {
-        updateTerminal.textContent += "\nBağlantı kesildi (servis yeniden başlıyor olabilir): " + err.message + "\n";
-        setTimeout(() => window.location.reload(), 3500);
+        if (streamEstablished) {
+          appendUpdateLine("Bağlantı yeniden yükleme sırasında kesildi; servis kontrol ediliyor...");
+          if (await waitForPlatformReady()) reloadWithoutCache();
+          else resetUpdateButton();
+        } else {
+          appendUpdateLine("\n❌ Güncelleme başlatılamadı: " + err.message);
+          resetUpdateButton();
+        }
       }
     });
   }

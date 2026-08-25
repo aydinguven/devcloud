@@ -193,26 +193,49 @@ async def build_custom_template_stream(
 async def get_system_update_info(
     _admin: Annotated[User, Depends(get_current_admin_user)],
 ):
-    """Admin: Get current git revision and status."""
+    """Admin: Get the current checkout revision and application version."""
     import subprocess
+    from app.config import settings
+
     try:
-        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
-        return {"commit": commit, "branch": branch, "status": "Ready"}
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=settings.BASE_DIR,
+            text=True,
+            timeout=5,
+        ).strip()
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=settings.BASE_DIR,
+            text=True,
+            timeout=5,
+        ).strip()
+        return {
+            "commit": commit,
+            "branch": branch,
+            "status": "Hazır",
+            "version": settings.APP_VERSION,
+        }
     except Exception as exc:
-        return {"commit": "unknown", "branch": "unknown", "status": str(exc)}
+        return {
+            "commit": "unknown",
+            "branch": "unknown",
+            "status": str(exc),
+            "version": settings.APP_VERSION,
+        }
 
 
 @admin_router.post("/system/update-stream")
 async def run_system_update_stream(
     _admin: Annotated[User, Depends(get_current_admin_user)],
 ):
-    """Admin: Pull latest updates, install requirements, and restart service with live logs."""
-    import json
+    """Admin: Run the guarded updater and stream its combined output."""
     import asyncio
-    import subprocess
+    import json
     from pathlib import Path
     from fastapi.responses import StreamingResponse
+    from app.config import settings
+    from deploy.package_offline import get_app_version
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
@@ -222,33 +245,69 @@ async def run_system_update_stream(
 
     async def run_updater():
         try:
-            await emit("🚀 Starting DevCloud 1-Click Platform Update...", "info")
-            await asyncio.sleep(0.1)
+            project_dir = Path(settings.BASE_DIR).resolve()
+            update_script = project_dir / "deploy" / "update.sh"
+            if not update_script.is_file():
+                raise FileNotFoundError(f"Güncelleme betiği bulunamadı: {update_script}")
 
-            # Step 1: Git pull
-            await emit("📥 [1/4] Pulling latest commits from git repository...", "info")
+            await emit("DevCloud platform güncellemesi başlatıldı.", "info")
             proc = await asyncio.create_subprocess_exec(
-                "git", "pull",
+                "bash",
+                str(update_script),
+                cwd=str(project_dir),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
-            stdout, stderr = await proc.communicate()
-            await emit(f"Git: {stdout.decode().strip() or stderr.decode().strip()}", "info")
+            if proc.stdout is None:
+                raise RuntimeError("Güncelleme çıktısı okunamadı.")
 
-            # Step 2: Systemd service update
-            await emit("⚙️ [2/4] Verifying systemd unit configuration...", "info")
-            if Path("/etc/systemd/system/devcloud.service").exists():
-                await asyncio.create_subprocess_exec("sudo", "systemctl", "daemon-reload")
+            while True:
+                raw_line = await proc.stdout.readline()
+                if not raw_line:
+                    break
+                line = raw_line.decode("utf-8", errors="replace").rstrip()
+                if line:
+                    await emit(line, "info")
 
-            # Step 3: Schedule detached restart
-            await emit("🔄 [3/4] Scheduling fast daemon restart in 2 seconds...", "success")
-            done_payload = json.dumps({"type": "done", "text": "Update complete! Reconnecting in 3s..."})
+            return_code = await proc.wait()
+            if return_code != 0:
+                error_payload = json.dumps(
+                    {
+                        "type": "error",
+                        "text": f"Güncelleme başarısız oldu (çıkış kodu: {return_code}).",
+                    },
+                    ensure_ascii=False,
+                )
+                await queue.put(f"data: {error_payload}\n\n")
+                return
+
+            commit_proc = await asyncio.create_subprocess_exec(
+                "git",
+                "rev-parse",
+                "--short",
+                "HEAD",
+                cwd=str(project_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            commit_stdout, _ = await commit_proc.communicate()
+            commit = commit_stdout.decode("utf-8", errors="replace").strip() or "unknown"
+            version = get_app_version(project_dir)
+            done_payload = json.dumps(
+                {
+                    "type": "done",
+                    "text": "Güncelleme tamamlandı; servis doğrulanıyor...",
+                    "commit": commit,
+                    "version": version,
+                },
+                ensure_ascii=False,
+            )
             await queue.put(f"data: {done_payload}\n\n")
-            
-            # Dispatch background restart
-            subprocess.Popen(["bash", "-c", "sleep 1.5 && sudo systemctl restart devcloud"])
         except Exception as exc:
-            err_payload = json.dumps({"type": "error", "text": f"Update error: {str(exc)}"})
+            err_payload = json.dumps(
+                {"type": "error", "text": f"Güncelleme hatası: {str(exc)}"},
+                ensure_ascii=False,
+            )
             await queue.put(f"data: {err_payload}\n\n")
         finally:
             await queue.put(None)
