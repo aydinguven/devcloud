@@ -4,16 +4,16 @@ set -e
 
 echo "=== Starting DevCloud Platform Setup on Linux VM ==="
 
-# 1. Detect Package Manager and Install Podman & Python
+# 1. Detect Package Manager and Install Podman, crun & Python
 if command -v apt-get >/dev/null 2>&1; then
     echo "Updating apt repositories and installing Podman & Python dependencies..."
     sudo apt-get update
-    sudo apt-get install -y podman python3 python3-pip python3-venv git curl
+    sudo apt-get install -y podman crun python3 python3-pip python3-venv git curl
 elif command -v dnf >/dev/null 2>&1; then
     echo "Installing Podman & Python via DNF..."
-    sudo dnf install -y podman python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
+    sudo dnf install -y podman crun python3 python3-pip python3-venv git curl policycoreutils-python-utils selinux-policy-targeted
 else
-    echo "Unsupported package manager. Please ensure Podman and Python 3.11+ are installed."
+    echo "Unsupported package manager. Please ensure Podman, crun, and Python 3.11+ are installed."
 fi
 
 # 2. Setup Workspace Directory and Permissions
@@ -61,6 +61,5 @@ sudo systemctl daemon-reload
 sudo systemctl enable devcloud
 bash "${PROJECT_DIR}/deploy/restart.sh"
 
-echo "=== DevCloud successfully installed and running! ==="
-echo "Access the dashboard at: http://$(hostname -I | awk '{print $1}'):8000"
-echo "Check service logs with: sudo journalctl -u devcloud -f"
+echo "=== DevCloud Platform Deployed Successfully! ==="
+echo "Access DevCloud in your browser at: http://$(hostname -I | awk '{print $1}'):8000"

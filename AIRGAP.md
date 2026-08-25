@@ -15,16 +15,23 @@ its Rocky/RHEL/Fedora repository or installation media, install and verify:
 
 - Linux x86_64
 - CPython 3.11 or newer, including `pip` and `venv`
-- Podman
+- Podman and an OCI runtime (`crun` or `runc`)
 - `sudo` and systemd
 - `policycoreutils-python-utils` when SELinux is enforcing (`semanage`)
 
-Record the exact target Python version:
+On Rocky Linux / RHEL / Fedora / CentOS:
+
+```bash
+sudo dnf install -y podman crun python3 python3-pip python3-venv policycoreutils-python-utils
+```
+
+Record the exact target Python version and verify OCI runtime:
 
 ```bash
 python3 -c 'import sysconfig; print(sysconfig.get_python_version())'
 uname -m
 podman --version
+crun --version || runc --version
 ```
 
 The default bundle target is CPython 3.12 on Linux x86_64. Pass the target
