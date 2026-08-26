@@ -1,9 +1,18 @@
+import asyncio
 from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_admin_user
+from app.auth.ldap import (
+    DirectoryConfigurationError,
+    DirectoryConnectionError,
+    config_from_update,
+    encrypt_directory_secret,
+    test_directory_configuration,
+    validate_directory_config,
+)
 from app.database import get_db
 from app.download_updates import (
     DownloadUpdateDisabled,
@@ -11,12 +20,115 @@ from app.download_updates import (
     download_update_manager,
 )
 from app.models.user import User
+from app.models.directory_settings import DirectorySettings
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
 from app.schemas.user import UserOut, UserQuotaUpdate
+from app.schemas.directory import (
+    DirectorySettingsOut,
+    DirectorySettingsUpdate,
+    DirectoryTestResult,
+)
 from app.schemas.workspace import WorkspaceOut
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
+    return DirectorySettingsOut(
+        enabled=record.enabled,
+        server_host=record.server_host,
+        server_port=record.server_port,
+        use_ssl=record.use_ssl,
+        validate_tls=record.validate_tls,
+        ca_cert_file=record.ca_cert_file,
+        connect_timeout_seconds=record.connect_timeout_seconds,
+        bind_dn=record.bind_dn,
+        has_bind_password=bool(record.encrypted_bind_password),
+        user_base_dn=record.user_base_dn,
+        user_filter=record.user_filter,
+        username_attribute=record.username_attribute,
+        email_attribute=record.email_attribute,
+        display_name_attribute=record.display_name_attribute,
+        group_membership_attribute=record.group_membership_attribute,
+        required_group_dn=record.required_group_dn,
+        admin_group_dn=record.admin_group_dn,
+        nested_group_search=record.nested_group_search,
+    )
+
+
+async def _get_or_create_directory_settings(
+    db: AsyncSession,
+) -> DirectorySettings:
+    record = await db.get(DirectorySettings, 1)
+    if record:
+        return record
+    record = DirectorySettings(id=1)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+@admin_router.get("/directory-settings", response_model=DirectorySettingsOut)
+async def get_directory_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Return LDAP configuration without returning the bind password."""
+    return _directory_settings_out(await _get_or_create_directory_settings(db))
+
+
+@admin_router.put("/directory-settings", response_model=DirectorySettingsOut)
+async def update_directory_settings(
+    update: DirectorySettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Store LDAP configuration and encrypt the bind password at rest."""
+    record = await _get_or_create_directory_settings(db)
+    try:
+        candidate = config_from_update(update, record)
+        if update.enabled:
+            validate_directory_config(candidate)
+    except DirectoryConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    values = update.model_dump(exclude={"bind_password"})
+    for field_name, value in values.items():
+        setattr(record, field_name, value)
+    if update.bind_password:
+        record.encrypted_bind_password = encrypt_directory_secret(
+            update.bind_password
+        )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _directory_settings_out(record)
+
+
+@admin_router.post("/directory-settings/test", response_model=DirectoryTestResult)
+async def test_directory_settings(
+    update: DirectorySettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Test the submitted (or saved) bind credentials and search base."""
+    record = await _get_or_create_directory_settings(db)
+    try:
+        candidate = config_from_update(update, record)
+        message, elapsed_ms = await asyncio.to_thread(
+            test_directory_configuration, candidate
+        )
+    except (DirectoryConfigurationError, DirectoryConnectionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    scheme = "ldaps" if candidate.use_ssl else "ldap"
+    return DirectoryTestResult(
+        success=True,
+        message=message,
+        server=f"{scheme}://{candidate.server_host}:{candidate.server_port}",
+        response_time_ms=elapsed_ms,
+    )
 
 
 @admin_router.get("/users", response_model=list[UserOut])
@@ -357,4 +469,3 @@ async def clean_old_downloads(
 ):
     """Admin: Remove older offline bundles and temporary files to reclaim disk space."""
     return download_update_manager.clean_old_bundles()
-

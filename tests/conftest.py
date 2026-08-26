@@ -10,6 +10,7 @@ from app.database import Base, get_db
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.custom_template import CustomTemplate
+from app.models.directory_settings import DirectorySettings
 from app.main import app
 from app.orchestrator.podman_service import podman_service
 

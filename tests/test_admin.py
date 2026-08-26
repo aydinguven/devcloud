@@ -72,3 +72,6 @@ async def test_admin_access_controls(client: AsyncClient):
     assert "Kota Ayarları" in admin_page.text
     assert 'class="admin-user-card"' in admin_page.text
     assert 'class="quota-form admin-quota-form"' in admin_page.text
+    assert "Kurumsal Dizin (LDAPS / Active Directory)" in admin_page.text
+    assert 'id="directory-settings-form"' in admin_page.text
+    assert 'value="ldaps.tcmb.gov.tr"' in admin_page.text

@@ -12,6 +12,7 @@ from app.auth import (
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.models.directory_settings import DirectorySettings
 from app.schemas.auth import TokenResponse
 from app.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
 
@@ -50,6 +51,13 @@ async def register_user(
     auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
 ):
     """Register a new user account."""
+    directory_settings = await db.get(DirectorySettings, 1)
+    if directory_settings and directory_settings.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kurumsal dizin etkin; yeni hesaplar ilk LDAP girişinde otomatik oluşturulur.",
+        )
+
     # Check if username exists
     stmt_user = select(User).where(User.username == user_in.username.strip())
     existing_user = (await db.execute(stmt_user)).scalar_one_or_none()
@@ -131,7 +139,14 @@ async def update_profile(
         current_user.full_name = update_data.full_name.strip()
 
     if update_data.password:
-        await auth_provider.change_password(current_user, update_data.password, db)
+        changed = await auth_provider.change_password(
+            current_user, update_data.password, db
+        )
+        if not changed:
+            raise HTTPException(
+                status_code=400,
+                detail="Kurumsal dizin parolası DevCloud üzerinden değiştirilemez.",
+            )
 
     db.add(current_user)
     await db.commit()

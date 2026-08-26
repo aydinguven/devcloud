@@ -107,9 +107,9 @@ async def init_db() -> None:
     from app.models.user import User  # noqa: F401
     from app.models.workspace import Workspace  # noqa: F401
     from app.models.custom_template import CustomTemplate  # noqa: F401
+    from app.models.directory_settings import DirectorySettings  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await ensure_user_quota_columns(conn)
         await ensure_workspace_columns(conn)
-

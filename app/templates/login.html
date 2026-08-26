@@ -26,10 +26,16 @@
       <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.75rem;">Giriş Yap</button>
     </form>
 
+    {% if registration_enabled %}
     <div style="text-align: center; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); font-size: 0.875rem; color: var(--text-muted);">
       <p style="margin-bottom: 0.75rem;">Yeni kullanıcılara {{ registration_cpu_quota|int }} CPU, {{ registration_memory_gb_quota|int }} GB RAM ve {{ registration_disk_gb_quota|int }} GB Disk kotası tanımlanır.</p>
       <a href="/register" class="btn btn-secondary" style="width: 100%;">Yeni Hesap Oluştur</a>
     </div>
+    {% elif directory_enabled %}
+    <p style="text-align: center; margin-top: 1.25rem; color: var(--text-muted); font-size: 0.875rem;">
+      Kurumsal dizin hesabınızla giriş yapın. Yetkiniz ilk girişte otomatik eşlenir.
+    </p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

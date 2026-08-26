@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.base import AuthProvider
-from app.auth.internal import InternalAuthProvider, decode_access_token
-from app.auth.ad_placeholder import ActiveDirectoryAuthProvider
+from app.auth.internal import decode_access_token
+from app.auth.ldap import HybridAuthProvider
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -15,10 +15,8 @@ http_bearer = HTTPBearer(auto_error=False)
 
 
 def get_auth_provider() -> AuthProvider:
-    """Factory returning configured AuthProvider."""
-    if settings.AUTH_PROVIDER.lower() == "active_directory":
-        return ActiveDirectoryAuthProvider()
-    return InternalAuthProvider()
+    """Return local authentication with optional runtime LDAP integration."""
+    return HybridAuthProvider()
 
 
 async def get_token_from_request(

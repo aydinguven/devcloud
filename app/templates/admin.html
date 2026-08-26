@@ -113,6 +113,118 @@ sudo bash deploy/deploy_offline.sh</pre>
   </details>
 </div>
 
+<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #2563eb;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Kurumsal Dizin (LDAPS / Active Directory)</h2>
+      <p class="admin-section-description">
+        Kullanıcıları kurumsal dizinle doğrulayın. Bind parolası şifreli saklanır ve kaydedildikten sonra tekrar gösterilmez.
+      </p>
+    </div>
+    <span id="directory-status-badge" class="badge {% if directory_settings and directory_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">
+      {% if directory_settings and directory_settings.enabled %}Etkin{% else %}Devre Dışı{% endif %}
+    </span>
+  </div>
+
+  <form id="directory-settings-form" autocomplete="off">
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+      <label style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="checkbox" name="enabled" {% if directory_settings and directory_settings.enabled %}checked{% endif %}>
+        <span>LDAP girişini etkinleştir</span>
+      </label>
+      <label style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="checkbox" name="use_ssl" {% if not directory_settings or directory_settings.use_ssl %}checked{% endif %}>
+        <span>SSL/TLS (LDAPS)</span>
+      </label>
+      <label style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="checkbox" name="validate_tls" {% if not directory_settings or directory_settings.validate_tls %}checked{% endif %}>
+        <span>Sunucu sertifikasını doğrula</span>
+      </label>
+      <label style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="checkbox" name="nested_group_search" {% if not directory_settings or directory_settings.nested_group_search %}checked{% endif %}>
+        <span>İç içe AD gruplarını çöz</span>
+      </label>
+    </div>
+
+    <div class="grid grid-cols-3" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Sunucu</span>
+        <input class="form-input" name="server_host" value="{{ directory_settings.server_host if directory_settings else 'ldaps.tcmb.gov.tr' }}" required>
+      </label>
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Port</span>
+        <input class="form-input" name="server_port" type="number" min="1" max="65535" value="{{ directory_settings.server_port if directory_settings else 686 }}" required>
+      </label>
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Zaman aşımı (sn.)</span>
+        <input class="form-input" name="connect_timeout_seconds" type="number" min="1" max="60" value="{{ directory_settings.connect_timeout_seconds if directory_settings else 10 }}" required>
+      </label>
+    </div>
+
+    <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Bind kullanıcı / DN</span>
+        <input class="form-input" name="bind_dn" value="{{ directory_settings.bind_dn if directory_settings else '' }}" placeholder="CN=svc-devcloud,OU=Service Accounts,DC=..." required>
+      </label>
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Bind parolası</span>
+        <input class="form-input" name="bind_password" type="password" autocomplete="new-password" placeholder="{% if directory_settings and directory_settings.encrypted_bind_password %}Kayıtlı parolayı korumak için boş bırakın{% else %}Bind parolasını girin{% endif %}">
+      </label>
+    </div>
+
+    <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Kullanıcı Base DN</span>
+        <input class="form-input" name="user_base_dn" value="{{ directory_settings.user_base_dn if directory_settings else '' }}" placeholder="OU=Users,DC=..." required>
+      </label>
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Kullanıcı filtresi</span>
+        <input class="form-input" name="user_filter" value="{{ directory_settings.user_filter if directory_settings else '(&(objectClass=user)(sAMAccountName={username}))' }}" required>
+      </label>
+    </div>
+
+    <details style="margin: 1rem 0; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem;">
+      <summary style="cursor: pointer; font-weight: 600;">Öznitelik ve grup eşlemeleri</summary>
+      <div class="grid grid-cols-2" style="gap: 0.75rem; margin-top: 0.75rem;">
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Kullanıcı adı özniteliği</span>
+          <input class="form-input" name="username_attribute" value="{{ directory_settings.username_attribute if directory_settings else 'sAMAccountName' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">E-posta özniteliği</span>
+          <input class="form-input" name="email_attribute" value="{{ directory_settings.email_attribute if directory_settings else 'mail' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Görünen ad özniteliği</span>
+          <input class="form-input" name="display_name_attribute" value="{{ directory_settings.display_name_attribute if directory_settings else 'displayName' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Grup üyeliği özniteliği</span>
+          <input class="form-input" name="group_membership_attribute" value="{{ directory_settings.group_membership_attribute if directory_settings else 'memberOf' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">İzinli kullanıcı grubu DN</span>
+          <input class="form-input" name="required_group_dn" value="{{ directory_settings.required_group_dn if directory_settings else '' }}" placeholder="Boşsa tüm doğrulanmış kullanıcılar girebilir">
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">DevCloud yönetici grubu DN</span>
+          <input class="form-input" name="admin_group_dn" value="{{ directory_settings.admin_group_dn if directory_settings else '' }}" placeholder="Bu grubun üyeleri yönetici olur">
+        </label>
+        <label class="form-group" style="margin: 0; grid-column: 1 / -1;">
+          <span class="form-label">Özel CA sertifika dosyası (sunucu yolu)</span>
+          <input class="form-input" name="ca_cert_file" value="{{ directory_settings.ca_cert_file if directory_settings else '' }}" placeholder="Örn. /etc/pki/ca-trust/source/anchors/tcmb-ca.pem">
+        </label>
+      </div>
+    </details>
+
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <button id="btn-test-directory" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
+      <button id="btn-save-directory" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
+      <span id="directory-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+</section>
+
 <section class="card admin-users-panel">
   <div class="card-header">
     <div>

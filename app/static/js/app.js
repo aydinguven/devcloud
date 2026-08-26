@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initActionButtons();
   initLogPolling();
   initQuotaForms();
+  initDirectorySettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
   initWorkspaceTabs();
@@ -352,7 +353,100 @@ function initQuotaForms() {
   });
 }
 
-// 5. Admin offline-download publisher
+// 5. Admin LDAP / Active Directory settings
+function initDirectorySettings() {
+  const form = document.getElementById("directory-settings-form");
+  if (!form) return;
+
+  const testButton = document.getElementById("btn-test-directory");
+  const saveButton = document.getElementById("btn-save-directory");
+  const status = document.getElementById("directory-form-status");
+  const badge = document.getElementById("directory-status-badge");
+
+  function payload() {
+    const data = new FormData(form);
+    const password = String(data.get("bind_password") || "");
+    return {
+      enabled: form.elements.enabled.checked,
+      server_host: String(data.get("server_host") || "").trim(),
+      server_port: Number(data.get("server_port")),
+      use_ssl: form.elements.use_ssl.checked,
+      validate_tls: form.elements.validate_tls.checked,
+      ca_cert_file: String(data.get("ca_cert_file") || "").trim(),
+      connect_timeout_seconds: Number(data.get("connect_timeout_seconds")),
+      bind_dn: String(data.get("bind_dn") || "").trim(),
+      bind_password: password || null,
+      user_base_dn: String(data.get("user_base_dn") || "").trim(),
+      user_filter: String(data.get("user_filter") || "").trim(),
+      username_attribute: String(data.get("username_attribute") || "").trim(),
+      email_attribute: String(data.get("email_attribute") || "").trim(),
+      display_name_attribute: String(data.get("display_name_attribute") || "").trim(),
+      group_membership_attribute: String(data.get("group_membership_attribute") || "").trim(),
+      required_group_dn: String(data.get("required_group_dn") || "").trim(),
+      admin_group_dn: String(data.get("admin_group_dn") || "").trim(),
+      nested_group_search: form.elements.nested_group_search.checked,
+    };
+  }
+
+  function setStatus(message, isError = false) {
+    status.textContent = message;
+    status.className = `quota-form-status ${isError ? "quota-status-error" : "quota-status-success"}`;
+  }
+
+  async function send(url, method) {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload()),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      let detail = data.detail || `İşlem başarısız (${response.status})`;
+      if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; ");
+      throw new Error(detail);
+    }
+    return data;
+  }
+
+  testButton?.addEventListener("click", async () => {
+    testButton.disabled = true;
+    saveButton.disabled = true;
+    status.textContent = "LDAPS bağlantısı test ediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const result = await send("/api/admin/directory-settings/test", "POST");
+      setStatus(`${result.message} ${result.server} · ${result.response_time_ms} ms`);
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      testButton.disabled = false;
+      saveButton.disabled = false;
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    testButton.disabled = true;
+    saveButton.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const result = await send("/api/admin/directory-settings", "PUT");
+      form.elements.bind_password.value = "";
+      form.elements.bind_password.placeholder = "Kayıtlı parolayı korumak için boş bırakın";
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      setStatus("LDAP ayarları kaydedildi.");
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      testButton.disabled = false;
+      saveButton.disabled = false;
+    }
+  });
+}
+
+// 6. Admin offline-download publisher
 function initDownloadUpdater() {
   const button = document.getElementById("btn-update-downloads");
   if (!button) return;

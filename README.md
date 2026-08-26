@@ -24,7 +24,8 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   The former `t1.mini` profile remains internally available for existing workspaces but is no longer offered for new deployments.
 - **Modular Authentication**:
   - Internal Database Auth (Argon2 / Bcrypt + JWT + HTTP-only cookies).
-  - Pluggable `AuthProvider` interface ready for Active Directory / LDAP integration.
+  - Runtime-configured LDAPS / Active Directory authentication with encrypted bind credentials.
+  - Allowed-user and administrator group mapping, including nested AD groups.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
@@ -82,6 +83,26 @@ Visit `http://127.0.0.1:8000` in your browser.
 
 - **Default Admin User**: `admin`
 - **Default Admin Password**: `admin123`
+
+### LDAPS / Active Directory
+
+Sign in with the local administrator and open **Yönetim Paneli → Kurumsal
+Dizin**. The form defaults to `ldaps.tcmb.gov.tr:686` and supports testing the
+bind and user search before enabling directory login.
+
+- Set a strong, persistent `SECRET_KEY` before saving the bind password. The
+  application derives a Fernet key from it and never returns the saved password
+  through the API or admin page.
+- Keep TLS certificate validation enabled. For an internal CA, install it in the
+  operating-system trust store or enter its server-side PEM path.
+- `İzinli kullanıcı grubu DN` limits login to one AD group. Leaving it empty
+  permits every successfully authenticated directory user.
+- `DevCloud yönetici grubu DN` maps members to the DevCloud administrator role.
+  Other directory users receive the standard user role.
+- Nested group lookup uses Active Directory matching-rule-in-chain and can be
+  disabled for non-AD LDAP servers.
+- When directory login is enabled, public self-registration is disabled. The
+  existing local administrator remains available as an emergency fallback.
 
 ---
 
@@ -200,7 +221,7 @@ intelligent-nobel/
 │   ├── database.py              # Async SQLAlchemy engine & session factory
 │   ├── models/                  # User and Workspace SQLAlchemy models
 │   ├── schemas/                 # Pydantic request/response schemas
-│   ├── auth/                    # Modular Auth (Internal DB + Active Directory stub)
+│   ├── auth/                    # Internal + runtime-configured LDAP/AD authentication
 │   ├── orchestrator/            # Podman CLI manager, Flavors, and Templates
 │   ├── proxy/                   # Streaming Reverse Proxy & WebSocket router
 │   ├── routes/                  # REST APIs (Auth, Workspaces, Admin) & HTML pages

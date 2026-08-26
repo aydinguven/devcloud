@@ -11,6 +11,7 @@ from app.auth.dependencies import get_current_user_optional
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.directory_settings import DirectorySettings
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
@@ -29,10 +30,15 @@ view_router = APIRouter(include_in_schema=False)
 async def login_page(
     request: Request,
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Serve login page."""
     if current_user:
         return RedirectResponse(url="/", status_code=302)
+    directory_settings = await db.get(DirectorySettings, 1)
+    registration_enabled = not (
+        directory_settings and directory_settings.enabled
+    )
     return templates.TemplateResponse(
         request=request,
         name="login.html",
@@ -42,6 +48,8 @@ async def login_page(
             "registration_cpu_quota": settings.DEFAULT_USER_CPU_QUOTA,
             "registration_memory_gb_quota": settings.DEFAULT_USER_MEMORY_MB_QUOTA / 1024,
             "registration_disk_gb_quota": settings.DEFAULT_USER_DISK_MB_QUOTA / 1024,
+            "registration_enabled": registration_enabled,
+            "directory_enabled": not registration_enabled,
         },
     )
 
@@ -50,10 +58,14 @@ async def login_page(
 async def register_page(
     request: Request,
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Serve register page."""
     if current_user:
         return RedirectResponse(url="/", status_code=302)
+    directory_settings = await db.get(DirectorySettings, 1)
+    if directory_settings and directory_settings.enabled:
+        return RedirectResponse(url="/login", status_code=302)
     return templates.TemplateResponse(
         request=request,
         name="register.html",
@@ -222,6 +234,7 @@ async def admin_page(
     usage_by_user = await asyncio.to_thread(
         get_all_user_usage, users, workspaces
     )
+    directory_settings = await db.get(DirectorySettings, 1)
 
     return templates.TemplateResponse(
         request=request,
@@ -232,5 +245,6 @@ async def admin_page(
             "all_users": users,
             "all_workspaces": workspaces,
             "usage_by_user": usage_by_user,
+            "directory_settings": directory_settings,
         },
     )

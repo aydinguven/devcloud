@@ -48,9 +48,6 @@ class Settings(BaseSettings):
     PORT_RANGE_START: int = 10100
     PORT_RANGE_END: int = 12000
     
-    # Auth Provider Config
-    AUTH_PROVIDER: str = "internal"  # 'internal' or 'active_directory'
-    
     # Initial Admin Seed
     ADMIN_USERNAME: str = "admin"
     ADMIN_EMAIL: str = "admin@example.com"
