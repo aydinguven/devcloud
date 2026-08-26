@@ -19,6 +19,7 @@ from app.database import get_db
 from app.download_config import normalize_public_base_url
 from app.models.download_settings import DownloadSettings
 from app.models.user import User
+from app.static_assets import STATIC_ASSET_VERSION
 
 
 DOWNLOAD_NAME_PATTERN = re.compile(
@@ -28,6 +29,7 @@ templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent / "templates")
 )
 templates.env.globals["app_version"] = settings.APP_VERSION
+templates.env.globals["static_version"] = STATIC_ASSET_VERSION
 download_router = APIRouter(include_in_schema=False)
 worker_bootstrap_template = (
     Path(__file__).resolve().parent.parent / "templates" / "install_worker.sh"

@@ -4,7 +4,7 @@ import json
 import secrets
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_admin_user
@@ -359,6 +359,45 @@ async def rotate_node_token(
     await db.refresh(node)
     await agent_manager.disconnect(node.id, "Worker enrollment token'ı yenilendi")
     return _node_out(node, token)
+
+
+@admin_router.delete("/nodes/{node_id}")
+async def delete_node(
+    node_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Delete a worker node from the cluster."""
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+
+    active_workspaces = (
+        await db.execute(
+            select(func.count(Workspace.id)).where(
+                Workspace.node_id == node_id,
+                Workspace.status.in_([
+                    WorkspaceStatus.RUNNING,
+                    WorkspaceStatus.STARTING,
+                    WorkspaceStatus.STOPPING,
+                    WorkspaceStatus.CREATING,
+                ]),
+            )
+        )
+    ).scalar_one()
+    if active_workspaces > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bu worker üzerinde {active_workspaces} adet aktif çalışma alanı bulunuyor. Lütfen önce çalışma alanlarını durdurun veya silin.",
+        )
+
+    await agent_manager.disconnect(node.id, "Worker sistemden silindi")
+    await db.execute(
+        update(Workspace).where(Workspace.node_id == node_id).values(node_id=None)
+    )
+    await db.delete(node)
+    await db.commit()
+    return {"message": f"Worker '{node.name}' başarıyla silindi."}
 
 
 def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:

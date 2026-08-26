@@ -28,7 +28,7 @@ async def test_view_routes_render_html(client: AsyncClient):
     from app.config import settings
     assert '<html lang="tr">' in login_resp.text
     assert f"v{settings.APP_VERSION}" in login_resp.text
-    assert f"/static/css/kurumsal.css?v={settings.APP_VERSION}" in login_resp.text
+    assert f"/static/css/kurumsal.css?v={settings.APP_VERSION}-" in login_resp.text
     assert 'href="https://git.aydin.cloud/aydin/devcloud"' in login_resp.text
 
     # 2. Register page

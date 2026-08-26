@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#d50032">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css?v={{ app_version }}">
-  <link rel="stylesheet" href="/static/css/kurumsal.css?v={{ app_version }}">
-  <link rel="icon" href="/static/favicon.svg?v={{ app_version }}" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ static_version }}">
+  <link rel="stylesheet" href="/static/css/kurumsal.css?v={{ static_version }}">
+  <link rel="icon" href="/static/favicon.svg?v={{ static_version }}" type="image/svg+xml">
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <nav class="navbar" aria-label="Ana menü">
     <div class="navbar-brand-group">
       <a href="/" class="navbar-brand" aria-label="DevCloud ana sayfa">
         <span class="logo-icon" aria-hidden="true">
-          <img class="logo-mark" src="/static/favicon.svg?v={{ app_version }}" alt="">
+          <img class="logo-mark" src="/static/favicon.svg?v={{ static_version }}" alt="">
         </span>
         <span class="brand-copy">
           <span class="brand-name">DevCloud</span>
@@ -55,7 +55,7 @@
     </div>
   </footer>
 
-  <script src="/static/js/app.js?v={{ app_version }}"></script>
+  <script src="/static/js/app.js?v={{ static_version }}"></script>
   <script>
     const logoutBtn = document.getElementById("btn-logout");
     if (logoutBtn) {

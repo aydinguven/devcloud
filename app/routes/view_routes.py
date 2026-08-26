@@ -22,10 +22,12 @@ from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_system_usage, get_user_usage
 from app.schemas.workspace import WorkspaceOut
+from app.static_assets import STATIC_ASSET_VERSION
 
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 templates.env.globals["app_version"] = settings.APP_VERSION
+templates.env.globals["static_version"] = STATIC_ASSET_VERSION
 
 view_router = APIRouter(include_in_schema=False)
 
@@ -352,9 +354,15 @@ async def admin_page(
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
     elif section == "workers":
+        download_settings = await db.get(DownloadSettings, 1)
         context["nodes"] = (
             await db.execute(select(Node).order_by(Node.name))
         ).scalars().all()
+        context["download_public_base_url"] = (
+            download_settings.public_base_url
+            if download_settings and download_settings.public_base_url
+            else settings.DOWNLOAD_PUBLIC_BASE_URL
+        )
     elif section == "integrations":
         context["mlflow_settings"] = await db.get(MlflowSettings, 1)
     elif section == "system":

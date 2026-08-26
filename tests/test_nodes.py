@@ -7,6 +7,7 @@ from sqlalchemy import update
 
 from app.models.node import Node, NodeStatus
 from app.models.user import User, UserRole
+from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
 from app.routes.agent_routes import connect_agent
@@ -140,3 +141,93 @@ async def test_agent_heartbeat_preserves_admin_drain_change(db_session):
     await connect_agent(websocket, worker.id, db_session)
 
     assert websocket.status_during_connection == NodeStatus.DRAINING
+
+
+@pytest.mark.asyncio
+async def test_admin_can_delete_worker(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    created = await client.post(
+        "/api/admin/nodes",
+        headers=headers,
+        json={"name": "cpu-worker-delete-me", "schedulable": True, "labels": {}},
+    )
+    assert created.status_code == 201
+    node_id = created.json()["id"]
+
+    delete_resp = await client.delete(f"/api/admin/nodes/{node_id}", headers=headers)
+    assert delete_resp.status_code == 200
+    assert "başarıyla silindi" in delete_resp.json()["message"]
+
+    get_resp = await client.get("/api/admin/nodes", headers=headers)
+    assert get_resp.status_code == 200
+    assert not any(n["id"] == node_id for n in get_resp.json())
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_worker_not_found(client: AsyncClient):
+    headers = await _admin_headers(client)
+    delete_resp = await client.delete("/api/admin/nodes/non-existent-id", headers=headers)
+    assert delete_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_delete_worker_with_active_workspaces(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    created = await client.post(
+        "/api/admin/nodes",
+        headers=headers,
+        json={"name": "cpu-worker-busy", "schedulable": True, "labels": {}},
+    )
+    node_id = created.json()["id"]
+
+    # Create active workspace assigned to this node
+    ws = Workspace(
+        name="test-ws",
+        user_id=1,
+        node_id=node_id,
+        template_id="vscode-python",
+        flavor_id="t1.small",
+        container_name="cnt-test-ws",
+        host_port=20001,
+        storage_path="/tmp/test-ws",
+        status=WorkspaceStatus.RUNNING,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    delete_resp = await client.delete(f"/api/admin/nodes/{node_id}", headers=headers)
+    assert delete_resp.status_code == 400
+    assert "aktif çalışma alanı" in delete_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_can_delete_worker_with_stopped_workspaces_and_nulls_node_id(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    created = await client.post(
+        "/api/admin/nodes",
+        headers=headers,
+        json={"name": "cpu-worker-idle", "schedulable": True, "labels": {}},
+    )
+    node_id = created.json()["id"]
+
+    # Create stopped workspace assigned to this node
+    ws = Workspace(
+        name="test-stopped-ws",
+        user_id=1,
+        node_id=node_id,
+        template_id="vscode-python",
+        flavor_id="t1.small",
+        container_name="cnt-test-stopped-ws",
+        host_port=20002,
+        storage_path="/tmp/test-stopped-ws",
+        status=WorkspaceStatus.STOPPED,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    delete_resp = await client.delete(f"/api/admin/nodes/{node_id}", headers=headers)
+    assert delete_resp.status_code == 200
+
+    await db_session.refresh(ws)
+    assert ws.node_id is None
+

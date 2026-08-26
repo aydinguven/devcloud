@@ -54,17 +54,26 @@ tar -xf "${TEMP_DIR}/${BUNDLE_FILENAME}" -C "${TEMP_DIR}"
 mv "${TEMP_DIR}/devcloud-worker" "${INSTALL_DIR}"
 
 if [[ ! -f "${WORKER_ENV_FILE}" ]]; then
-    [[ -r /dev/tty && -w /dev/tty ]] || fail \
-        "Create ${WORKER_ENV_FILE} first when running without an interactive terminal."
     MASTER_URL="${DEVCLOUD_MASTER_URL:-${DEFAULT_MASTER_URL}}"
-    printf 'Master URL [%s]: ' "${MASTER_URL}" >/dev/tty
-    read -r entered_master_url </dev/tty
-    MASTER_URL="${entered_master_url:-${MASTER_URL}}"
-    printf 'Worker node ID: ' >/dev/tty
-    read -r NODE_ID </dev/tty
-    printf 'Worker node token: ' >/dev/tty
-    read -r -s NODE_TOKEN </dev/tty
-    printf '\n' >/dev/tty
+    NODE_ID="${DEVCLOUD_NODE_ID:-}"
+    NODE_TOKEN="${DEVCLOUD_NODE_TOKEN:-}"
+
+    if [[ -z "${NODE_ID}" || -z "${NODE_TOKEN}" ]]; then
+        [[ -r /dev/tty && -w /dev/tty ]] || fail \
+            "Set DEVCLOUD_NODE_ID and DEVCLOUD_NODE_TOKEN or create ${WORKER_ENV_FILE} first when running without an interactive terminal."
+        printf 'Master URL [%s]: ' "${MASTER_URL}" >/dev/tty
+        read -r entered_master_url </dev/tty
+        MASTER_URL="${entered_master_url:-${MASTER_URL}}"
+        if [[ -z "${NODE_ID}" ]]; then
+            printf 'Worker node ID: ' >/dev/tty
+            read -r NODE_ID </dev/tty
+        fi
+        if [[ -z "${NODE_TOKEN}" ]]; then
+            printf 'Worker node token: ' >/dev/tty
+            read -r -s NODE_TOKEN </dev/tty
+            printf '\n' >/dev/tty
+        fi
+    fi
 
     [[ "${MASTER_URL}" =~ ^https?://[^[:space:]]+$ ]] || fail \
         "Master URL must start with http:// or https:// and contain no spaces."

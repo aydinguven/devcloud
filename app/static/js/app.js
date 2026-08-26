@@ -484,9 +484,56 @@ function initNodeManagement() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
+
+      const masterUrl = window.location.origin;
+      const singleLineCmd = `curl -fsSL '${masterUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' DEVCLOUD_NODE_TOKEN='${data.enrollment_token}' bash`;
+
       tokenBox.style.display = "block";
-      tokenBox.textContent = `Worker: ${data.name}\nNode ID: ${data.id}\nWorker token (yalnızca şimdi gösterilir; gerektiğinde yenilenebilir):\n${data.enrollment_token}\n\nDEVCLOUD_MASTER_URL=https://<master-host>\nDEVCLOUD_NODE_ID=${data.id}\nDEVCLOUD_NODE_TOKEN=${data.enrollment_token}`;
-      status.textContent = "Worker kaydedildi. Token'ı worker yapılandırmasına ekleyin.";
+      tokenBox.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0.5rem;">
+          <strong style="color:var(--text-main,#fff);font-size:0.95rem;">✨ Worker Kaydedildi: ${data.name}</strong>
+          <span style="font-size:0.75rem;color:var(--text-muted,#9ca3af);">Token yalnızca şimdi gösterilir</span>
+        </div>
+        <div style="margin-bottom:0.75rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+            <span style="font-size:0.85rem;font-weight:600;color:var(--accent,#38bdf8);">🚀 Tek Satırda Kurulum ve Bağlantı Komutu:</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-worker-cmd" style="padding:0.25rem 0.65rem;font-size:0.75rem;">Kopyala</button>
+          </div>
+          <pre id="worker-single-line-cmd" style="background:rgba(0,0,0,0.4);padding:0.6rem;border-radius:4px;overflow-x:auto;margin:0;font-size:0.8rem;white-space:pre-wrap;word-break:break-all;color:#a7f3d0;">${singleLineCmd}</pre>
+        </div>
+        <div style="font-size:0.8rem;color:var(--text-muted,#9ca3af);margin-top:0.75rem;line-height:1.5;">
+          <div><strong>Node ID:</strong> <code style="color:#e2e8f0;">${data.id}</code></div>
+          <div><strong>Token:</strong> <code style="color:#e2e8f0;">${data.enrollment_token}</code></div>
+          <div style="margin-top:0.5rem;font-size:0.75rem;">
+            <strong>Manuel Yapılandırma (/etc/devcloud/worker.env):</strong>
+            <pre style="background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:4px;margin-top:0.25rem;font-size:0.75rem;color:#e2e8f0;white-space:pre;">DEVCLOUD_MASTER_URL=${masterUrl}
+DEVCLOUD_NODE_ID=${data.id}
+DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
+          </div>
+        </div>
+      `;
+
+      const copyBtn = document.getElementById("btn-copy-worker-cmd");
+      if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(singleLineCmd);
+            copyBtn.textContent = "Kopyalandı! ✓";
+            setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
+          } catch (e) {
+            const textarea = document.createElement("textarea");
+            textarea.value = singleLineCmd;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+            copyBtn.textContent = "Kopyalandı! ✓";
+            setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
+          }
+        });
+      }
+
+      status.textContent = "Worker kaydedildi. Yukarıdaki tek satırlık komutu kopyalayıp worker makinesinde çalıştırın.";
       status.className = "quota-form-status quota-status-success";
       form.reset();
     } catch (error) {
@@ -514,6 +561,32 @@ function initNodeManagement() {
       } catch (error) {
         status.textContent = error.message;
         status.className = "quota-form-status quota-status-error";
+        button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll(".node-delete-btn").forEach(button => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const nodeId = button.dataset.nodeId || row.dataset.nodeId;
+      const nodeName = button.dataset.nodeName || "worker";
+      if (!confirm(`"${nodeName}" worker node'unu silmek istediğinizden emin misiniz?`)) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/nodes/${nodeId}`, {
+          method: "DELETE",
+          headers: {"Content-Type": "application/json"},
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Worker silinemedi (${response.status})`);
+        }
+        window.location.reload();
+      } catch (error) {
+        alert(error.message);
         button.disabled = false;
       }
     });

@@ -60,8 +60,8 @@ async def test_download_listing_file_and_range_support(
     assert bootstrap.headers["cache-control"] == "private, no-store"
     assert f"http://test/download/{worker_filename}" in bootstrap.text
     assert f"http://test/download/{worker_filename}.sha256" in bootstrap.text
-    assert 'INSTALL_DIR="${DEVCLOUD_WORKER_INSTALL_DIR:-/opt/devcloud-worker}"' in bootstrap.text
     assert "read -r -s NODE_TOKEN" in bootstrap.text
+    assert 'NODE_ID="${DEVCLOUD_NODE_ID:-}"' in bootstrap.text
     assert "__BUNDLE_URL__" not in bootstrap.text
 
     response = await client.get(f"/download/{filename}")
