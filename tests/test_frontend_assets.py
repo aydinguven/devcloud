@@ -108,6 +108,7 @@ def test_institutional_brand_mark_replaces_text_placeholder():
     template = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
     css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(encoding="utf-8")
     logo_svg = (PROJECT_ROOT / "app/static/img/tcmb_ai_factory_logo.svg").read_text(encoding="utf-8")
+    favicon_svg = (PROJECT_ROOT / "app/static/favicon.svg").read_text(encoding="utf-8")
 
     assert 'TCMB' in template
     assert 'AI FACTORY' in template
@@ -120,3 +121,6 @@ def test_institutional_brand_mark_replaces_text_placeholder():
     assert 'AI FACTORY' in logo_svg
     assert 'Yapay Zeka Geliştirme Platformu' in logo_svg
     assert 'Yapay Zekâ' not in logo_svg
+    assert '<ellipse' in favicon_svg
+    assert '#d50032' in favicon_svg
+    assert '#263244' in favicon_svg
