@@ -37,7 +37,7 @@ from app.schemas.directory import (
     DirectoryTestResult,
 )
 from app.schemas.workspace import WorkspaceOut
-from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate
+from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate, NodeLabelsUpdate
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
 from app.config import settings
@@ -271,6 +271,10 @@ def _node_out(node: Node, enrollment_token: str | None = None):
         cpu_total=node.cpu_total,
         memory_total_mb=node.memory_total_mb,
         disk_total_mb=node.disk_total_mb,
+        cpu_percent=node.cpu_percent,
+        memory_used_mb=node.memory_used_mb,
+        disk_used_mb=node.disk_used_mb,
+        active_containers_count=node.active_containers_count,
         labels=json.loads(node.labels_json or "{}"),
         capabilities=json.loads(node.capabilities_json or "{}"),
         agent_version=node.agent_version,
@@ -398,6 +402,85 @@ async def delete_node(
     await db.delete(node)
     await db.commit()
     return {"message": f"Worker '{node.name}' başarıyla silindi."}
+
+
+@admin_router.get("/nodes/events-stream")
+async def node_events_stream(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Admin: Server-Sent Events stream for real-time node telemetry and connection events."""
+    from fastapi.responses import StreamingResponse
+    queue = agent_manager.subscribe_events()
+
+    async def stream():
+        try:
+            yield f"data: {json.dumps({'type': 'init', 'data': {'message': 'connected'}})}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            agent_manager.unsubscribe_events(queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@admin_router.put("/nodes/{node_id}/labels", response_model=NodeOut)
+async def update_node_labels(
+    node_id: str,
+    data: NodeLabelsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Update label annotations for a worker node."""
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    node.labels_json = json.dumps(data.labels, ensure_ascii=False)
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    await agent_manager.broadcast_event(
+        "node.updated", {"node_id": node.id, "labels": data.labels}
+    )
+    return _node_out(node)
+
+
+@admin_router.post("/nodes/{node_id}/upgrade")
+async def upgrade_node(
+    node_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Trigger remote OTA upgrade for a connected worker."""
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    if not agent_manager.is_connected(node.id):
+        raise HTTPException(
+            status_code=400, detail="Worker çevrimdışı; yükseltme komutu gönderilemez."
+        )
+    connection = agent_manager.get(node.id)
+    try:
+        resp = await connection.request("system.upgrade", {}, timeout=15)
+        return {
+            "message": f"Worker '{node.name}' yükseltme işlemi başlatıldı.",
+            "detail": resp,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Yükseltme komutu başarısız oldu: {exc}"
+        )
 
 
 def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
@@ -537,6 +620,68 @@ async def list_all_workspaces(
     stmt = select(Workspace).order_by(Workspace.created_at.desc())
     result = await db.execute(stmt)
     return [WorkspaceOut.model_validate(ws) for ws in result.scalars().all()]
+
+
+@admin_router.post("/workspaces/{workspace_id}/migrate")
+async def migrate_workspace(
+    workspace_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    target_node_id: str | None = None,
+):
+    """Admin: Migrate a stopped or failed workspace to another worker node."""
+    from app.orchestrator.scheduler import select_worker_node
+    from app.orchestrator.flavors import get_flavor
+
+    workspace = await db.get(Workspace, workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
+    if workspace.status in {
+        WorkspaceStatus.RUNNING,
+        WorkspaceStatus.STARTING,
+        WorkspaceStatus.CREATING,
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Yalnızca durdurulmuş veya hata durumundaki çalışma alanları taşınabilir. Lütfen önce çalışma alanını durdurun.",
+        )
+
+    old_node_id = workspace.node_id
+    if target_node_id:
+        target_node = await db.get(Node, target_node_id)
+        if (
+            not target_node
+            or not target_node.enabled
+            or not target_node.schedulable
+            or target_node.status != NodeStatus.ONLINE
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Seçilen hedef worker uygun veya çevrimiçi değil.",
+            )
+        chosen_node = target_node
+    else:
+        flavor = get_flavor(workspace.flavor_id)
+        if not flavor:
+            raise HTTPException(status_code=400, detail="Geçersiz donanım profili.")
+        chosen_node = await select_worker_node(db, flavor)
+
+    new_node_id = chosen_node.id if chosen_node else None
+    if new_node_id == old_node_id:
+        raise HTTPException(
+            status_code=400, detail="Çalışma alanı zaten bu worker üzerindedir."
+        )
+
+    workspace.node_id = new_node_id
+    db.add(workspace)
+    await db.commit()
+    await db.refresh(workspace)
+    return {
+        "message": f"Çalışma alanı '{workspace.name}' başarıyla {chosen_node.name if chosen_node else 'Master (Yerel)'} node'una taşındı.",
+        "workspace_id": workspace.id,
+        "old_node_id": old_node_id,
+        "new_node_id": new_node_id,
+    }
 
 
 @admin_router.get("/stats")

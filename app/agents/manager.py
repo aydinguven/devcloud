@@ -134,6 +134,28 @@ class AgentConnection:
 class AgentManager:
     def __init__(self):
         self._connections: dict[str, AgentConnection] = {}
+        self._event_listeners: set[asyncio.Queue] = set()
+
+    def subscribe_events(self) -> asyncio.Queue:
+        queue = asyncio.Queue(maxsize=100)
+        self._event_listeners.add(queue)
+        return queue
+
+    def unsubscribe_events(self, queue: asyncio.Queue) -> None:
+        self._event_listeners.discard(queue)
+
+    async def broadcast_event(self, event_type: str, data: dict) -> None:
+        message = {"type": event_type, "data": data}
+        dead_queues = set()
+        for queue in self._event_listeners:
+            try:
+                queue.put_nowait(message)
+            except asyncio.QueueFull:
+                dead_queues.add(queue)
+            except Exception:
+                dead_queues.add(queue)
+        for dead in dead_queues:
+            self._event_listeners.discard(dead)
 
     async def register(self, node_id: str, websocket: WebSocket) -> AgentConnection:
         old = self._connections.pop(node_id, None)
@@ -145,12 +167,14 @@ class AgentManager:
                 pass
         connection = AgentConnection(node_id, websocket)
         self._connections[node_id] = connection
+        await self.broadcast_event("node.connected", {"node_id": node_id, "status": "online"})
         return connection
 
     async def unregister(self, node_id: str, connection: AgentConnection) -> None:
         if self._connections.get(node_id) is connection:
             self._connections.pop(node_id, None)
         await connection.disconnect()
+        await self.broadcast_event("node.disconnected", {"node_id": node_id, "status": "offline"})
 
     def get(self, node_id: str) -> AgentConnection:
         connection = self._connections.get(node_id)
@@ -170,6 +194,7 @@ class AgentManager:
             await connection.websocket.close(code=1008, reason=reason)
         except Exception:
             pass
+        await self.broadcast_event("node.disconnected", {"node_id": node_id, "status": "offline"})
 
 
 agent_manager = AgentManager()

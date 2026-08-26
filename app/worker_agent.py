@@ -96,21 +96,42 @@ class WorkerAgent:
         while True:
             disk = shutil.disk_usage(settings.STORAGE_ROOT)
             memory_kb = 0
+            mem_avail_kb = 0
+            cpu_pct = 0.0
             try:
-                for line in Path("/proc/meminfo").read_text().splitlines():
-                    if line.startswith("MemTotal:"):
-                        memory_kb = int(line.split()[1])
-                        break
-            except OSError:
-                pass
+                import psutil
+                cpu_pct = float(psutil.cpu_percent(interval=None))
+                mem = psutil.virtual_memory()
+                memory_kb = mem.total // 1024
+                mem_avail_kb = mem.available // 1024
+            except Exception:
+                try:
+                    for line in Path("/proc/meminfo").read_text().splitlines():
+                        if line.startswith("MemTotal:"):
+                            memory_kb = int(line.split()[1])
+                        elif line.startswith("MemAvailable:"):
+                            mem_avail_kb = int(line.split()[1])
+                except OSError:
+                    pass
+
+            mem_total_mb = memory_kb // 1024
+            mem_used_mb = max(0, mem_total_mb - (mem_avail_kb // 1024))
+            disk_total_mb = disk.total // (1024 * 1024)
+            disk_used_mb = max(0, (disk.total - disk.free) // (1024 * 1024))
+            active_cnt = len(self.registry)
+
             await self.send(
                 {
                     "type": "heartbeat",
                     "payload": {
                         "hostname": socket.gethostname(),
                         "cpu_total": float(os.cpu_count() or 0),
-                        "memory_total_mb": memory_kb // 1024,
-                        "disk_total_mb": disk.total // (1024 * 1024),
+                        "memory_total_mb": mem_total_mb,
+                        "disk_total_mb": disk_total_mb,
+                        "cpu_percent": round(cpu_pct, 1),
+                        "memory_used_mb": mem_used_mb,
+                        "disk_used_mb": disk_used_mb,
+                        "active_containers_count": active_cnt,
                         "capabilities": {"runtime": "podman"},
                         "agent_version": __version__,
                     },
@@ -368,6 +389,30 @@ class WorkerAgent:
         else:
             await target.send(base64.b64decode(data, validate=True))
 
+    async def handle_system_command(self, action: str, payload: dict) -> dict:
+        if action == "system.upgrade":
+            master_url = _required_env("DEVCLOUD_MASTER_URL")
+            asyncio.create_task(self._execute_upgrade(master_url))
+            return {"status": "upgrade_started", "message": "Worker güncellemesi başlatıldı."}
+        raise ValueError(f"Desteklenmeyen sistem komutu: {action}")
+
+    async def _execute_upgrade(self, master_url: str) -> None:
+        await asyncio.sleep(1)
+        try:
+            env = os.environ.copy()
+            env["DEVCLOUD_MASTER_URL"] = master_url
+            env["DEVCLOUD_NODE_ID"] = _required_env("DEVCLOUD_NODE_ID")
+            env["DEVCLOUD_NODE_TOKEN"] = _required_env("DEVCLOUD_NODE_TOKEN")
+            proc = await asyncio.create_subprocess_shell(
+                f"curl -fsSL '{master_url.rstrip('/')}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='{env['DEVCLOUD_NODE_ID']}' DEVCLOUD_NODE_TOKEN='{env['DEVCLOUD_NODE_TOKEN']}' bash",
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+        except Exception as exc:
+            logger.exception("Upgrade execution error: %s", exc)
+
     async def handle_command(self, message: dict) -> None:
         request_id = str(message.get("request_id") or "")
         action = str(message.get("action") or "")
@@ -379,7 +424,9 @@ class WorkerAgent:
             await self.handle_ws_open(request_id, payload)
             return
         try:
-            if action.startswith("files."):
+            if action.startswith("system."):
+                result = await self.handle_system_command(action, payload)
+            elif action.startswith("files."):
                 result = await self.handle_file_command(action, payload)
             else:
                 result = await self.handle_container_command(action, payload)

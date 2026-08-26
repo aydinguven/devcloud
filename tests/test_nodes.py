@@ -231,3 +231,205 @@ async def test_admin_can_delete_worker_with_stopped_workspaces_and_nulls_node_id
     await db_session.refresh(ws)
     assert ws.node_id is None
 
+
+@pytest.mark.asyncio
+async def test_admin_can_update_node_labels(client: AsyncClient):
+    headers = await _admin_headers(client)
+    created = await client.post(
+        "/api/admin/nodes",
+        headers=headers,
+        json={"name": "cpu-worker-labels", "schedulable": True, "labels": {"zone": "dc1"}},
+    )
+    assert created.status_code == 201
+    node_id = created.json()["id"]
+
+    updated = await client.put(
+        f"/api/admin/nodes/{node_id}/labels",
+        headers=headers,
+        json={"labels": {"zone": "dc2", "gpu": "true", "tier": "fast"}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["labels"] == {"zone": "dc2", "gpu": "true", "tier": "fast"}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_load_balancing_and_affinity(db_session, monkeypatch):
+    # Worker 1: Heavily loaded (high CPU/RAM utilization), zone=dmz
+    w1 = Node(
+        name="worker-heavy",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=8,
+        memory_total_mb=16384,
+        disk_total_mb=100000,
+        cpu_percent=85.0,
+        memory_used_mb=14000,
+        labels_json='{"zone": "dmz"}',
+        agent_token_hash="1" * 64,
+    )
+    # Worker 2: Lightly loaded (low utilization), zone=dmz
+    w2 = Node(
+        name="worker-light",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=8,
+        memory_total_mb=16384,
+        disk_total_mb=100000,
+        cpu_percent=10.0,
+        memory_used_mb=2000,
+        labels_json='{"zone": "dmz"}',
+        agent_token_hash="2" * 64,
+    )
+    # Worker 3: Lightly loaded, but zone=internal
+    w3 = Node(
+        name="worker-internal",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=8,
+        memory_total_mb=16384,
+        disk_total_mb=100000,
+        cpu_percent=5.0,
+        memory_used_mb=1000,
+        labels_json='{"zone": "internal"}',
+        agent_token_hash="3" * 64,
+    )
+    db_session.add_all([w1, w2, w3])
+    await db_session.commit()
+
+    monkeypatch.setattr(
+        "app.orchestrator.scheduler.agent_manager.is_connected",
+        lambda node_id: True,
+    )
+
+    # 1. Without selector: scheduler picks worker-internal (lowest composite load)
+    selected = await select_worker_node(db_session, get_flavor("t1.small"))
+    assert selected.id == w3.id
+
+    # 2. With affinity selector {"zone": "dmz"}: scheduler picks worker-light over worker-heavy
+    selected_dmz = await select_worker_node(
+        db_session, get_flavor("t1.small"), node_selector={"zone": "dmz"}
+    )
+    assert selected_dmz.id == w2.id
+
+    # 3. With non-existent affinity selector: raises NoSchedulableNode
+    with pytest.raises(NoSchedulableNode):
+        await select_worker_node(
+            db_session, get_flavor("t1.small"), node_selector={"zone": "gpu-farm"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_admin_can_migrate_workspace(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    n1 = Node(
+        name="worker-mig-1",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=8,
+        memory_total_mb=16384,
+        disk_total_mb=100000,
+        agent_token_hash="a" * 64,
+    )
+    n2 = Node(
+        name="worker-mig-2",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=8,
+        memory_total_mb=16384,
+        disk_total_mb=100000,
+        agent_token_hash="b" * 64,
+    )
+    db_session.add_all([n1, n2])
+    await db_session.commit()
+
+    ws = Workspace(
+        name="migrate-ws",
+        user_id=1,
+        node_id=n1.id,
+        template_id="vscode-python",
+        flavor_id="t1.small",
+        container_name="cnt-mig-ws",
+        host_port=20010,
+        storage_path="/tmp/mig-ws",
+        status=WorkspaceStatus.STOPPED,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    # Migrate to n2
+    res = await client.post(
+        f"/api/admin/workspaces/{ws.id}/migrate?target_node_id={n2.id}",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["new_node_id"] == n2.id
+    assert res.json()["old_node_id"] == n1.id
+
+    await db_session.refresh(ws)
+    assert ws.node_id == n2.id
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_migrate_running_workspace(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    ws = Workspace(
+        name="active-mig-ws",
+        user_id=1,
+        template_id="vscode-python",
+        flavor_id="t1.small",
+        container_name="cnt-active-mig",
+        host_port=20011,
+        storage_path="/tmp/active-mig",
+        status=WorkspaceStatus.RUNNING,
+    )
+    db_session.add(ws)
+    await db_session.commit()
+
+    res = await client.post(
+        f"/api/admin/workspaces/{ws.id}/migrate",
+        headers=headers,
+    )
+    assert res.status_code == 400
+    assert "durdurulmuş" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_upgrade_node_offline_error(client: AsyncClient, db_session):
+    headers = await _admin_headers(client)
+    n = Node(
+        name="worker-upgrade-test",
+        status=NodeStatus.OFFLINE,
+        enabled=True,
+        schedulable=True,
+        agent_token_hash="u" * 64,
+    )
+    db_session.add(n)
+    await db_session.commit()
+
+    res = await client.post(f"/api/admin/nodes/{n.id}/upgrade", headers=headers)
+    assert res.status_code == 400
+    assert "çevrimdışı" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_agent_manager_event_broadcasting():
+    from app.agents.manager import agent_manager
+    queue = agent_manager.subscribe_events()
+    try:
+        await agent_manager.broadcast_event(
+            "node.connected", {"node_id": "test-node-1", "status": "online"}
+        )
+        event = queue.get_nowait()
+        assert event["type"] == "node.connected"
+        assert event["data"]["node_id"] == "test-node-1"
+        assert event["data"]["status"] == "online"
+    finally:
+        agent_manager.unsubscribe_events(queue)
+
+
+

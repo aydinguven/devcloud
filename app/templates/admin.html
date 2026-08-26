@@ -278,26 +278,64 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
   </form>
   <div id="node-enrollment-token" class="terminal-window" style="display:none;margin-bottom:1.25rem;padding:1rem;"></div>
   <div style="overflow-x:auto;">
-    <table class="table">
-      <thead><tr><th>Ad</th><th>Host</th><th>Durum</th><th>CPU</th><th>RAM</th><th>Son bağlantı</th><th>İşlemler</th></tr></thead>
+    <table class="table" id="admin-nodes-table">
+      <thead>
+        <tr>
+          <th>Ad</th>
+          <th>Host</th>
+          <th>Durum</th>
+          <th>CPU</th>
+          <th>RAM</th>
+          <th>Disk</th>
+          <th>Container</th>
+          <th>Etiketler</th>
+          <th>Son Görülme</th>
+          <th>İşlemler</th>
+        </tr>
+      </thead>
       <tbody id="node-table-body">
       {% for node in nodes %}
-        <tr data-node-id="{{ node.id }}">
+        <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}">
           <td><strong>{{ node.name }}</strong></td>
-          <td>{{ node.hostname or 'Henüz bağlanmadı' }}</td>
-          <td><span class="badge badge-{{ 'running' if node.status.value == 'online' else 'stopped' }}">{{ node.status.value }}</span></td>
-          <td>{{ node.cpu_total }}</td>
-          <td>{{ '%.1f'|format(node.memory_total_mb / 1024) }} GB</td>
-          <td>{{ node.last_seen_at or '—' }}</td>
+          <td class="node-hostname-cell">{{ node.hostname or 'Henüz bağlanmadı' }}</td>
+          <td><span class="badge badge-{{ 'running' if node.status.value == 'online' else 'stopped' }} node-status-badge">{{ node.status.value }}</span></td>
+          <td class="node-cpu-cell">
+            <div class="node-cpu-text" style="font-size:0.8rem;margin-bottom:2px;">{{ node.cpu_percent }}% / {{ node.cpu_total }} core</div>
+            <div style="width:85px;background:rgba(255,255,255,0.1);height:6px;border-radius:3px;overflow:hidden;">
+              <div class="node-cpu-bar" style="width:{{ [node.cpu_percent, 100]|min }}%;background:var(--accent,#38bdf8);height:100%;"></div>
+            </div>
+          </td>
+          <td class="node-ram-cell">
+            <div class="node-ram-text" style="font-size:0.8rem;margin-bottom:2px;">{{ '%.1f'|format(node.memory_used_mb / 1024) }} / {{ '%.1f'|format(node.memory_total_mb / 1024) }} GB</div>
+            <div style="width:85px;background:rgba(255,255,255,0.1);height:6px;border-radius:3px;overflow:hidden;">
+              <div class="node-ram-bar" style="width:{{ [(node.memory_used_mb / node.memory_total_mb * 100) if node.memory_total_mb else 0, 100]|min }}%;background:var(--secondary,#10b981);height:100%;"></div>
+            </div>
+          </td>
+          <td class="node-disk-cell"><span style="font-size:0.8rem;">{{ '%.1f'|format(node.disk_used_mb / 1024) }} / {{ '%.1f'|format(node.disk_total_mb / 1024) }} GB</span></td>
+          <td><span class="badge node-container-count" style="background:rgba(255,255,255,0.15);">{{ node.active_containers_count }}</span></td>
+          <td class="node-labels-cell">
+            <div class="node-labels-container" style="display:flex;flex-wrap:wrap;gap:0.25rem;align-items:center;">
+              {% set labels_dict = node.labels_json|from_json if node.labels_json else {} %}
+              {% for k, v in labels_dict.items() %}
+                <span class="badge badge-flavor" style="font-size:0.7rem;padding:0.1rem 0.35rem;">{{ k }}={{ v }}</span>
+              {% else %}
+                <span class="no-labels" style="color:var(--text-muted);font-size:0.75rem;">—</span>
+              {% endfor %}
+              <button type="button" class="btn btn-secondary btn-sm btn-edit-labels" data-node-id="{{ node.id }}" data-labels='{{ node.labels_json or "{}" }}' style="padding:0.1rem 0.35rem;font-size:0.7rem;margin-left:0.25rem;" title="Etiketleri Düzenle">🏷️</button>
+            </div>
+          </td>
+          <td class="node-last-seen-cell" style="font-size:0.8rem;">{{ node.last_seen_at or '—' }}</td>
           <td>
-            <div style="display: flex; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
               <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}">{{ 'Drain Et' if node.schedulable else 'Planlamaya Aç' }}</button>
+              <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token Yenile">🔑</button>
+              <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Master'dan OTA Güncelle">⚡ Güncelle</button>
               <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}">Sil</button>
             </div>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
+        <tr><td colspan="10">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -565,6 +603,9 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
           <td>
             <div style="display: flex; gap: 0.5rem;">
               <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Görüntüle</a>
+              {% if ws_st in ['stopped', 'error'] %}
+                <button type="button" class="btn btn-secondary btn-sm btn-migrate-ws" data-workspace-id="{{ ws.id }}" data-workspace-name="{{ ws.name }}" data-current-node="{{ ws.node_id or 'local' }}">Taşı</button>
+              {% endif %}
               <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Sil</button>
             </div>
           </td>
@@ -637,6 +678,52 @@ USER coder" required></textarea>
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
         <button type="button" class="btn btn-secondary" onclick="document.getElementById('template-builder-modal').classList.remove('open');">İptal</button>
         <button type="submit" id="btn-submit-tb" class="btn btn-primary">🔨 Derle ve Şablonu Kaydet</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Node Label Editor Modal -->
+<div id="node-label-modal" class="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width: 480px;">
+    <div class="card-header" style="margin-bottom: 1.25rem;">
+      <h2 class="card-title">Worker Etiketlerini Düzenle</h2>
+      <button id="btn-close-label-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+    <form id="node-label-form">
+      <input type="hidden" id="label-modal-node-id">
+      <div class="form-group">
+        <label class="form-label" for="label-modal-text">Etiketler (JSON veya anahtar:değer formatında)</label>
+        <textarea id="label-modal-text" class="form-input" rows="4" style="font-family: var(--font-mono); font-size: 0.85rem;" placeholder='{"zone": "dmz", "gpu": "true", "tier": "fast"}'></textarea>
+        <small style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem;display:block;">Örnek: <code>{"zone": "dmz", "gpu": "true"}</code></small>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('node-label-modal').classList.remove('open');">İptal</button>
+        <button type="submit" class="btn btn-primary">Kaydet</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Workspace Migration Modal -->
+<div id="ws-migrate-modal" class="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width: 500px;">
+    <div class="card-header" style="margin-bottom: 1.25rem;">
+      <h2 class="card-title">Çalışma Alanını Başka Worker'a Taşı</h2>
+      <button id="btn-close-migrate-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+    <form id="ws-migrate-form">
+      <input type="hidden" id="migrate-modal-ws-id">
+      <p id="migrate-modal-ws-info" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;"></p>
+      <div class="form-group">
+        <label class="form-label" for="migrate-target-node">Hedef Worker</label>
+        <select id="migrate-target-node" class="form-input" style="background: var(--bg-input); color: #fff;">
+          <option value="">-- Load Balancer Otomatik Yerleştirsin (Önerilen) --</option>
+        </select>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('ws-migrate-modal').classList.remove('open');">İptal</button>
+        <button type="submit" id="btn-submit-migrate" class="btn btn-primary">📦 Taşı</button>
       </div>
     </form>
   </div>

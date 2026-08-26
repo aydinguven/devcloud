@@ -58,12 +58,31 @@ async def connect_agent(
                 node.cpu_total = heartbeat.cpu_total
                 node.memory_total_mb = heartbeat.memory_total_mb
                 node.disk_total_mb = heartbeat.disk_total_mb
+                node.cpu_percent = heartbeat.cpu_percent
+                node.memory_used_mb = heartbeat.memory_used_mb
+                node.disk_used_mb = heartbeat.disk_used_mb
+                node.active_containers_count = heartbeat.active_containers_count
                 node.capabilities_json = json.dumps(heartbeat.capabilities, ensure_ascii=False)
                 node.agent_version = heartbeat.agent_version
                 node.status = NodeStatus.DRAINING if not node.schedulable else NodeStatus.ONLINE
                 node.last_seen_at = datetime.now(timezone.utc)
                 db.add(node)
                 await db.commit()
+                await agent_manager.broadcast_event(
+                    "node.telemetry",
+                    {
+                        "node_id": node.id,
+                        "status": node.status.value,
+                        "cpu_total": node.cpu_total,
+                        "memory_total_mb": node.memory_total_mb,
+                        "disk_total_mb": node.disk_total_mb,
+                        "cpu_percent": node.cpu_percent,
+                        "memory_used_mb": node.memory_used_mb,
+                        "disk_used_mb": node.disk_used_mb,
+                        "active_containers_count": node.active_containers_count,
+                        "last_seen_at": node.last_seen_at.isoformat() if node.last_seen_at else None,
+                    },
+                )
             else:
                 await connection.handle_message(message)
     except (WebSocketDisconnect, RuntimeError):

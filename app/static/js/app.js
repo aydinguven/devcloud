@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSnapshotModal();
   initAdminPlatformUpdater();
   initAdminFilters();
+  initWorkspaceMigration();
 });
 
 function initAdminFilters() {
@@ -467,82 +468,148 @@ function initDirectorySettings() {
 
 function initNodeManagement() {
   const form = document.getElementById("node-create-form");
-  if (!form) return;
-  const status = document.getElementById("node-create-status");
   const tokenBox = document.getElementById("node-enrollment-token");
+  const status = document.getElementById("node-create-status");
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const button = form.querySelector("button[type=submit]");
-    button.disabled = true;
-    status.textContent = "Worker kaydediliyor...";
-    try {
-      const response = await fetch("/api/admin/nodes", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({name: form.elements.name.value.trim(), schedulable: true, labels: {}}),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
+  function renderWorkerTokenBox(data) {
+    if (!tokenBox) return;
+    const masterUrl = window.location.origin;
+    const singleLineCmd = `curl -fsSL '${masterUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' DEVCLOUD_NODE_TOKEN='${data.enrollment_token}' bash`;
 
-      const masterUrl = window.location.origin;
-      const singleLineCmd = `curl -fsSL '${masterUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' DEVCLOUD_NODE_TOKEN='${data.enrollment_token}' bash`;
-
-      tokenBox.style.display = "block";
-      tokenBox.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0.5rem;">
-          <strong style="color:var(--text-main,#fff);font-size:0.95rem;">✨ Worker Kaydedildi: ${data.name}</strong>
-          <span style="font-size:0.75rem;color:var(--text-muted,#9ca3af);">Token yalnızca şimdi gösterilir</span>
+    tokenBox.style.display = "block";
+    tokenBox.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0.5rem;">
+        <strong style="color:var(--text-main,#fff);font-size:0.95rem;">✨ Worker Token / Bağlantı Bilgisi: ${data.name}</strong>
+        <span style="font-size:0.75rem;color:var(--text-muted,#9ca3af);">Token yalnızca şimdi gösterilir</span>
+      </div>
+      <div style="margin-bottom:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+          <span style="font-size:0.85rem;font-weight:600;color:var(--accent,#38bdf8);">🚀 Tek Satırda Kurulum ve Bağlantı Komutu:</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-worker-cmd" style="padding:0.25rem 0.65rem;font-size:0.75rem;">Kopyala</button>
         </div>
-        <div style="margin-bottom:0.75rem;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
-            <span style="font-size:0.85rem;font-weight:600;color:var(--accent,#38bdf8);">🚀 Tek Satırda Kurulum ve Bağlantı Komutu:</span>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-worker-cmd" style="padding:0.25rem 0.65rem;font-size:0.75rem;">Kopyala</button>
-          </div>
-          <pre id="worker-single-line-cmd" style="background:rgba(0,0,0,0.4);padding:0.6rem;border-radius:4px;overflow-x:auto;margin:0;font-size:0.8rem;white-space:pre-wrap;word-break:break-all;color:#a7f3d0;">${singleLineCmd}</pre>
-        </div>
-        <div style="font-size:0.8rem;color:var(--text-muted,#9ca3af);margin-top:0.75rem;line-height:1.5;">
-          <div><strong>Node ID:</strong> <code style="color:#e2e8f0;">${data.id}</code></div>
-          <div><strong>Token:</strong> <code style="color:#e2e8f0;">${data.enrollment_token}</code></div>
-          <div style="margin-top:0.5rem;font-size:0.75rem;">
-            <strong>Manuel Yapılandırma (/etc/devcloud/worker.env):</strong>
-            <pre style="background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:4px;margin-top:0.25rem;font-size:0.75rem;color:#e2e8f0;white-space:pre;">DEVCLOUD_MASTER_URL=${masterUrl}
+        <pre id="worker-single-line-cmd" style="background:rgba(0,0,0,0.4);padding:0.6rem;border-radius:4px;overflow-x:auto;margin:0;font-size:0.8rem;white-space:pre-wrap;word-break:break-all;color:#a7f3d0;">${singleLineCmd}</pre>
+      </div>
+      <div style="font-size:0.8rem;color:var(--text-muted,#9ca3af);margin-top:0.75rem;line-height:1.5;">
+        <div><strong>Node ID:</strong> <code style="color:#e2e8f0;">${data.id}</code></div>
+        <div><strong>Token:</strong> <code style="color:#e2e8f0;">${data.enrollment_token}</code></div>
+        <div style="margin-top:0.5rem;font-size:0.75rem;">
+          <strong>Manuel Yapılandırma (/etc/devcloud/worker.env):</strong>
+          <pre style="background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:4px;margin-top:0.25rem;font-size:0.75rem;color:#e2e8f0;white-space:pre;">DEVCLOUD_MASTER_URL=${masterUrl}
 DEVCLOUD_NODE_ID=${data.id}
 DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
-          </div>
         </div>
-      `;
+      </div>
+    `;
 
-      const copyBtn = document.getElementById("btn-copy-worker-cmd");
-      if (copyBtn) {
-        copyBtn.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(singleLineCmd);
-            copyBtn.textContent = "Kopyalandı! ✓";
-            setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
-          } catch (e) {
-            const textarea = document.createElement("textarea");
-            textarea.value = singleLineCmd;
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand("copy");
-            document.body.removeChild(textarea);
-            copyBtn.textContent = "Kopyalandı! ✓";
-            setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
-          }
-        });
-      }
-
-      status.textContent = "Worker kaydedildi. Yukarıdaki tek satırlık komutu kopyalayıp worker makinesinde çalıştırın.";
-      status.className = "quota-form-status quota-status-success";
-      form.reset();
-    } catch (error) {
-      status.textContent = error.message;
-      status.className = "quota-form-status quota-status-error";
-    } finally {
-      button.disabled = false;
+    const copyBtn = document.getElementById("btn-copy-worker-cmd");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(singleLineCmd);
+          copyBtn.textContent = "Kopyalandı! ✓";
+          setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
+        } catch (e) {
+          const textarea = document.createElement("textarea");
+          textarea.value = singleLineCmd;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+          copyBtn.textContent = "Kopyalandı! ✓";
+          setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
+        }
+      });
     }
-  });
+  }
+
+  // Real-time SSE Stream for Nodes Telemetry and Status
+  const nodesTable = document.getElementById("admin-nodes-table");
+  if (nodesTable) {
+    try {
+      const eventSource = new EventSource("/api/admin/nodes/events-stream");
+      eventSource.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "node.connected" || msg.type === "node.disconnected") {
+            const row = document.querySelector(`tr[data-node-id="${msg.data.node_id}"]`);
+            if (row) {
+              const badge = row.querySelector(".node-status-badge");
+              if (badge) {
+                const isOnline = msg.data.status === "online";
+                badge.className = `badge ${isOnline ? "badge-running" : "badge-stopped"} node-status-badge`;
+                badge.textContent = msg.data.status;
+              }
+            }
+          } else if (msg.type === "node.telemetry") {
+            const d = msg.data;
+            const row = document.querySelector(`tr[data-node-id="${d.node_id}"]`);
+            if (row) {
+              const badge = row.querySelector(".node-status-badge");
+              if (badge) {
+                badge.className = `badge ${d.status === "online" ? "badge-running" : "badge-stopped"} node-status-badge`;
+                badge.textContent = d.status;
+              }
+              const cpuText = row.querySelector(".node-cpu-text");
+              const cpuBar = row.querySelector(".node-cpu-bar");
+              if (cpuText) cpuText.textContent = `${d.cpu_percent}% / ${d.cpu_total} core`;
+              if (cpuBar) cpuBar.style.width = `${Math.min(d.cpu_percent, 100)}%`;
+
+              const ramText = row.querySelector(".node-ram-text");
+              const ramBar = row.querySelector(".node-ram-bar");
+              const usedGb = (d.memory_used_mb / 1024).toFixed(1);
+              const totalGb = (d.memory_total_mb / 1024).toFixed(1);
+              const ramPct = d.memory_total_mb ? Math.min((d.memory_used_mb / d.memory_total_mb) * 100, 100) : 0;
+              if (ramText) ramText.textContent = `${usedGb} / ${totalGb} GB`;
+              if (ramBar) ramBar.style.width = `${ramPct}%`;
+
+              const diskCell = row.querySelector(".node-disk-cell span");
+              if (diskCell) {
+                const dUsedGb = (d.disk_used_mb / 1024).toFixed(1);
+                const dTotGb = (d.disk_total_mb / 1024).toFixed(1);
+                diskCell.textContent = `${dUsedGb} / ${dTotGb} GB`;
+              }
+
+              const cntBadge = row.querySelector(".node-container-count");
+              if (cntBadge) cntBadge.textContent = d.active_containers_count;
+
+              const lastSeenCell = row.querySelector(".node-last-seen-cell");
+              if (lastSeenCell && d.last_seen_at) {
+                lastSeenCell.textContent = d.last_seen_at.replace("T", " ").substring(0, 19);
+              }
+            }
+          }
+        } catch (_) {}
+      };
+    } catch (_) {}
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button[type=submit]");
+      button.disabled = true;
+      status.textContent = "Worker kaydediliyor...";
+      try {
+        const response = await fetch("/api/admin/nodes", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name: form.elements.name.value.trim(), schedulable: true, labels: {}}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
+
+        renderWorkerTokenBox(data);
+        status.textContent = "Worker kaydedildi. Yukarıdaki tek satırlık komutu kopyalayıp worker makinesinde çalıştırın.";
+        status.className = "quota-form-status quota-status-success";
+        form.reset();
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "quota-form-status quota-status-error";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   document.querySelectorAll(".node-toggle-schedule").forEach(button => {
     button.addEventListener("click", async () => {
@@ -559,9 +626,63 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         if (!response.ok) throw new Error(data.detail || "Worker güncellenemedi.");
         window.location.reload();
       } catch (error) {
-        status.textContent = error.message;
-        status.className = "quota-form-status quota-status-error";
+        if (status) {
+          status.textContent = error.message;
+          status.className = "quota-form-status quota-status-error";
+        }
         button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll(".node-rotate-token-btn").forEach(button => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const nodeId = button.dataset.nodeId || row.dataset.nodeId;
+      const nodeName = button.dataset.nodeName || "worker";
+      if (!confirm(`"${nodeName}" worker node'unun token'ını yenilemek istediğinizden emin misiniz? Eski token ile bağlı olan agent bağlantısı kesilecektir.`)) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/nodes/${nodeId}/rotate-token`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Token yenilenemedi.");
+        renderWorkerTokenBox(data);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll(".node-upgrade-btn").forEach(button => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const nodeId = button.dataset.nodeId || row.dataset.nodeId;
+      const nodeName = button.dataset.nodeName || "worker";
+      if (!confirm(`"${nodeName}" worker node'una OTA yükseltme komutu gönderilsin mi?`)) {
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "İletiliyor...";
+      try {
+        const response = await fetch(`/api/admin/nodes/${nodeId}/upgrade`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Yükseltme başlatılamadı.");
+        alert(`✓ ${data.message}`);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = "⚡ Güncelle";
       }
     });
   });
@@ -591,6 +712,141 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
       }
     });
   });
+
+  // Node Labels Edit Modal
+  const labelModal = document.getElementById("node-label-modal");
+  const labelForm = document.getElementById("node-label-form");
+  const labelInput = document.getElementById("label-modal-text");
+  const labelNodeIdInput = document.getElementById("label-modal-node-id");
+  const labelCloseBtn = document.getElementById("btn-close-label-modal");
+
+  if (labelCloseBtn && labelModal) {
+    labelCloseBtn.addEventListener("click", () => labelModal.classList.remove("open"));
+  }
+
+  document.querySelectorAll(".btn-edit-labels").forEach(button => {
+    button.addEventListener("click", () => {
+      const nodeId = button.dataset.nodeId;
+      let rawLabels = button.dataset.labels || "{}";
+      try {
+        const parsed = JSON.parse(rawLabels);
+        labelInput.value = JSON.stringify(parsed, null, 2);
+      } catch (_) {
+        labelInput.value = rawLabels;
+      }
+      labelNodeIdInput.value = nodeId;
+      labelModal.classList.add("open");
+    });
+  });
+
+  if (labelForm) {
+    labelForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const nodeId = labelNodeIdInput.value;
+      let labelsObj = {};
+      const val = labelInput.value.trim();
+      if (val) {
+        if (val.startsWith("{")) {
+          try {
+            labelsObj = JSON.parse(val);
+          } catch (err) {
+            alert("Geçersiz JSON formatı: " + err.message);
+            return;
+          }
+        } else {
+          val.split("\n").forEach(line => {
+            const [k, ...v] = line.split("=");
+            if (k && v.length) labelsObj[k.trim()] = v.join("=").trim();
+          });
+        }
+      }
+      try {
+        const response = await fetch(`/api/admin/nodes/${nodeId}/labels`, {
+          method: "PUT",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({labels: labelsObj}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Etiketler kaydedilemedi.");
+        labelModal.classList.remove("open");
+        window.location.reload();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+}
+
+function initWorkspaceMigration() {
+  const modal = document.getElementById("ws-migrate-modal");
+  const form = document.getElementById("ws-migrate-form");
+  const wsIdInput = document.getElementById("migrate-modal-ws-id");
+  const wsInfo = document.getElementById("migrate-modal-ws-info");
+  const nodeSelect = document.getElementById("migrate-target-node");
+  const closeBtn = document.getElementById("btn-close-migrate-modal");
+
+  if (!modal) return;
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => modal.classList.remove("open"));
+  }
+
+  document.querySelectorAll(".btn-migrate-ws").forEach(button => {
+    button.addEventListener("click", async () => {
+      const wsId = button.dataset.workspaceId;
+      const wsName = button.dataset.workspaceName || "Workspace";
+      const currNode = button.dataset.currentNode || "local";
+      wsIdInput.value = wsId;
+      wsInfo.textContent = `"${wsName}" çalışma alanı taşınacak. (Mevcut worker: ${currNode})`;
+
+      try {
+        const res = await fetch("/api/admin/nodes");
+        if (res.ok) {
+          const nodes = await res.json();
+          nodeSelect.innerHTML = '<option value="">-- Load Balancer Otomatik Yerleştirsin (Önerilen) --</option>';
+          nodes.forEach(n => {
+            const isOnline = n.status === "online";
+            const opt = document.createElement("option");
+            opt.value = n.id;
+            opt.textContent = `${n.name} (${n.status}${isOnline ? " - " + n.cpu_percent + "% CPU" : ""})`;
+            if (!isOnline || !n.schedulable) opt.disabled = true;
+            nodeSelect.appendChild(opt);
+          });
+        }
+      } catch (_) {}
+
+      modal.classList.add("open");
+    });
+  });
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const wsId = wsIdInput.value;
+      const targetNodeId = nodeSelect.value;
+      const submitBtn = document.getElementById("btn-submit-migrate");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Taşınıyor...";
+      try {
+        const url = targetNodeId
+          ? `/api/admin/workspaces/${wsId}/migrate?target_node_id=${encodeURIComponent(targetNodeId)}`
+          : `/api/admin/workspaces/${wsId}/migrate`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || "Taşıma işlemi başarısız.");
+        alert(`✓ ${data.message}`);
+        modal.classList.remove("open");
+        window.location.reload();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "📦 Taşı";
+      }
+    });
+  }
 }
 
 function initMlflowSettings() {

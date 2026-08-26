@@ -16,6 +16,8 @@ from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.node import Node
+from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
 from app.orchestrator.runtime_backend import runtime_for_node
@@ -28,6 +30,7 @@ templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 templates.env.globals["app_version"] = settings.APP_VERSION
 templates.env.globals["static_version"] = STATIC_ASSET_VERSION
+templates.env.filters["from_json"] = lambda s: json.loads(s) if s else {}
 
 view_router = APIRouter(include_in_schema=False)
 
