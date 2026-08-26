@@ -124,34 +124,44 @@ if [[ "${STATE}" == "active" ]] && pid_is_alive "${OLD_MAIN_PID}"; then
         [[ "${worker_pid}" =~ ^[1-9][0-9]*$ ]] && OLD_WORKER_PIDS+=("${worker_pid}")
     done < <(worker_pids "${OLD_MAIN_PID}")
 
-    log "Gracefully reloading Uvicorn workers in ${SERVICE_NAME} (main PID: ${OLD_MAIN_PID})..."
-    # This works even before the installed unit has picked up ExecReload.
-    systemctl_cmd kill --kill-who=main --signal=SIGHUP "${SERVICE_NAME}"
+    if (( ${#OLD_WORKER_PIDS[@]} > 0 )); then
+        log "Gracefully reloading Uvicorn workers in ${SERVICE_NAME} (main PID: ${OLD_MAIN_PID})..."
+        # This works even before the installed unit has picked up ExecReload.
+        systemctl_cmd kill --kill-who=main --signal=SIGHUP "${SERVICE_NAME}"
 
-    reload_deadline=$((SECONDS + RELOAD_TIMEOUT_SECONDS))
-    while (( SECONDS < reload_deadline )); do
-        state="$(service_state)"
-        current_main_pid="$(main_pid)"
-        workers_reloaded=1
+        reload_deadline=$((SECONDS + RELOAD_TIMEOUT_SECONDS))
+        while (( SECONDS < reload_deadline )); do
+            state="$(service_state)"
+            current_main_pid="$(main_pid)"
+            workers_reloaded=1
 
-        for worker_pid in "${OLD_WORKER_PIDS[@]}"; do
-            if pid_is_alive "${worker_pid}"; then
-                workers_reloaded=0
-                break
+            for worker_pid in "${OLD_WORKER_PIDS[@]}"; do
+                if pid_is_alive "${worker_pid}"; then
+                    workers_reloaded=0
+                    break
+                fi
+            done
+
+            if [[ "${state}" == "active" && "${current_main_pid}" == "${OLD_MAIN_PID}" ]] &&
+                (( workers_reloaded == 1 )) && health_ready; then
+                log "DevCloud workers reloaded and healthy (main PID: ${current_main_pid}, URL: ${HEALTH_URL})."
+                exit 0
             fi
+            [[ "${state}" == "failed" ]] && break
+            sleep 0.5
         done
 
-        if [[ "${state}" == "active" && "${current_main_pid}" == "${OLD_MAIN_PID}" ]] &&
-            (( workers_reloaded == 1 )) && health_ready; then
-            log "DevCloud workers reloaded and healthy (main PID: ${current_main_pid}, URL: ${HEALTH_URL})."
+        show_diagnostics
+        exit 1
+    else
+        log "Single-process master detected in ${SERVICE_NAME} (PID: ${OLD_MAIN_PID}); restarting main process..."
+        systemctl_cmd kill --kill-who=main --signal=SIGTERM "${SERVICE_NAME}" || true
+        if wait_for_start; then
             exit 0
         fi
-        [[ "${state}" == "failed" ]] && break
-        sleep 0.5
-    done
-
-    show_diagnostics
-    exit 1
+        show_diagnostics
+        exit 1
+    fi
 fi
 
 log "Starting ${SERVICE_NAME} without blocking (current state: ${STATE})..."
