@@ -222,16 +222,17 @@ def test_outer_checksum_uses_portable_sha256sum_format(tmp_path: Path):
     assert filename == bundle.name
 
 
-def test_bundle_archive_is_plain_tar_without_gzip_recompression(tmp_path: Path):
+def test_bundle_archive_is_gzip_compressed(tmp_path: Path, monkeypatch):
     bundle_root = tmp_path / "source"
     bundle_root.mkdir()
     (bundle_root / "payload.txt").write_text("payload", encoding="utf-8")
-    output = tmp_path / "devcloud-offline-test.tar"
+    output = tmp_path / "devcloud-offline-test.tar.gz"
+    monkeypatch.setattr(package_offline.shutil, "which", lambda _: None)
 
     package_offline.create_archive(bundle_root, output)
 
-    assert output.read_bytes()[:2] != b"\x1f\x8b"
-    with tarfile.open(output, "r:") as archive:
+    assert output.read_bytes()[:2] == b"\x1f\x8b"
+    with tarfile.open(output, "r:gz") as archive:
         assert archive.extractfile("devcloud/payload.txt").read() == b"payload"
 
 

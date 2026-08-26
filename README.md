@@ -190,9 +190,11 @@ sudo env DEVCLOUD_INGRESS_APPLY_INITIAL=0 bash deploy/install_ingress.sh "$(syst
 # On Ubuntu / Debian:
 sudo apt-get update
 sudo apt-get install -y podman python3 python3-pip python3-venv git curl nginx
+sudo apt-get install -y pigz  # Optional: accelerates offline bundle compression
 
 # On RHEL / CentOS / Rocky Linux / Fedora:
 sudo dnf install -y podman python3 python3-pip git curl nginx policycoreutils-python-utils selinux-policy-targeted
+sudo dnf install -y pigz  # Optional; repository availability varies
 ```
 
 #### Step 2: Configure Workspace Storage Directory
@@ -265,18 +267,18 @@ This generates an ignored archive and checksum under `dist/`. Upload those two
 files to a Git release or artifact repository; do not commit the multi-gigabyte
 archive to normal Git history.
 
-New bundles use uncompressed `.tar` archives to avoid recompressing Podman
-layers and RPM/wheel payloads that are already compressed. This substantially
-reduces final packaging and extraction time at the cost of a somewhat larger
-transfer file. Existing `.tar.gz` downloads remain supported during migration.
+New bundles use `.tar.gz` archives to keep transfer and storage size practical.
+The builder uses multi-core `pigz` when available and falls back to Python's
+standard gzip writer otherwise. Existing uncompressed `.tar` downloads remain
+supported during migration.
 
 ### Step 2: Deploy on the Air-Gapped Linux VM
 Transfer both generated files to the target Linux VM via approved media, verify
 the outer checksum, extract it, and execute the offline installer:
 
 ```bash
-sha256sum -c devcloud-offline-*.tar.sha256
-tar -xf devcloud-offline-*.tar
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 
 sudo bash deploy/deploy_offline.sh

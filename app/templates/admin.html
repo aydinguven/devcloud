@@ -185,8 +185,8 @@
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem;"><strong>Master:</strong></p>
       <pre class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># Checksum doğrula, aç ve kur
-sha256sum -c devcloud-offline-*.tar.sha256
-tar -xf devcloud-offline-*.tar
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
   sudo bash deploy/deploy_offline.sh</pre>
       <p style="margin:.75rem 0 .5rem;"><strong>Worker:</strong> Önce master panelinden node ID ve token üretin.</p>
@@ -194,8 +194,8 @@ cd devcloud
 curl -fsSL '{{ download_public_base_url }}/download/install-worker.sh' | sudo bash
 
 # Alternatif: arşivi elle taşıyın
-sha256sum -c devcloud-worker-offline-*.tar.sha256
-tar -xf devcloud-worker-offline-*.tar
+sha256sum -c devcloud-worker-offline-*.tar.gz.sha256
+tar -xzf devcloud-worker-offline-*.tar.gz
 cd devcloud-worker
 sudo install -d -m 0755 /etc/devcloud
 sudo install -m 0600 deploy/worker.env.example /etc/devcloud/worker.env

@@ -48,7 +48,9 @@ Do not use `git add -f` on generated wheels, image archives, or `dist/`.
 The machine needs Rocky Linux 10.x or RHEL 10.x, Git, Python/pip, Podman, DNF's
 `download` command, internet access to Python/package/container repositories,
 and enough free disk space for all images and RPMs twice. RHEL package builders
-must have access to entitled BaseOS/AppStream repositories.
+must have access to entitled BaseOS/AppStream repositories. Install `pigz` on
+the builder to compress with multiple CPU cores; packaging still works with a
+slower single-threaded gzip fallback when `pigz` is unavailable.
 
 ```bash
 git pull --ff-only origin main
@@ -85,18 +87,18 @@ The builder:
 7. verifies the stage and creates these ignored files:
 
 ```text
-dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar
-dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.sha256
-dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar
-dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.sha256
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz.sha256
+dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
+dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz.sha256
 ```
 
-The outer bundle is intentionally an uncompressed tar archive. Container image
-layers and many RPM/wheel payloads are already compressed, so running gzip over
-the whole bundle adds substantial CPU time for limited size reduction. Plain
-tar makes both package creation and extraction faster. Previously published
-.tar.gz bundles remain downloadable and the worker bootstrap can still extract
-them during the transition.
+The outer bundle is gzip-compressed because the exported Podman layers benefit
+substantially from it. The builder automatically uses multi-core `pigz` when it
+is installed, reducing packaging time without changing target-host
+compatibility; otherwise it falls back to the standard gzip writer. Previously
+published plain `.tar` bundles remain downloadable and the worker bootstrap can
+still extract them during the transition.
 
 If the five local image tags are already known-good, add
 `--skip-image-build`; missing tags still make packaging fail.
@@ -166,8 +168,8 @@ intentionally excluded from generated archives.
 Transfer both files using approved media. From the transfer directory:
 
 ```bash
-sha256sum -c devcloud-offline-*.tar.sha256
-tar -xf devcloud-offline-*.tar
+sha256sum -c devcloud-offline-*.tar.gz.sha256
+tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 sudo bash deploy/deploy_offline.sh
 ```

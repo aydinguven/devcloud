@@ -325,7 +325,7 @@ class DownloadUpdateManager:
                     if (
                         match
                         and match.group(1) == short_commit
-                        and path.name.endswith(".tar")
+                        and path.name.endswith(".tar.gz")
                     ):
                         existing = path
                         break
@@ -378,7 +378,7 @@ class DownloadUpdateManager:
             )
             await self._run_process(command, status, environment, bundle_role)
 
-            archives = list(output_dir.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar"))
+            archives = list(output_dir.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz"))
             if len(archives) != 1:
                 raise RuntimeError(
                     f"Bir arşiv bekleniyordu, {len(archives)} arşiv bulundu."

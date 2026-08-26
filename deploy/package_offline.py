@@ -623,8 +623,39 @@ def verify_staged_bundle(
 
 def create_archive(bundle_root: Path, output_path: Path, *, arcname: str = "devcloud") -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(output_path, "w") as archive:
-        archive.add(bundle_root, arcname=arcname)
+    pigz = shutil.which("pigz")
+    if pigz is None:
+        print("pigz not found; compressing with the standard single-threaded gzip writer...")
+        with tarfile.open(output_path, "w:gz") as archive:
+            archive.add(bundle_root, arcname=arcname)
+        return
+
+    print("Compressing bundle with parallel pigz...")
+    with output_path.open("wb") as output_file:
+        compressor = subprocess.Popen(
+            [pigz, "-c"],
+            stdin=subprocess.PIPE,
+            stdout=output_file,
+        )
+        if compressor.stdin is None:
+            compressor.terminate()
+            compressor.wait()
+            raise PackageError("Could not open the pigz input stream")
+        try:
+            with tarfile.open(fileobj=compressor.stdin, mode="w|") as archive:
+                archive.add(bundle_root, arcname=arcname)
+            compressor.stdin.close()
+            return_code = compressor.wait()
+        except BaseException:
+            if not compressor.stdin.closed:
+                compressor.stdin.close()
+            compressor.terminate()
+            compressor.wait()
+            output_path.unlink(missing_ok=True)
+            raise
+    if return_code != 0:
+        output_path.unlink(missing_ok=True)
+        raise PackageError(f"pigz failed with exit code {return_code}")
 
 
 def write_outer_checksum(bundle_path: Path) -> Path:
@@ -658,7 +689,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
     today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     output_dir = Path(args.output_dir).resolve() if args.output_dir else root_dir / "dist"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{bundle_prefix}-v{version}-{today_str}-{short_commit}.tar"
+    output_path = output_dir / f"{bundle_prefix}-v{version}-{today_str}-{short_commit}.tar.gz"
     checksum_path = output_path.with_name(output_path.name + ".sha256")
 
     # Clean old offline packages to preserve disk

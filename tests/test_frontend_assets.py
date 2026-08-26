@@ -73,8 +73,8 @@ def test_public_download_page_exposes_worker_bootstrap_command():
     assert "sha256sum -c" in bootstrap
     assert "tar -xf" in bootstrap
     assert "tar -xzf" not in bootstrap
-    assert "devcloud-offline-*.tar.sha256" in template
-    assert "devcloud-worker-offline-*.tar.sha256" in template
+    assert "devcloud-offline-*.tar.gz.sha256" in template
+    assert "devcloud-worker-offline-*.tar.gz.sha256" in template
     assert "read -r -s NODE_TOKEN" in bootstrap
     assert "DEVCLOUD_NODE_TOKEN" not in template
 
