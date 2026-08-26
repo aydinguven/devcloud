@@ -14,6 +14,12 @@ does not disable labels and does not require `setenforce 0` during normal use.
   `/var/lib/devcloud/workspaces` and applies the context without overwriting
   private MCS labels belonging to running containers.
 
+Clean installs also place Nginx in front of DevCloud. The installer does not
+silently enable a broad httpd_can_network_connect SELinux boolean. If the UI
+loads but Nginx returns 502 on an enforcing host, inspect the AVC record and
+apply the organization's approved reverse-proxy policy before changing any
+global boolean.
+
 ## Existing host currently reports Disabled
 
 Do not switch directly from Disabled to Enforcing. Files created while SELinux

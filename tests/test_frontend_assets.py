@@ -50,6 +50,13 @@ def test_admin_has_separate_worker_offline_bundle_controls():
     assert 'name="public_base_url"' in template
     assert "/api/admin/download-settings" in javascript
     assert "initDownloadSettings()" in javascript
+    assert 'id="https-settings-form"' in template
+    assert 'name="https_enabled"' in template
+    assert 'name="http_fallback_enabled"' in template
+    assert 'name="certificate"' in template
+    assert 'name="private_key"' in template
+    assert "/api/admin/download-settings/https" in javascript
+    assert "initHttpsSettings()" in javascript
 
 
 def test_public_download_page_exposes_worker_bootstrap_command():
@@ -64,6 +71,10 @@ def test_public_download_page_exposes_worker_bootstrap_command():
     assert "curl -fsSL" in template
     assert "/opt/devcloud-worker" in bootstrap
     assert "sha256sum -c" in bootstrap
+    assert "tar -xf" in bootstrap
+    assert "tar -xzf" not in bootstrap
+    assert "devcloud-offline-*.tar.sha256" in template
+    assert "devcloud-worker-offline-*.tar.sha256" in template
     assert "read -r -s NODE_TOKEN" in bootstrap
     assert "DEVCLOUD_NODE_TOKEN" not in template
 

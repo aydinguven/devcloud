@@ -3,7 +3,7 @@ import hashlib
 import json
 import secrets
 from typing import Annotated, Literal
-from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,14 @@ from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
 from app.config import settings
+from app.ingress_settings import (
+    MAX_CERTIFICATE_BYTES,
+    MAX_PRIVATE_KEY_BYTES,
+    IngressApplyError,
+    IngressConfigurationError,
+    ingress_manager,
+    normalize_https_hostname,
+)
 from app.security.secrets import encrypt_secret
 from app.integrations.mlflow import (
     MlflowClient,
@@ -58,6 +66,13 @@ def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:
     return DownloadSettingsOut(
         public_base_url=base_url,
         worker_bootstrap_url=f"{base_url}/download/install-worker.sh",
+        https_enabled=record.https_enabled,
+        https_hostname=record.https_hostname,
+        http_fallback_enabled=record.http_fallback_enabled,
+        certificate_uploaded=bool(record.certificate_sha256),
+        certificate_subject=record.certificate_subject,
+        certificate_not_after=record.certificate_not_after,
+        certificate_sha256=record.certificate_sha256,
     )
 
 
@@ -68,6 +83,7 @@ async def _get_or_create_download_settings(db: AsyncSession) -> DownloadSettings
     record = DownloadSettings(
         id=1,
         public_base_url=settings.DOWNLOAD_PUBLIC_BASE_URL,
+        https_hostname=settings.HTTPS_DEFAULT_HOSTNAME,
     )
     db.add(record)
     await db.commit()
@@ -91,6 +107,75 @@ async def update_download_settings(
 ):
     record = await _get_or_create_download_settings(db)
     record.public_base_url = update.public_base_url
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _download_settings_out(record)
+
+
+async def _read_upload(upload: UploadFile | None, maximum: int, label: str) -> bytes | None:
+    if upload is None or not upload.filename:
+        return None
+    content = await upload.read(maximum + 1)
+    if len(content) > maximum:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{label} izin verilen dosya boyutunu aşıyor.",
+        )
+    if not content:
+        raise HTTPException(status_code=422, detail=f"{label} boş olamaz.")
+    return content
+
+
+@admin_router.post("/download-settings/https", response_model=DownloadSettingsOut)
+async def apply_https_settings(
+    https_enabled: Annotated[bool, Form()],
+    https_hostname: Annotated[str, Form()],
+    http_fallback_enabled: Annotated[bool, Form()],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    certificate: Annotated[UploadFile | None, File()] = None,
+    private_key: Annotated[UploadFile | None, File()] = None,
+):
+    record = await _get_or_create_download_settings(db)
+    certificate_pem = await _read_upload(
+        certificate, MAX_CERTIFICATE_BYTES, "Sertifika"
+    )
+    private_key_pem = await _read_upload(
+        private_key, MAX_PRIVATE_KEY_BYTES, "Private key"
+    )
+    try:
+        hostname = normalize_https_hostname(https_hostname)
+        effective_http_fallback = (
+            http_fallback_enabled if https_enabled else True
+        )
+        info = await ingress_manager.apply(
+            https_enabled=https_enabled,
+            hostname=hostname,
+            http_fallback_enabled=effective_http_fallback,
+            certificate_pem=certificate_pem,
+            private_key_pem=private_key_pem,
+        )
+    except IngressConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IngressApplyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"HTTPS ayar dosyaları yazılamadı: {exc}",
+        ) from exc
+
+    record.https_enabled = https_enabled
+    record.https_hostname = hostname
+    record.http_fallback_enabled = effective_http_fallback
+    record.public_base_url = (
+        f"{'https' if https_enabled else 'http'}://{hostname}"
+    )
+    if info:
+        record.certificate_subject = info.subject
+        record.certificate_not_after = info.not_after
+        record.certificate_sha256 = info.sha256
     db.add(record)
     await db.commit()
     await db.refresh(record)

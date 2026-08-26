@@ -8,10 +8,10 @@ echo "=== Starting DevCloud Platform Setup on Linux VM ==="
 if command -v apt-get >/dev/null 2>&1; then
     echo "Updating apt repositories and installing Podman & Python dependencies..."
     sudo apt-get update
-    sudo apt-get install -y podman crun python3 python3-pip python3-venv git curl
+    sudo apt-get install -y podman crun python3 python3-pip python3-venv git curl nginx
 elif command -v dnf >/dev/null 2>&1; then
     echo "Installing Podman & Python via DNF..."
-    sudo dnf install -y podman crun python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
+    sudo dnf install -y podman crun python3 python3-pip git curl nginx policycoreutils-python-utils selinux-policy-targeted
 else
     echo "Unsupported package manager. Please ensure Podman, crun, and Python 3.11+ are installed."
 fi
@@ -59,7 +59,8 @@ sudo sed -e "s|{{USER}}|$USER|g" \
 
 sudo systemctl daemon-reload
 sudo systemctl enable devcloud
+sudo bash "${PROJECT_DIR}/deploy/install_ingress.sh" "$USER"
 bash "${PROJECT_DIR}/deploy/restart.sh"
 
 echo "=== DevCloud Platform Deployed Successfully! ==="
-echo "Access DevCloud in your browser at: http://$(hostname -I | awk '{print $1}'):8000"
+echo "Access DevCloud in your browser at: http://$(hostname -I | awk '{print $1}')"

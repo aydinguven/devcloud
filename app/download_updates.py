@@ -28,7 +28,7 @@ BUNDLE_PREFIXES = {
 }
 BUNDLE_PATTERNS = {
     role: re.compile(
-        rf"^{prefix}-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{{8}}-)?([0-9a-f]{{12}})\.tar\.gz$"
+        rf"^{prefix}-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{{8}}-)?([0-9a-f]{{12}})\.tar(?:\.gz)?$"
     )
     for role, prefix in BUNDLE_PREFIXES.items()
 }
@@ -118,7 +118,7 @@ class DownloadUpdateManager:
             return None
         candidates = [
             path
-            for path in root.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz")
+            for path in root.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*")
             if path.is_file() and BUNDLE_PATTERNS[bundle_role].fullmatch(path.name)
             and not path.is_symlink()
         ]
@@ -319,12 +319,14 @@ class DownloadUpdateManager:
 
         existing = None
         if self.download_root.is_dir():
-            for path in self.download_root.glob(
-                f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz"
-            ):
+            for path in self.download_root.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*"):
                 if path.is_file() and not path.is_symlink():
                     match = BUNDLE_PATTERNS[bundle_role].fullmatch(path.name)
-                    if match and match.group(1) == short_commit:
+                    if (
+                        match
+                        and match.group(1) == short_commit
+                        and path.name.endswith(".tar")
+                    ):
                         existing = path
                         break
 
@@ -376,9 +378,7 @@ class DownloadUpdateManager:
             )
             await self._run_process(command, status, environment, bundle_role)
 
-            archives = list(
-                output_dir.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz")
-            )
+            archives = list(output_dir.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar"))
             if len(archives) != 1:
                 raise RuntimeError(
                     f"Bir arşiv bekleniyordu, {len(archives)} arşiv bulundu."

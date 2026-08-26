@@ -17,7 +17,7 @@ async def test_download_listing_file_and_range_support(
 ):
     download_root = tmp_path / "downloads"
     download_root.mkdir()
-    filename = "devcloud-offline-v2.0.0-20260825-abcdef123456.tar.gz"
+    filename = "devcloud-offline-v2.0.0-20260825-abcdef123456.tar"
     content = b"0123456789abcdef"
     archive = download_root / filename
     archive.write_bytes(content)
@@ -25,12 +25,19 @@ async def test_download_listing_file_and_range_support(
         f"{hashlib.sha256(content).hexdigest()}  {filename}\n",
         encoding="ascii",
     )
-    worker_filename = "devcloud-worker-offline-v2.0.0-20260825-fedcba654321.tar.gz"
+    worker_filename = "devcloud-worker-offline-v2.0.0-20260825-fedcba654321.tar"
     worker_content = b"worker-bundle"
     worker_archive = download_root / worker_filename
     worker_archive.write_bytes(worker_content)
     (download_root / f"{worker_filename}.sha256").write_text(
         f"{hashlib.sha256(worker_content).hexdigest()}  {worker_filename}\n",
+        encoding="ascii",
+    )
+    legacy_filename = "devcloud-offline-v2.0.0-20260824-111111111111.tar.gz"
+    legacy_archive = download_root / legacy_filename
+    legacy_archive.write_bytes(b"legacy-gzip-bundle")
+    (download_root / f"{legacy_filename}.sha256").write_text(
+        f"{hashlib.sha256(b'legacy-gzip-bundle').hexdigest()}  {legacy_filename}\n",
         encoding="ascii",
     )
     monkeypatch.setattr(settings, "DOWNLOADS_ENABLED", True)
@@ -42,6 +49,7 @@ async def test_download_listing_file_and_range_support(
     assert filename in listing.text
     assert f"{filename}.sha256" in listing.text
     assert worker_filename in listing.text
+    assert legacy_filename in listing.text
     assert "CPU Worker" in listing.text
     assert "http://test/download/install-worker.sh" in listing.text
     assert listing.headers["cache-control"] == "private, no-store"
@@ -59,6 +67,7 @@ async def test_download_listing_file_and_range_support(
     response = await client.get(f"/download/{filename}")
     assert response.status_code == 200
     assert response.content == content
+    assert response.headers["content-type"] == "application/x-tar"
     assert response.headers["content-disposition"].startswith("attachment;")
     assert response.headers["accept-ranges"] == "bytes"
 
@@ -73,6 +82,10 @@ async def test_download_listing_file_and_range_support(
     assert worker_response.status_code == 200
     assert worker_response.content == worker_content
 
+    legacy_response = await client.get(f"/download/{legacy_filename}")
+    assert legacy_response.status_code == 200
+    assert legacy_response.headers["content-type"] == "application/gzip"
+
     invalid = await client.get("/download/not-an-allowed-file.zip")
     assert invalid.status_code == 404
 
@@ -85,7 +98,7 @@ async def test_downloads_are_disabled_by_default(
     monkeypatch.setattr(settings, "DOWNLOADS_ENABLED", False)
     assert (await client.get("/download/")).status_code == 404
     assert (
-        await client.get("/download/devcloud-offline-abcdef123456.tar.gz")
+        await client.get("/download/devcloud-offline-abcdef123456.tar")
     ).status_code == 404
     assert (await client.get("/download/install-worker.sh")).status_code == 404
 
@@ -99,7 +112,7 @@ async def test_worker_bootstrap_uses_configured_public_base_url(
 ):
     download_root = tmp_path / "downloads"
     download_root.mkdir()
-    filename = "devcloud-worker-offline-v2.0.0-20260825-fedcba654321.tar.gz"
+    filename = "devcloud-worker-offline-v2.0.0-20260825-fedcba654321.tar"
     archive = download_root / filename
     archive.write_bytes(b"worker")
     (download_root / f"{filename}.sha256").write_text(

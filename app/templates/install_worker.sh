@@ -48,7 +48,7 @@ log "Verifying the published bundle checksum..."
 (cd "${TEMP_DIR}" && sha256sum -c "${CHECKSUM_FILENAME}")
 
 install -d -m 0755 "$(dirname "${INSTALL_DIR}")"
-tar -xzf "${TEMP_DIR}/${BUNDLE_FILENAME}" -C "${TEMP_DIR}"
+tar -xf "${TEMP_DIR}/${BUNDLE_FILENAME}" -C "${TEMP_DIR}"
 [[ -d "${TEMP_DIR}/devcloud-worker" ]] || fail \
     "The archive does not contain the expected devcloud-worker directory."
 mv "${TEMP_DIR}/devcloud-worker" "${INSTALL_DIR}"

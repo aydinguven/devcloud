@@ -22,7 +22,7 @@ from app.models.user import User
 
 
 DOWNLOAD_NAME_PATTERN = re.compile(
-    r"^devcloud-(?:worker-)?offline-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-)?[0-9a-f]{12}\.tar\.gz(?:\.sha256)?$"
+    r"^devcloud-(?:worker-)?offline-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-)?[0-9a-f]{12}\.tar(?:\.gz)?(?:\.sha256)?$"
 )
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent / "templates")
@@ -78,9 +78,10 @@ def _public_base_url(
 def _latest_worker_bundle(root: Path) -> tuple[Path, Path]:
     candidates = [
         path
-        for path in root.glob("devcloud-worker-offline-*.tar.gz")
+        for path in root.glob("devcloud-worker-offline-*")
         if path.is_file()
         and not path.is_symlink()
+        and not path.name.endswith(".sha256")
         and DOWNLOAD_NAME_PATTERN.fullmatch(path.name)
         and path.with_name(path.name + ".sha256").is_file()
         and not path.with_name(path.name + ".sha256").is_symlink()
@@ -102,9 +103,10 @@ async def download_index(
     bundles = []
     candidates = [
         path
-        for path in root.glob("devcloud*-offline-*.tar.gz")
+        for path in root.glob("devcloud*-offline-*")
         if path.is_file()
         and not path.is_symlink()
+        and not path.name.endswith(".sha256")
         and DOWNLOAD_NAME_PATTERN.fullmatch(path.name)
     ]
     for archive in sorted(
@@ -193,7 +195,13 @@ async def download_file(filename: str):
     path = candidate.resolve()
     if candidate.is_symlink() or path.parent != root or not path.is_file():
         raise HTTPException(status_code=404, detail="İndirme bulunamadı.")
-    media_type = "text/plain" if filename.endswith(".sha256") else "application/gzip"
+    media_type = (
+        "text/plain"
+        if filename.endswith(".sha256")
+        else "application/gzip"
+        if filename.endswith(".tar.gz")
+        else "application/x-tar"
+    )
     return FileResponse(
         path,
         media_type=media_type,

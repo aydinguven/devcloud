@@ -47,6 +47,7 @@ COMMON_SYSTEM_PACKAGES = (
     "crun",
     "python3",
     "python3-pip",
+    "nginx",
     "policycoreutils-python-utils",
 )
 SYSTEM_PACKAGES_BY_DISTRIBUTION = {
@@ -622,7 +623,7 @@ def verify_staged_bundle(
 
 def create_archive(bundle_root: Path, output_path: Path, *, arcname: str = "devcloud") -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(output_path, "w:gz") as archive:
+    with tarfile.open(output_path, "w") as archive:
         archive.add(bundle_root, arcname=arcname)
 
 
@@ -657,7 +658,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
     today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     output_dir = Path(args.output_dir).resolve() if args.output_dir else root_dir / "dist"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{bundle_prefix}-v{version}-{today_str}-{short_commit}.tar.gz"
+    output_path = output_dir / f"{bundle_prefix}-v{version}-{today_str}-{short_commit}.tar"
     checksum_path = output_path.with_name(output_path.name + ".sha256")
 
     # Clean old offline packages to preserve disk

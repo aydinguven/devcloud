@@ -39,6 +39,11 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v nginx >/dev/null 2>&1; then
+    echo "ERROR: nginx is not found after the bundled RPM installation."
+    exit 1
+fi
+
 # Auto-detect and configure OCI runtime (crun or runc)
 echo "--> Detecting OCI container runtime (crun / runc)..."
 OCI_RUNTIME=""
@@ -136,13 +141,9 @@ done
 echo "Available Podman images:"
 podman images | grep -E "devcloud|REPOSITORY" || true
 
-# 5. Configure Firewalld (Standard on Fedora / Rocky / RHEL)
-echo "=== [4/5] Configuring firewall port 8000 ==="
-if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-    echo "--> Adding port 8000/tcp to firewalld rules..."
-    firewall-cmd --permanent --add-port=8000/tcp 2>/dev/null || true
-    firewall-cmd --reload 2>/dev/null || true
-fi
+# 5. Configure the Nginx HTTP ingress. HTTPS can be enabled later in Admin.
+echo "=== [4/5] Configuring Nginx ingress on port 80 ==="
+bash "${PROJECT_DIR}/deploy/install_ingress.sh" root
 
 # 6. Install and Start Systemd Service
 echo "=== [5/5] Configuring and starting systemd service ==="
@@ -160,6 +161,6 @@ IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo '127.0.0.1')
 echo "=============================================================================="
 echo "DevCloud Deployment Completed Successfully on Fedora-based VM!"
 echo "Status: Active and running on systemd service 'devcloud'"
-echo "Dashboard URL: http://${IP_ADDR}:8000"
+echo "Dashboard URL: http://${IP_ADDR}"
 echo "Check logs: sudo journalctl -u devcloud -f"
 echo "=============================================================================="

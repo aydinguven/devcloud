@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNodeManagement();
   initMlflowSettings();
   initDownloadSettings();
+  initHttpsSettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
   initWorkspaceTabs();
@@ -611,6 +612,79 @@ function initDownloadSettings() {
       status.className = "quota-form-status quota-status-error";
     } finally {
       saveButton.disabled = false;
+    }
+  });
+}
+
+function initHttpsSettings() {
+  const form = document.getElementById("https-settings-form");
+  if (!form) return;
+  const button = document.getElementById("btn-apply-https-settings");
+  const status = document.getElementById("https-settings-status");
+  const badge = document.getElementById("https-status-badge");
+  const summary = document.getElementById("https-certificate-summary");
+  const masterForm = document.getElementById("download-settings-form");
+  const command = document.getElementById("worker-bootstrap-command");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const enabling = form.elements.https_enabled.checked;
+    const hasCertificate = Boolean(form.elements.certificate.files[0]);
+    const hasPrivateKey = Boolean(form.elements.private_key.files[0]);
+    if (hasCertificate !== hasPrivateKey) {
+      status.textContent = "Sertifika ve private key dosyalarını birlikte seçin.";
+      status.className = "quota-form-status quota-status-error";
+      return;
+    }
+    if (enabling && !hasCertificate && summary.dataset.uploaded !== "true" &&
+        !summary.textContent.includes("Yüklü sertifika:")) {
+      status.textContent = "HTTPS'i ilk kez açmak için sertifika ve private key yükleyin.";
+      status.className = "quota-form-status quota-status-error";
+      return;
+    }
+
+    const payload = new FormData(form);
+    payload.set("https_enabled", enabling ? "true" : "false");
+    payload.set(
+      "http_fallback_enabled",
+      form.elements.http_fallback_enabled.checked ? "true" : "false"
+    );
+    button.disabled = true;
+    status.textContent = "Sertifika doğrulanıyor ve Nginx yapılandırılıyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/download-settings/https", {
+        method: "POST",
+        body: payload,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `HTTPS ayarları uygulanamadı (${response.status})`);
+      }
+      form.elements.https_hostname.value = data.https_hostname;
+      form.elements.https_enabled.checked = data.https_enabled;
+      form.elements.http_fallback_enabled.checked = data.http_fallback_enabled;
+      form.elements.certificate.value = "";
+      form.elements.private_key.value = "";
+      badge.className = `badge ${data.https_enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = data.https_enabled ? "HTTPS Etkin" : "HTTP Etkin";
+      if (data.certificate_uploaded) {
+        summary.dataset.uploaded = "true";
+        summary.textContent = `Yüklü sertifika: ${data.certificate_subject} · Son geçerlilik: ${data.certificate_not_after} · SHA-256: ${data.certificate_sha256}`;
+      }
+      if (masterForm) masterForm.elements.public_base_url.value = data.public_base_url;
+      if (command) {
+        command.textContent = `# Önerilen: Master'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
+      }
+      status.textContent = data.https_enabled
+        ? "HTTPS etkinleştirildi. DNS ve istemci TCMB-CA güvenini ayrıca doğrulayın."
+        : "HTTPS devre dışı; port 80 HTTP erişimi etkin.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      button.disabled = false;
     }
   });
 }

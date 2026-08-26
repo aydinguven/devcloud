@@ -5,7 +5,11 @@ from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
-from app.database import ensure_user_quota_columns, ensure_workspace_columns
+from app.database import (
+    ensure_download_settings_columns,
+    ensure_user_quota_columns,
+    ensure_workspace_columns,
+)
 
 
 @pytest.mark.asyncio
@@ -72,3 +76,52 @@ async def test_existing_workspaces_table_receives_node_id_column(tmp_path):
     finally:
         await engine.dispose()
     assert "node_id" in columns
+
+
+@pytest.mark.asyncio
+async def test_existing_download_settings_table_receives_https_columns(tmp_path):
+    database_path = (tmp_path / "legacy-download-settings.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE download_settings ("
+                    "id INTEGER PRIMARY KEY, "
+                    "public_base_url VARCHAR(1024) NOT NULL"
+                    ")"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO download_settings (id, public_base_url) "
+                    "VALUES (1, 'http://10.253.6.189')"
+                )
+            )
+            await ensure_download_settings_columns(conn)
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    column["name"]
+                    for column in inspect(sync_conn).get_columns("download_settings")
+                }
+            )
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT https_enabled, https_hostname, "
+                        "http_fallback_enabled FROM download_settings WHERE id = 1"
+                    )
+                )
+            ).one()
+    finally:
+        await engine.dispose()
+
+    assert {
+        "https_enabled",
+        "https_hostname",
+        "http_fallback_enabled",
+        "certificate_subject",
+        "certificate_not_after",
+        "certificate_sha256",
+    } <= columns
+    assert row == (0, settings.HTTPS_DEFAULT_HOSTNAME, 1)

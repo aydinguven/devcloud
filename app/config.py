@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
     DOWNLOAD_PUBLIC_BASE_URL: str = "http://10.253.6.189"
 
+    # Nginx ingress is applied by a root-owned, narrowly scoped helper.
+    INGRESS_STAGING_ROOT: str = "/var/lib/devcloud/ingress"
+    INGRESS_APPLY_COMMAND: str = "/usr/local/libexec/devcloud-apply-ingress"
+    HTTPS_DEFAULT_HOSTNAME: str = "aifactory.tcmb.gov.tr"
+
     # Podman Configuration
     PODMAN_BIN: str = "podman"
     PODMAN_NETWORK: str = "bridge"

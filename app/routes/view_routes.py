@@ -306,6 +306,8 @@ async def admin_page(
                 if download_settings
                 else settings.DOWNLOAD_PUBLIC_BASE_URL
             ),
+            "download_settings": download_settings,
+            "https_default_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
             "nodes": nodes,
         },
     )

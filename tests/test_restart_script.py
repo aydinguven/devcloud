@@ -94,6 +94,30 @@ def test_installers_use_bounded_restart_helper():
         assert "systemctl restart devcloud" not in installer
 
 
+def test_clean_installers_configure_nginx_ingress_on_port_80():
+    online = (PROJECT_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    offline = (PROJECT_ROOT / "deploy" / "deploy_offline.sh").read_text(
+        encoding="utf-8"
+    )
+    ingress_installer = (
+        PROJECT_ROOT / "deploy" / "install_ingress.sh"
+    ).read_text(encoding="utf-8")
+    path_unit = (PROJECT_ROOT / "deploy" / "devcloud-ingress.path").read_text(
+        encoding="utf-8"
+    )
+
+    assert "nginx" in next(line for line in online.splitlines() if "apt-get install" in line)
+    assert "nginx" in next(line for line in online.splitlines() if "dnf install" in line)
+    assert 'install_ingress.sh" "$USER"' in online
+    assert 'install_ingress.sh" root' in offline
+    assert "--add-service=http" in (
+        PROJECT_ROOT / "deploy" / "apply_ingress.py"
+    ).read_text(encoding="utf-8")
+    assert "devcloud-ingress.path" in ingress_installer
+    assert "PathChanged=/var/lib/devcloud/ingress/apply.request" in path_unit
+    assert "NOPASSWD" not in ingress_installer
+
+
 def test_installers_keep_distribution_specific_python_packages():
     installer = (PROJECT_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
     apt_install = next(line for line in installer.splitlines() if "apt-get install" in line)
@@ -125,6 +149,8 @@ def test_platform_updater_is_atomic_and_uses_bounded_restart_helper():
     assert "git status --porcelain --untracked-files=no" in script
     assert "systemctl show --property User --value devcloud" in script
     assert ".venv/bin/python -m pip install" in script
+    assert "DEVCLOUD_INGRESS_APPLY_INITIAL=0" in script
+    assert 'install_ingress.sh" "${SERVICE_USER}"' in script
     assert "platform-update-restart.log" in script
     assert '"${PROJECT_DIR}/deploy/restart.sh"' in script
     assert "systemctl restart devcloud" not in script

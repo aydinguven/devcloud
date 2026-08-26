@@ -59,7 +59,7 @@
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
         Dosya aktarımı sırasında bozulma veya eksiklik olmadığını doğrulamak için paketin yanındaki <code>.sha256</code> dosyasıyla kontrol edin:
       </p>
-      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">sha256sum -c devcloud-offline-*.tar.gz.sha256</pre>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">sha256sum -c devcloud-offline-*.tar.sha256</pre>
       <small style="color: var(--color-success); font-size: 0.8rem; margin-top: 0.35rem; display: block;">&check; Çıktıda <code>...: OK</code> mesajını görmelisiniz.</small>
     </div>
 
@@ -72,7 +72,7 @@
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
         Tarball arşivini açın ve oluşturulan <code>devcloud</code> klasörüne geçin:
       </p>
-      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">tar -xzf devcloud-offline-*.tar.gz
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">tar -xf devcloud-offline-*.tar
 cd devcloud</pre>
     </div>
 
@@ -110,7 +110,7 @@ echo "$ID $VERSION_ID $(uname -m)"</pre>
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem;">
         Tarayıcınızdan sunucu IP adresine bağlanarak ilk yönetici hesabınızı oluşturabilir ve geliştirme ortamlarınızı kullanmaya başlayabilirsiniz:
       </p>
-      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">http://&lt;SUNUCU-IP-ADRESI&gt;:8000/</pre>
+      <pre class="terminal-window" style="font-size: 0.85rem; padding: 0.85rem 1rem;">http://&lt;SUNUCU-IP-ADRESI&gt;/</pre>
     </div>
   </div>
 </div>
@@ -134,8 +134,8 @@ echo "$ID $VERSION_ID $(uname -m)"</pre>
     {% endif %}
     <div style="background:rgba(255,255,255,.02);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:1.25rem;">
       <h3 style="font-size:1.05rem;color:#fff;margin:0 0 .75rem;">Manuel seçenek: paketi doğrulayın ve açın</h3>
-      <pre class="terminal-window" style="font-size:.85rem;padding:.85rem 1rem;">sha256sum -c devcloud-worker-offline-*.tar.gz.sha256
-tar -xzf devcloud-worker-offline-*.tar.gz
+      <pre class="terminal-window" style="font-size:.85rem;padding:.85rem 1rem;">sha256sum -c devcloud-worker-offline-*.tar.sha256
+tar -xf devcloud-worker-offline-*.tar
 cd devcloud-worker</pre>
     </div>
     <div style="background:rgba(255,255,255,.02);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:1.25rem;">

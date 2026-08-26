@@ -1,0 +1,14 @@
+[Unit]
+Description=Apply validated DevCloud Nginx ingress configuration
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/devcloud-apply-ingress
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/nginx/conf.d /etc/devcloud/tls /var/lib/devcloud/ingress

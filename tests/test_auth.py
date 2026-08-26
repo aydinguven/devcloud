@@ -1,6 +1,10 @@
 import pytest
 from httpx import AsyncClient
+from starlette.requests import Request
+from starlette.responses import Response
+
 from app.config import settings
+from app.routes.auth_routes import clear_session_cookie, set_session_cookie
 
 
 @pytest.mark.asyncio
@@ -86,3 +90,27 @@ async def test_secure_session_cookie_setting(client: AsyncClient, monkeypatch):
 
     logout = await client.post("/api/auth/logout")
     assert "Secure" in logout.headers["set-cookie"]
+
+
+def test_https_request_automatically_uses_secure_session_cookie(monkeypatch):
+    monkeypatch.setattr(settings, "COOKIE_SECURE", False)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "https",
+            "path": "/api/auth/login",
+            "raw_path": b"/api/auth/login",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "server": ("aifactory.tcmb.gov.tr", 443),
+        }
+    )
+    issued = Response()
+    set_session_cookie(issued, "token", request)
+    assert "Secure" in issued.headers["set-cookie"]
+
+    expired = Response()
+    clear_session_cookie(expired, request)
+    assert "Secure" in expired.headers["set-cookie"]

@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,11 @@ from app.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def _secure_cookie(request: Request) -> bool:
+    return settings.COOKIE_SECURE or request.url.scheme == "https"
+
+
+def set_session_cookie(response: Response, token: str, request: Request) -> None:
     """Set the browser session cookie with production-safe options."""
     response.set_cookie(
         key=settings.COOKIE_NAME,
@@ -27,18 +31,18 @@ def set_session_cookie(response: Response, token: str) -> None:
         httponly=True,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         samesite="lax",
-        secure=settings.COOKIE_SECURE,
+        secure=_secure_cookie(request),
         path="/",
     )
 
 
-def clear_session_cookie(response: Response) -> None:
+def clear_session_cookie(response: Response, request: Request) -> None:
     """Expire the session cookie using the same attributes used to set it."""
     response.delete_cookie(
         key=settings.COOKIE_NAME,
         httponly=True,
         samesite="lax",
-        secure=settings.COOKIE_SECURE,
+        secure=_secure_cookie(request),
         path="/",
     )
 
@@ -46,6 +50,7 @@ def clear_session_cookie(response: Response) -> None:
 @auth_router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_in: UserCreate,
+    request: Request,
     response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
@@ -81,7 +86,7 @@ async def register_user(
     # Generate JWT token
     token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
     
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
@@ -89,6 +94,7 @@ async def register_user(
 @auth_router.post("/login", response_model=TokenResponse)
 async def login_user(
     login_data: UserLogin,
+    request: Request,
     response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
@@ -103,15 +109,15 @@ async def login_user(
 
     token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
 
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
 
 @auth_router.post("/logout")
-async def logout_user(response: Response):
+async def logout_user(request: Request, response: Response):
     """Log out user by clearing the session cookie."""
-    clear_session_cookie(response)
+    clear_session_cookie(response, request)
     return {"message": "Çıkış yapıldı."}
 
 

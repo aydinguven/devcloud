@@ -119,25 +119,80 @@ For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CL
 For Rocky/RHEL enforcing mode, follow [the SELinux deployment guide](SELINUX.md).
 For the master plus CPU-worker topology, follow [the worker deployment guide](WORKERS.md).
 
-### 1. Automated Deployment Script
-We provide an automated setup script that installs Podman, configures permissions, builds workspace container images, and sets up a systemd service:
+### 1. Clean install from Git
+
+Use this flow on a new connected master. Run it as the Linux account that
+should own the DevCloud service; the script requests sudo only for operating
+system changes:
 
 ```bash
-# Make script executable and run
-chmod +x deploy/deploy.sh
-./deploy/deploy.sh
+git clone https://git.aydin.cloud/aydin/devcloud.git
+cd devcloud
+bash deploy/deploy.sh
 ```
 
-### 2. Manual Linux VM Setup
+The clean installer installs Python, Podman, Nginx, and SELinux prerequisites;
+creates persistent workspace/download/ingress directories; installs Python
+dependencies; builds the five workspace images; installs the DevCloud service;
+and configures Nginx as the port 80 entrypoint. HTTPS remains disabled until a
+valid certificate and key are uploaded from Admin.
+
+Verify the clean installation:
+
+```bash
+systemctl status devcloud nginx devcloud-ingress.path --no-pager
+curl -I http://127.0.0.1:8000/login
+curl -I http://aifactory.tcmb.gov.tr/login
+```
+
+### 2. Update an existing Git installation
+
+The update must start from a clean tracked working tree. Pull the new updater
+first, then run it from the project directory:
+
+```bash
+cd /path/to/devcloud
+git status --short
+git pull --ff-only origin main
+bash deploy/update.sh
+```
+
+The updater uses a cross-process lock, installs changed Python dependencies,
+refreshes the DevCloud systemd unit, installs or updates the root-owned HTTPS
+ingress helper and watcher, and schedules a health-checked Uvicorn reload that
+does not stop running workspace containers. On the first upgrade to the HTTPS
+release it preserves the currently active Nginx configuration; applying the
+HTTPS form later takes ownership of the DevCloud Nginx server block.
+
+The same updater is available through **Admin > Platformu Güncelle** after the
+host has the required Git/network access and passwordless sudo policy already
+used by the update service account.
+
+Verify an update and inspect the asynchronous reload:
+
+```bash
+tail -n 100 data/platform-update-restart.log
+systemctl status devcloud nginx devcloud-ingress.path --no-pager
+curl -I http://127.0.0.1:8000/login
+```
+
+If an older updater was used before this release and the watcher is still
+missing, install it once without replacing the active Nginx configuration:
+
+```bash
+sudo env DEVCLOUD_INGRESS_APPLY_INITIAL=0 bash deploy/install_ingress.sh "$(systemctl show --property User --value devcloud)"
+```
+
+### 3. Manual Linux VM Setup
 
 #### Step 1: Install Podman & Python
 ```bash
 # On Ubuntu / Debian:
 sudo apt-get update
-sudo apt-get install -y podman python3 python3-pip python3-venv git curl
+sudo apt-get install -y podman python3 python3-pip python3-venv git curl nginx
 
 # On RHEL / CentOS / Rocky Linux / Fedora:
-sudo dnf install -y podman python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
+sudo dnf install -y podman python3 python3-pip git curl nginx policycoreutils-python-utils selinux-policy-targeted
 ```
 
 #### Step 2: Configure Workspace Storage Directory
@@ -158,6 +213,15 @@ sudo cp deploy/devcloud.service /etc/systemd/system/devcloud.service
 # Replace {{USER}} and {{PROJECT_DIR}} in the file
 sudo systemctl daemon-reload
 sudo systemctl enable --now devcloud
+```
+
+#### Step 5: Configure the Nginx Ingress
+
+Install the root-owned ingress helper and watcher. This also configures the
+initial HTTP port 80 entrypoint; HTTPS can then be enabled from Admin:
+
+```bash
+sudo bash deploy/install_ingress.sh "$USER"
 ```
 
 #### Workspace-Safe Service Reload
@@ -181,8 +245,9 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 
 DevCloud supports installation on isolated Rocky Linux 10.x and RHEL 10.x
 x86_64 VMs. New bundles include the complete distribution-matched RPM closure
-for Python, Podman, `crun`, SELinux tooling, and `subscription-manager`. The
-Rocky and RHEL RPM closures remain distribution-specific.
+for Python, Podman, `crun`, Nginx, SELinux tooling, and
+`subscription-manager`. The Rocky and RHEL RPM closures remain
+distribution-specific.
 The base VM still needs DNF, systemd, `sudo`, `tar`, and `sha256sum`.
 
 ### Step 1: Prepare the Offline Bundle (On Connected Machine)
@@ -200,13 +265,18 @@ This generates an ignored archive and checksum under `dist/`. Upload those two
 files to a Git release or artifact repository; do not commit the multi-gigabyte
 archive to normal Git history.
 
+New bundles use uncompressed `.tar` archives to avoid recompressing Podman
+layers and RPM/wheel payloads that are already compressed. This substantially
+reduces final packaging and extraction time at the cost of a somewhat larger
+transfer file. Existing `.tar.gz` downloads remain supported during migration.
+
 ### Step 2: Deploy on the Air-Gapped Linux VM
 Transfer both generated files to the target Linux VM via approved media, verify
 the outer checksum, extract it, and execute the offline installer:
 
 ```bash
-sha256sum -c devcloud-offline-*.tar.gz.sha256
-tar -xzf devcloud-offline-*.tar.gz
+sha256sum -c devcloud-offline-*.tar.sha256
+tar -xf devcloud-offline-*.tar
 cd devcloud
 
 sudo bash deploy/deploy_offline.sh
@@ -232,6 +302,35 @@ curl -fsSL https://master.example.com/download/install-worker.sh | sudo bash
 
 The initial bootstrap/Master address is `http://10.253.6.189` and can be
 changed without restarting DevCloud from the Offline Downloads card in Admin.
+
+### In-app HTTPS and certificate upload
+
+A clean connected or offline master installation configures Nginx on port 80.
+In **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**, set the
+hostname, upload the PEM certificate chain and its unencrypted PEM private key,
+then enable HTTPS. DevCloud verifies the certificate validity period, server
+authentication usage, SAN coverage, and certificate/key match before applying
+the Nginx configuration. The private key is stored only in the restricted
+ingress directory and is never returned by the API.
+
+For the planned deployment, the certificate SAN must contain
+aifactory.tcmb.gov.tr, DNS must resolve that name to the master, and clients
+and workers must trust TCMB-CA. Keep **Port 80 HTTP fallback** enabled while
+that trust is being rolled out. The fallback deliberately does not enable HSTS.
+Disabling fallback changes port 80 to a permanent redirect to HTTPS.
+
+The generated Nginx configuration preserves the /proxy/... path, WebSocket
+upgrade headers, and long-lived workspace sessions. Git-based updates install
+the ingress watcher automatically. The preserve-existing command in the update
+section is only needed if the host was upgraded using an older updater.
+
+Verify both the application and the workspace proxy after applying a
+certificate:
+
+    curl -I http://aifactory.tcmb.gov.tr/login
+    curl --cacert /path/to/tcmb-ca.pem -I https://aifactory.tcmb.gov.tr/login
+    sudo nginx -t
+    sudo systemctl status nginx devcloud-ingress.path --no-pager
 
 See [AIRGAP.md](AIRGAP.md) for prerequisites, multi-version bundles, Git release
 publishing, SELinux notes, and validation commands.

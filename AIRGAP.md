@@ -13,11 +13,12 @@ a Git release (or store them in an approved artifact repository).
 
 The self-bootstrapping bundle targets Rocky Linux 10.x or RHEL 10.x on x86_64.
 It includes the complete DNF dependency closure for Python, pip, Podman, `crun`,
-SELinux tooling, and `subscription-manager`. Rocky and RHEL use separate RPM
-closures, while Rocky nodes can still use the client for Foreman/Katello.
+Nginx, SELinux tooling, and `subscription-manager`. Rocky and RHEL use
+separate RPM closures, while Rocky nodes can still use the client for
+Foreman/Katello.
 
 The minimal target VM must already provide DNF, RPM, systemd, `sudo`, `tar`,
-`gzip`, and `sha256sum`. Record its distribution before isolation:
+and `sha256sum`. Record its distribution before isolation:
 
 ```bash
 source /etc/os-release
@@ -78,17 +79,24 @@ The builder:
 2. copies only Git-tracked source into a temporary staging directory;
 3. downloads Linux x86_64 binary wheels for the selected CPython version;
 4. downloads the full Rocky/RHEL system RPM dependency closure, including
-   Podman, `crun`, and `subscription-manager`;
+   Podman, `crun`, Nginx, and `subscription-manager`;
 5. rebuilds and exports all five Linux/amd64 Podman images;
 6. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
 7. verifies the stage and creates these ignored files:
 
 ```text
-dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
-dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz.sha256
-dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
-dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz.sha256
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar
+dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.sha256
+dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar
+dist/devcloud-worker-offline-v<version>-<YYYYMMDD>-<commit>.tar.sha256
 ```
+
+The outer bundle is intentionally an uncompressed tar archive. Container image
+layers and many RPM/wheel payloads are already compressed, so running gzip over
+the whole bundle adds substantial CPU time for limited size reduction. Plain
+tar makes both package creation and extraction faster. Previously published
+.tar.gz bundles remain downloadable and the worker bootstrap can still extract
+them during the transition.
 
 If the five local image tags are already known-good, add
 `--skip-image-build`; missing tags still make packaging fail.
@@ -151,11 +159,15 @@ the terminal and never places the token in the command line.
 
 ## 5. Verify and install inside the air gap
 
+This section is the clean-install flow. Do not extract a new bundle over a live
+project directory: runtime database and local configuration files are
+intentionally excluded from generated archives.
+
 Transfer both files using approved media. From the transfer directory:
 
 ```bash
-sha256sum -c devcloud-offline-*.tar.gz.sha256
-tar -xzf devcloud-offline-*.tar.gz
+sha256sum -c devcloud-offline-*.tar.sha256
+tar -xf devcloud-offline-*.tar
 cd devcloud
 sudo bash deploy/deploy_offline.sh
 ```
@@ -165,7 +177,37 @@ RHEL, verifies `offline/system-rpms/SHA256SUMS`, and installs the local RPM
 transaction with all network repositories disabled. It then re-verifies every
 manifest artifact, installs Python packages without an index, loads exactly
 five container archives, applies the SELinux workspace policy, installs the
-systemd unit, and starts DevCloud. On Rocky and RHEL, `subscription-manager` is
+DevCloud and ingress systemd units, configures Nginx on port 80, and starts
+DevCloud. On Rocky and RHEL, `subscription-manager` is
 installed but registration is intentionally left to the administrator because
 Foreman/Katello or Red Hat registration needs organization credentials and an
 activation key.
+
+For an existing master that can reach the Git remote, use the Git update flow
+in README.md instead of rerunning the clean offline installer. A fully
+disconnected in-place application upgrade requires an explicit backup and
+migration procedure for the existing project-root data and is not performed by
+deploy_offline.sh.
+
+## 6. Enable HTTPS from Admin
+
+The master remains usable over HTTP when no certificate exists. To enable TLS,
+open **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**:
+
+1. set the hostname to aifactory.tcmb.gov.tr;
+2. upload the CA-issued certificate chain in PEM format;
+3. upload the matching, unencrypted PEM private key;
+4. leave HTTP fallback enabled until DNS and TCMB-CA trust are confirmed;
+5. select **Kaydet ve Nginx'e Uygula**.
+
+The panel rejects expired/not-yet-valid certificates, SAN mismatches, non-server
+certificates, mismatched private keys, and oversized uploads. Nginx is tested
+before reload and the previous active files are restored on failure. The
+root-owned devcloud-ingress.path unit handles only fixed files under
+/var/lib/devcloud/ingress; the application user is not granted passwordless
+sudo.
+
+The application URL used by worker bootstrap changes to
+https://aifactory.tcmb.gov.tr when HTTPS is enabled. Before using the one-line
+worker installer over HTTPS, ensure the worker trusts TCMB-CA and can resolve
+the hostname. No HSTS header is emitted while fallback is supported.

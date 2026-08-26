@@ -119,6 +119,47 @@ async def ensure_workspace_columns(conn) -> None:
         pass
 
 
+async def _download_settings_column_names(conn) -> set[str]:
+    return await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("download_settings")
+        }
+    )
+
+
+async def ensure_download_settings_columns(conn) -> None:
+    """Add HTTPS ingress settings to existing singleton settings tables."""
+    existing_columns = await _download_settings_column_names(conn)
+    default_hostname = settings.HTTPS_DEFAULT_HOSTNAME.replace("'", "''")
+    columns = {
+        "https_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+        "https_hostname": (
+            "VARCHAR(253) NOT NULL DEFAULT "
+            f"'{default_hostname}'"
+        ),
+        "http_fallback_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        "certificate_subject": "VARCHAR(1024)",
+        "certificate_not_after": "VARCHAR(64)",
+        "certificate_sha256": "VARCHAR(64)",
+    }
+    for column_name, definition in columns.items():
+        if column_name in existing_columns:
+            continue
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE download_settings ADD COLUMN "
+                        f"{column_name} {definition}"
+                    )
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _download_settings_column_names(conn)
+            if column_name not in current_columns:
+                raise
+
+
 async def init_db() -> None:
     """Initialize database schemas and create tables."""
     # Ensure models are imported so Base has metadata
@@ -134,3 +175,4 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await ensure_user_quota_columns(conn)
         await ensure_workspace_columns(conn)
+        await ensure_download_settings_columns(conn)

@@ -51,7 +51,7 @@ git check-ref-format --branch "${TARGET_BRANCH}" >/dev/null 2>&1 || \
     fail "Invalid update branch: ${TARGET_BRANCH}"
 OLD_COMMIT="$(git rev-parse HEAD)"
 
-echo "--> [1/4] Fetching origin/${TARGET_BRANCH}..."
+echo "--> [1/5] Fetching origin/${TARGET_BRANCH}..."
 git fetch origin "${TARGET_BRANCH}"
 if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
     git switch "${TARGET_BRANCH}"
@@ -62,11 +62,11 @@ git merge --ff-only "origin/${TARGET_BRANCH}"
 NEW_COMMIT="$(git rev-parse HEAD)"
 echo "    ${OLD_COMMIT:0:12} -> ${NEW_COMMIT:0:12}"
 
-echo "--> [2/4] Checking Python dependencies..."
+echo "--> [2/5] Checking Python dependencies..."
 [ -x .venv/bin/python ] || fail "Python virtual environment is missing."
 .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
 
-echo "--> [3/4] Installing the current systemd unit..."
+echo "--> [3/5] Installing the current DevCloud systemd unit..."
 [ -f deploy/devcloud.service ] || fail "deploy/devcloud.service is missing."
 SERVICE_USER="${DEVCLOUD_SERVICE_USER:-}"
 if [ -z "${SERVICE_USER}" ]; then
@@ -80,7 +80,11 @@ sed -e "s|{{USER}}|${SERVICE_USER}|g" \
 sudo install -m 0644 "${UNIT_TMP}" "${SERVICE_FILE}"
 sudo systemctl daemon-reload
 
-echo "--> [4/4] Scheduling a health-checked worker reload..."
+echo "--> [4/5] Installing the HTTPS ingress helper and watcher..."
+[ -f deploy/install_ingress.sh ] || fail "deploy/install_ingress.sh is missing."
+sudo env DEVCLOUD_INGRESS_APPLY_INITIAL=0 bash "${PROJECT_DIR}/deploy/install_ingress.sh" "${SERVICE_USER}"
+
+echo "--> [5/5] Scheduling a health-checked worker reload..."
 [ -f deploy/restart.sh ] || fail "deploy/restart.sh is missing."
 nohup bash -c 'sleep 2; exec bash "$1"' _ "${PROJECT_DIR}/deploy/restart.sh" \
     >>"${RESTART_LOG}" 2>&1 </dev/null &

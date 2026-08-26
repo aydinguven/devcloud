@@ -16,10 +16,13 @@ def _write_bundle_pair(
     revision: str,
     content: bytes,
     bundle_role: str = "server",
+    *,
+    legacy_gzip: bool = False,
 ) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
     prefix = "devcloud-worker-offline" if bundle_role == "worker" else "devcloud-offline"
-    archive = root / f"{prefix}-v2.0.0-20260825-{revision}.tar.gz"
+    suffix = ".tar.gz" if legacy_gzip else ".tar"
+    archive = root / f"{prefix}-v2.0.0-20260825-{revision}{suffix}"
     archive.write_bytes(content)
     checksum = archive.with_name(archive.name + ".sha256")
     checksum.write_text(
@@ -27,6 +30,22 @@ def _write_bundle_pair(
         encoding="ascii",
     )
     return archive, checksum
+
+
+def test_current_bundle_accepts_legacy_gzip_archive(tmp_path: Path, monkeypatch):
+    download_root = tmp_path / "downloads"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    monkeypatch.setattr(settings, "BASE_DIR", source_root)
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(download_root))
+    archive, _ = _write_bundle_pair(
+        download_root,
+        "abcdef123456",
+        b"legacy",
+        legacy_gzip=True,
+    )
+
+    assert DownloadUpdateManager().current_bundle()["filename"] == archive.name
 
 
 def test_publish_replaces_only_older_bundle_pairs(tmp_path: Path, monkeypatch):

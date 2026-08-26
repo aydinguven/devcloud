@@ -1,4 +1,5 @@
 import importlib.util
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,7 @@ def test_system_rpm_download_collects_dependency_closure_and_checksums(
         system_name="Linux",
         machine="x86_64",
     )
+    assert "nginx" in profile["requested_packages"]
 
     command = commands[0]
     assert command[:4] == ["dnf5", "download", "--resolve", "--alldeps"]
@@ -212,12 +214,25 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
     )
 
 def test_outer_checksum_uses_portable_sha256sum_format(tmp_path: Path):
-    bundle = tmp_path / "devcloud-offline-test.tar.gz"
+    bundle = tmp_path / "devcloud-offline-test.tar"
     bundle.write_bytes(b"bundle")
     checksum = package_offline.write_outer_checksum(bundle)
     digest, filename = checksum.read_text(encoding="ascii").strip().split("  ")
     assert digest == package_offline.sha256_file(bundle)
     assert filename == bundle.name
+
+
+def test_bundle_archive_is_plain_tar_without_gzip_recompression(tmp_path: Path):
+    bundle_root = tmp_path / "source"
+    bundle_root.mkdir()
+    (bundle_root / "payload.txt").write_text("payload", encoding="utf-8")
+    output = tmp_path / "devcloud-offline-test.tar"
+
+    package_offline.create_archive(bundle_root, output)
+
+    assert output.read_bytes()[:2] != b"\x1f\x8b"
+    with tarfile.open(output, "r:") as archive:
+        assert archive.extractfile("devcloud/payload.txt").read() == b"payload"
 
 
 @pytest.mark.asyncio
