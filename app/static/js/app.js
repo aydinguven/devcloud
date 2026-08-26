@@ -18,7 +18,22 @@ document.addEventListener("DOMContentLoaded", () => {
   initPortExposer();
   initSnapshotModal();
   initAdminPlatformUpdater();
+  initAdminFilters();
 });
+
+function initAdminFilters() {
+  document.querySelectorAll("[data-admin-filter]").forEach((input) => {
+    const selector = input.dataset.adminFilter;
+    if (!selector) return;
+    input.addEventListener("input", () => {
+      const query = input.value.trim().toLocaleLowerCase("tr-TR");
+      document.querySelectorAll(selector).forEach((item) => {
+        const haystack = item.textContent.toLocaleLowerCase("tr-TR");
+        item.hidden = Boolean(query) && !haystack.includes(query);
+      });
+    });
+  });
+}
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
 function initWorkspaceCreationModal() {

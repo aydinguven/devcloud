@@ -182,7 +182,7 @@ async def test_download_update_controls_are_admin_only(
     assert worker_start.status_code == 202
     assert worker_start.json()["bundle_role"] == "worker"
 
-    page = await client.get("/admin", headers=admin_headers)
+    page = await client.get("/admin/system", headers=admin_headers)
     assert page.status_code == 200
     assert "Çevrim Dışı İndirmeler" in page.text
     assert 'id="btn-update-downloads"' in page.text

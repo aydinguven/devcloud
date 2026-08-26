@@ -69,16 +69,39 @@ async def test_admin_access_controls(client: AsyncClient):
 
     admin_page = await client.get("/admin", headers=admin_headers)
     assert admin_page.status_code == 200
-    assert "Kota Ayarları" in admin_page.text
-    assert 'class="admin-user-card"' in admin_page.text
-    assert 'class="quota-form admin-quota-form"' in admin_page.text
-    assert "Kurumsal Dizin (LDAPS / Active Directory)" in admin_page.text
-    assert 'id="directory-settings-form"' in admin_page.text
-    assert 'value="ldaps.tcmb.gov.tr"' in admin_page.text
-    assert "Worker Node'ları" in admin_page.text
-    assert 'id="node-create-form"' in admin_page.text
-    assert "MLflow Model Registry" in admin_page.text
-    assert 'id="mlflow-settings-form"' in admin_page.text
+    assert "Genel Bakış" in admin_page.text
+    assert 'class="admin-category-link is-active"' in admin_page.text
+    assert 'href="/admin/users"' in admin_page.text
+    assert "Kota Ayarları" not in admin_page.text
+
+    users_page = await client.get("/admin/users", headers=admin_headers)
+    assert users_page.status_code == 200
+    assert "Kota Ayarları" in users_page.text
+    assert 'class="admin-user-card"' in users_page.text
+    assert 'class="quota-form admin-quota-form"' in users_page.text
+    assert "Kurumsal Dizin (LDAPS / Active Directory)" in users_page.text
+    assert 'id="directory-settings-form"' in users_page.text
+    assert 'value="ldaps.tcmb.gov.tr"' in users_page.text
+
+    workers_page = await client.get("/admin/workers", headers=admin_headers)
+    assert workers_page.status_code == 200
+    assert "Worker Node'ları" in workers_page.text
+    assert 'id="node-create-form"' in workers_page.text
+
+    integrations_page = await client.get(
+        "/admin/integrations", headers=admin_headers
+    )
+    assert integrations_page.status_code == 200
+    assert "MLflow Model Registry" in integrations_page.text
+    assert 'id="mlflow-settings-form"' in integrations_page.text
+
+    workspaces_page = await client.get("/admin/workspaces", headers=admin_headers)
+    assert workspaces_page.status_code == 200
+    assert "Tüm Container ve Çalışma Alanları" in workspaces_page.text
+    assert 'id="btn-open-template-builder-modal"' in workspaces_page.text
+
+    missing_page = await client.get("/admin/not-a-section", headers=admin_headers)
+    assert missing_page.status_code == 404
 
     models_page = await client.get("/models", headers=admin_headers)
     assert models_page.status_code == 200

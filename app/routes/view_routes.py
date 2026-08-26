@@ -1,10 +1,10 @@
 import asyncio
 from pathlib import Path
 from typing import Annotated
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user_optional
@@ -266,48 +266,113 @@ async def model_detail_page(
     )
 
 
+ADMIN_SECTIONS = {
+    "overview": {
+        "title": "Genel Bakış",
+        "description": "Platform sağlığını ve yönetim alanlarını tek bakışta izleyin.",
+    },
+    "users": {
+        "title": "Kullanıcılar & Erişim",
+        "description": "Kullanıcı kotalarını, hesap durumlarını ve kurumsal dizin erişimini yönetin.",
+    },
+    "workspaces": {
+        "title": "Çalışma Alanları & Şablonlar",
+        "description": "Tüm çalışma alanlarını denetleyin ve özel ortam şablonları oluşturun.",
+    },
+    "workers": {
+        "title": "Worker Node'ları",
+        "description": "CPU worker kayıtlarını, bağlantı durumlarını ve planlamayı yönetin.",
+    },
+    "integrations": {
+        "title": "Entegrasyonlar",
+        "description": "Harici platform bağlantılarını ve servis kimlik bilgilerini yönetin.",
+    },
+    "system": {
+        "title": "Sistem & Dağıtım",
+        "description": "Platform güncellemelerini, offline paketleri, disk alanını ve HTTPS ayarlarını yönetin.",
+    },
+}
+
+
 @view_router.get("/admin", response_class=HTMLResponse)
+@view_router.get("/admin/{section}", response_class=HTMLResponse)
 async def admin_page(
     request: Request,
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    section: str = "overview",
 ):
-    """Serve admin dashboard page."""
+    """Serve one focused admin category without loading unrelated datasets."""
     if not current_user or current_user.role != UserRole.ADMIN:
         return RedirectResponse(url="/", status_code=302)
+    if section not in ADMIN_SECTIONS:
+        raise HTTPException(status_code=404, detail="Yönetim bölümü bulunamadı.")
 
-    users_stmt = select(User).order_by(User.id.asc())
-    users = (await db.execute(users_stmt)).scalars().all()
+    context = {
+        "app_name": settings.APP_NAME,
+        "user": current_user,
+        "admin_section": section,
+        "admin_meta": ADMIN_SECTIONS[section],
+        "admin_sections": ADMIN_SECTIONS,
+    }
 
-    ws_stmt = select(Workspace).order_by(Workspace.created_at.desc())
-    workspaces = (await db.execute(ws_stmt)).scalars().all()
-
-    usage_by_user = await asyncio.to_thread(
-        get_all_user_usage, users, workspaces
-    )
-    directory_settings = await db.get(DirectorySettings, 1)
-    mlflow_settings = await db.get(MlflowSettings, 1)
-    download_settings = await db.get(DownloadSettings, 1)
-    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    if section == "overview":
+        context["admin_stats"] = {
+            "users": (await db.execute(select(func.count(User.id)))).scalar_one(),
+            "workspaces": (
+                await db.execute(select(func.count(Workspace.id)))
+            ).scalar_one(),
+            "running_workspaces": (
+                await db.execute(
+                    select(func.count(Workspace.id)).where(
+                        Workspace.status == WorkspaceStatus.RUNNING
+                    )
+                )
+            ).scalar_one(),
+            "workers": (await db.execute(select(func.count(Node.id)))).scalar_one(),
+        }
+    elif section == "users":
+        users = (
+            await db.execute(select(User).order_by(User.id.asc()))
+        ).scalars().all()
+        workspaces = (
+            await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
+        ).scalars().all()
+        context.update(
+            {
+                "all_users": users,
+                "usage_by_user": await asyncio.to_thread(
+                    get_all_user_usage, users, workspaces
+                ),
+                "directory_settings": await db.get(DirectorySettings, 1),
+            }
+        )
+    elif section == "workspaces":
+        context["all_workspaces"] = (
+            await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
+        ).scalars().all()
+    elif section == "workers":
+        context["nodes"] = (
+            await db.execute(select(Node).order_by(Node.name))
+        ).scalars().all()
+    elif section == "integrations":
+        context["mlflow_settings"] = await db.get(MlflowSettings, 1)
+    elif section == "system":
+        download_settings = await db.get(DownloadSettings, 1)
+        context.update(
+            {
+                "download_public_base_url": (
+                    download_settings.public_base_url
+                    if download_settings
+                    else settings.DOWNLOAD_PUBLIC_BASE_URL
+                ),
+                "download_settings": download_settings,
+                "https_default_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
+            }
+        )
 
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
-        context={
-            "app_name": settings.APP_NAME,
-            "user": current_user,
-            "all_users": users,
-            "all_workspaces": workspaces,
-            "usage_by_user": usage_by_user,
-            "directory_settings": directory_settings,
-            "mlflow_settings": mlflow_settings,
-            "download_public_base_url": (
-                download_settings.public_base_url
-                if download_settings
-                else settings.DOWNLOAD_PUBLIC_BASE_URL
-            ),
-            "download_settings": download_settings,
-            "https_default_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
-            "nodes": nodes,
-        },
+        context=context,
     )

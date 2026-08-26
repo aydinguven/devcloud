@@ -4,34 +4,66 @@
 
 {% block content %}
 {% set status_labels = {'running': 'Çalışıyor', 'stopped': 'Durduruldu', 'creating': 'Oluşturuluyor', 'starting': 'Başlatılıyor', 'error': 'Hata', 'deleted': 'Silindi'} %}
-<div class="page-heading">
+<div class="page-heading admin-page-heading">
   <div>
     <span class="page-kicker">Sistem Yönetimi</span>
-    <h1>Yönetim Paneli</h1>
-    <p>Kullanıcıları, çalışma alanlarını ve kullanıcı bazlı CPU, RAM ve Disk kotalarını yönetin.</p>
+    <h1 id="admin-section-title">{{ admin_meta.title }}</h1>
+    <p>{{ admin_meta.description }}</p>
   </div>
 </div>
 
-<div class="grid grid-cols-3" style="margin-bottom: 2rem;">
+<div class="admin-shell">
+  {% include "partials/admin_nav.html" %}
+  <section class="admin-section-content" id="admin-section-content" aria-labelledby="admin-section-title">
+
+{% if admin_section == 'overview' %}
+<div class="admin-stat-grid">
   <div class="card" style="border-top: 3px solid var(--secondary);">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Kullanıcı</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: #fff; margin-top: 0.25rem;">{{ all_users|length }}</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: var(--heading); margin-top: 0.25rem;">{{ admin_stats.users }}</div>
   </div>
   <div class="card" style="border-top: 3px solid var(--primary);">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Çalışma Alanı</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">{{ all_workspaces|length }}</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">{{ admin_stats.workspaces }}</div>
   </div>
   <div class="card" style="border-top: 3px solid var(--gold);">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Aktif Container</div>
     <div style="font-size: 1.75rem; font-weight: 700; color: var(--success); margin-top: 0.25rem;">
-      {{ all_workspaces|selectattr('status', 'equalto', 'running')|list|length }}
+      {{ admin_stats.running_workspaces }}
     </div>
+  </div>
+  <div class="card" style="border-top: 3px solid #8b5cf6;">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Worker Node</div>
+    <div style="font-size: 1.75rem; font-weight: 700; color: #8b5cf6; margin-top: 0.25rem;">{{ admin_stats.workers }}</div>
   </div>
 </div>
 
-<div class="grid grid-cols-2" style="margin-bottom: 2rem; gap: 1.5rem;">
+<section class="admin-overview-grid" aria-label="Yönetim alanları">
+  {% for key, item in admin_sections.items() if key != 'overview' %}
+    <a class="admin-overview-card" href="/admin/{{ key }}">
+      <span class="admin-overview-index">0{{ loop.index }}</span>
+      <span class="admin-overview-copy">
+        <strong>{{ item.title }}</strong>
+        <small>{{ item.description }}</small>
+      </span>
+      <span class="admin-overview-arrow" aria-hidden="true">→</span>
+    </a>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if admin_section in ['system', 'workspaces'] %}
+{% if admin_section == 'system' %}
+<nav class="admin-section-jumps" aria-label="Sistem bölümleri">
+  <a href="#platform-update">Platform Güncelleme</a>
+  <a href="#https-settings-form">Network &amp; TLS</a>
+  <a href="#offline-packages">Offline Paketler</a>
+</nav>
+{% endif %}
+<div class="admin-feature-grid">
   <!-- 1-Click Platform Updater Card -->
-  <div class="card" style="border-top: 3px solid #10b981;">
+  {% if admin_section == 'system' %}
+  <div class="card" id="platform-update" style="border-top: 3px solid #10b981;">
     <div class="card-header">
       <div>
         <h2 class="card-title">🚀 1-Tıkla Platform Güncelleme</h2>
@@ -53,8 +85,10 @@
       <pre id="admin-update-terminal" class="terminal-window" style="max-height: 180px; font-size: 0.75rem;"></pre>
     </div>
   </div>
+  {% endif %}
 
   <!-- Custom Template Builder Trigger Card -->
+  {% if admin_section == 'workspaces' %}
   <div class="card" style="border-top: 3px solid #8b5cf6;">
     <div class="card-header">
       <div>
@@ -70,9 +104,12 @@
       </button>
     </div>
   </div>
+  {% endif %}
 </div>
+{% endif %}
 
-<div class="card download-update-card" style="margin-bottom: 2rem;">
+{% if admin_section == 'system' %}
+<div class="card download-update-card" id="offline-packages" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Çevrim Dışı İndirmeler & Disk Yönetimi</h2>
@@ -204,7 +241,9 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     </div>
   </details>
 </div>
+{% endif %}
 
+{% if admin_section == 'workers' %}
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--secondary);">
   <div class="card-header">
     <div>
@@ -243,7 +282,9 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     </table>
   </div>
 </section>
+{% endif %}
 
+{% if admin_section == 'integrations' %}
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
   <div class="card-header">
     <div>
@@ -272,7 +313,9 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     </div>
   </form>
 </section>
+{% endif %}
 
+{% if admin_section == 'users' %}
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid #2563eb;">
   <div class="card-header">
     <div>
@@ -391,7 +434,13 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
       <p class="admin-section-description">Hesap bilgilerini, kaynak kullanımını ve kullanıcı kotalarını tek görünümden yönetin.</p>
     </div>
-    <span class="admin-section-count">{{ all_users|length }} kullanıcı</span>
+    <div class="admin-card-tools">
+      <label class="admin-search-field">
+        <span class="sr-only">Kullanıcılarda ara</span>
+        <input class="form-input" type="search" placeholder="Kullanıcı ara..." data-admin-filter=".admin-user-card">
+      </label>
+      <span class="admin-section-count">{{ all_users|length }} kullanıcı</span>
+    </div>
   </div>
   <div class="admin-user-list">
     {% for u in all_users %}
@@ -454,12 +503,21 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     {% endfor %}
   </div>
 </section>
+{% endif %}
 
+{% if admin_section == 'workspaces' %}
 <div class="card" style="overflow-x: auto;">
   <div class="card-header">
-    <h2 class="card-title">Tüm Container ve Çalışma Alanları</h2>
+    <div>
+      <h2 class="card-title">Tüm Container ve Çalışma Alanları</h2>
+      <p class="admin-section-description">Ad, kullanıcı, şablon veya worker bilgisine göre filtreleyin.</p>
+    </div>
+    <label class="admin-search-field">
+      <span class="sr-only">Çalışma alanlarında ara</span>
+      <input class="form-input" type="search" placeholder="Workspace ara..." data-admin-filter="#admin-workspace-table tbody tr">
+    </label>
   </div>
-  <table class="table">
+  <table class="table" id="admin-workspace-table">
     <thead>
       <tr>
         <th>Ad</th>
@@ -490,6 +548,8 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
             </div>
           </td>
         </tr>
+      {% else %}
+        <tr><td colspan="8">Henüz çalışma alanı oluşturulmadı.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -559,5 +619,8 @@ USER coder" required></textarea>
       </div>
     </form>
   </div>
+</div>
+{% endif %}
+  </section>
 </div>
 {% endblock %}

@@ -59,6 +59,31 @@ def test_admin_has_separate_worker_offline_bundle_controls():
     assert "initHttpsSettings()" in javascript
 
 
+def test_admin_panel_exposes_category_navigation():
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
+        encoding="utf-8"
+    )
+    navigation = (PROJECT_ROOT / "app/templates/partials/admin_nav.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'class="admin-shell"' in template
+    assert "admin_section == 'overview'" in template
+    assert 'href="/admin/users"' in navigation
+    assert 'href="/admin/workspaces"' in navigation
+    assert 'href="/admin/workers"' in navigation
+    assert 'href="/admin/integrations"' in navigation
+    assert 'href="/admin/system"' in navigation
+    assert 'aria-current="page"' in navigation
+    assert 'data-admin-filter=".admin-user-card"' in template
+    assert 'data-admin-filter="#admin-workspace-table tbody tr"' in template
+
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+    assert "initAdminFilters()" in javascript
+
+
 def test_public_download_page_exposes_worker_bootstrap_command():
     template = (PROJECT_ROOT / "app/templates/downloads.html").read_text(
         encoding="utf-8"
