@@ -537,7 +537,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               if (badge) {
                 const isOnline = msg.data.status === "online";
                 badge.className = `badge ${isOnline ? "badge-running" : "badge-stopped"} node-status-badge`;
-                badge.textContent = msg.data.status;
+                badge.textContent = (msg.data.status || "offline").toUpperCase();
               }
             }
           } else if (msg.type === "node.telemetry") {
@@ -546,8 +546,9 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
             if (row) {
               const badge = row.querySelector(".node-status-badge");
               if (badge) {
-                badge.className = `badge ${d.status === "online" ? "badge-running" : "badge-stopped"} node-status-badge`;
-                badge.textContent = d.status;
+                const isOnline = d.status === "online";
+                badge.className = `badge ${isOnline ? "badge-running" : "badge-stopped"} node-status-badge`;
+                badge.textContent = (d.status || "offline").toUpperCase();
               }
               const cpuText = row.querySelector(".node-cpu-text");
               const cpuBar = row.querySelector(".node-cpu-bar");

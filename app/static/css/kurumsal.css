@@ -326,6 +326,15 @@ a:hover { color: var(--primary); }
 .table tbody tr:nth-child(even) td { background: #fafbfd; }
 .table tr:hover td { background: #f1f5fa; }
 code { color: #8d0022; }
+#admin-nodes-table th,
+#admin-nodes-table td {
+  vertical-align: middle;
+}
+#admin-nodes-table .btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
 
 /* Resource usage */
 .usage-card {
