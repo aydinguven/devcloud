@@ -173,14 +173,18 @@ async def ensure_node_columns(conn) -> None:
     """Add telemetry and metadata columns to existing nodes tables."""
     try:
         existing_columns = await _node_column_names(conn)
-    except (OperationalError, ProgrammingError):
+    except Exception:
         return
 
     columns = {
-        "cpu_percent": "FLOAT NOT NULL DEFAULT 0.0",
-        "memory_used_mb": "INTEGER NOT NULL DEFAULT 0",
-        "disk_used_mb": "INTEGER NOT NULL DEFAULT 0",
-        "active_containers_count": "INTEGER NOT NULL DEFAULT 0",
+        "cpu_percent": "FLOAT DEFAULT 0.0",
+        "memory_used_mb": "INTEGER DEFAULT 0",
+        "disk_used_mb": "INTEGER DEFAULT 0",
+        "active_containers_count": "INTEGER DEFAULT 0",
+        "labels_json": "TEXT DEFAULT '{}'",
+        "capabilities_json": "TEXT DEFAULT '{}'",
+        "agent_version": "VARCHAR(64) DEFAULT ''",
+        "agent_token_hash": "VARCHAR(64) DEFAULT ''",
     }
     for column_name, definition in columns.items():
         if column_name in existing_columns:
@@ -190,10 +194,13 @@ async def ensure_node_columns(conn) -> None:
                 await conn.execute(
                     text(f"ALTER TABLE nodes ADD COLUMN {column_name} {definition}")
                 )
-        except (OperationalError, ProgrammingError):
-            current_columns = await _node_column_names(conn)
-            if column_name not in current_columns:
-                raise
+        except Exception:
+            try:
+                current_columns = await _node_column_names(conn)
+                if column_name not in current_columns:
+                    pass
+            except Exception:
+                pass
 
 
 async def init_db() -> None:

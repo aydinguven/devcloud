@@ -35,17 +35,17 @@ class Node(Base):
         Enum(NodeStatus), default=NodeStatus.PENDING, nullable=False
     )
 
-    cpu_total: Mapped[float] = mapped_column(Float, default=0, nullable=False)
-    memory_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    disk_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cpu_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    memory_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    disk_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    active_containers_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    labels_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    capabilities_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    agent_version: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    agent_token_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    cpu_total: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    memory_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    disk_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    cpu_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    memory_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    disk_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    active_containers_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    labels_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
+    capabilities_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
+    agent_version: Mapped[str] = mapped_column(String(64), default="", nullable=True)
+    agent_token_hash: Mapped[str] = mapped_column(String(64), default="", nullable=True)
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

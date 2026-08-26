@@ -10,12 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user_optional
 from app.config import settings
 from app.database import get_db
+import json
+import logging
 from app.models.user import User, UserRole
 from app.models.directory_settings import DirectorySettings
 from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
-from app.models.node import Node
-from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
@@ -26,11 +26,25 @@ from app.resource_usage import get_all_user_usage, get_system_usage, get_user_us
 from app.schemas.workspace import WorkspaceOut
 from app.static_assets import STATIC_ASSET_VERSION
 
+logger = logging.getLogger("devcloud.views")
+
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 templates.env.globals["app_version"] = settings.APP_VERSION
 templates.env.globals["static_version"] = STATIC_ASSET_VERSION
-templates.env.filters["from_json"] = lambda s: json.loads(s) if s else {}
+
+def _safe_from_json(val):
+    if not val:
+        return {}
+    if isinstance(val, dict):
+        return val
+    try:
+        data = json.loads(val)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+templates.env.filters["from_json"] = _safe_from_json
 
 view_router = APIRouter(include_in_schema=False)
 
@@ -357,14 +371,33 @@ async def admin_page(
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
     elif section == "workers":
-        download_settings = await db.get(DownloadSettings, 1)
-        context["nodes"] = (
-            await db.execute(select(Node).order_by(Node.name))
-        ).scalars().all()
+        download_settings = None
+        try:
+            download_settings = await db.get(DownloadSettings, 1)
+        except Exception:
+            pass
+
+        try:
+            nodes_res = await db.execute(select(Node).order_by(Node.name))
+            nodes = nodes_res.scalars().all()
+        except Exception as exc:
+            logger.warning("Error fetching nodes for admin workers view: %s. Attempting schema ensure...", exc)
+            try:
+                from app.database import ensure_node_columns
+                # Run dynamic migration via connection
+                conn = await db.connection()
+                await ensure_node_columns(conn)
+                nodes_res = await db.execute(select(Node).order_by(Node.name))
+                nodes = nodes_res.scalars().all()
+            except Exception as retry_exc:
+                logger.error("Failed to recover nodes query: %s", retry_exc)
+                nodes = []
+
+        context["nodes"] = nodes
         context["download_public_base_url"] = (
             download_settings.public_base_url
             if download_settings and download_settings.public_base_url
-            else settings.DOWNLOAD_PUBLIC_BASE_URL
+            else (settings.DOWNLOAD_PUBLIC_BASE_URL or str(request.base_url).rstrip("/"))
         )
     elif section == "integrations":
         context["mlflow_settings"] = await db.get(MlflowSettings, 1)
