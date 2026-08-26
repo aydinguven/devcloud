@@ -552,7 +552,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               }
               const cpuText = row.querySelector(".node-cpu-text");
               const cpuBar = row.querySelector(".node-cpu-bar");
-              if (cpuText) cpuText.textContent = `${d.cpu_percent}% / ${d.cpu_total} core`;
+              if (cpuText) cpuText.innerHTML = `${d.cpu_percent}% <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">(${d.cpu_total}c)</span>`;
               if (cpuBar) cpuBar.style.width = `${Math.min(d.cpu_percent, 100)}%`;
 
               const ramText = row.querySelector(".node-ram-text");
@@ -560,18 +560,17 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               const usedGb = (d.memory_used_mb / 1024).toFixed(1);
               const totalGb = (d.memory_total_mb / 1024).toFixed(1);
               const ramPct = d.memory_total_mb ? Math.min((d.memory_used_mb / d.memory_total_mb) * 100, 100) : 0;
-              if (ramText) ramText.textContent = `${usedGb} / ${totalGb} GB`;
+              if (ramText) ramText.innerHTML = `${usedGb}<span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">/${totalGb}G</span>`;
               if (ramBar) ramBar.style.width = `${ramPct}%`;
 
               const diskCell = row.querySelector(".node-disk-cell span");
               if (diskCell) {
                 const dUsedGb = (d.disk_used_mb / 1024).toFixed(1);
-                const dTotGb = (d.disk_total_mb / 1024).toFixed(1);
-                diskCell.textContent = `${dUsedGb} / ${dTotGb} GB`;
+                diskCell.textContent = `${dUsedGb} GB`;
               }
 
               const cntBadge = row.querySelector(".node-container-count");
-              if (cntBadge) cntBadge.textContent = d.active_containers_count;
+              if (cntBadge) cntBadge.textContent = `${d.active_containers_count} cnt`;
 
               const lastSeenCell = row.querySelector(".node-last-seen-cell");
               if (lastSeenCell && d.last_seen_at) {

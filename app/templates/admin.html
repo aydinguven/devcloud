@@ -277,76 +277,76 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     <span id="node-create-status" class="quota-form-status" role="status"></span>
   </form>
   <div id="node-enrollment-token" class="terminal-window" style="display:none;margin-bottom:1.25rem;padding:1rem;"></div>
-  <div style="overflow-x:auto; -webkit-overflow-scrolling: touch; border-radius: 4px; border: 1px solid var(--border-color);">
-    <table class="table" id="admin-nodes-table" style="min-width: 980px; width: 100%; margin: 0; border-collapse: collapse;">
-      <thead>
-        <tr>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem;">AD</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem;">HOST</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; text-align: center;">DURUM</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; min-width: 110px;">CPU</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; min-width: 120px;">RAM</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem;">DİSK</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; text-align: center;">CONTAINER</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; min-width: 110px;">ETİKETLER</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem;">SON GÖRÜLME</th>
-          <th style="white-space: nowrap; padding: 0.65rem 0.85rem; text-align: right; min-width: 210px;">İŞLEMLER</th>
-        </tr>
-      </thead>
-      <tbody id="node-table-body">
-      {% for node in nodes %}
-        {% set node_st = (node.status.value if node.status.value is defined else node.status)|lower %}
-        <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="vertical-align: middle;">
-          <td style="white-space: nowrap;"><strong style="color: var(--heading);">{{ node.name }}</strong></td>
-          <td class="node-hostname-cell" style="white-space: nowrap; font-size: 0.85rem; color: var(--text-muted);">{{ node.hostname or 'Henüz bağlanmadı' }}</td>
-          <td style="text-align: center; white-space: nowrap;">
-            <span class="badge badge-{{ 'running' if node_st == 'online' else 'stopped' }} node-status-badge">{{ node_st|upper }}</span>
-          </td>
-          <td class="node-cpu-cell" style="white-space: nowrap;">
-            <div class="node-cpu-text" style="font-size: 0.8rem; font-weight: 500; margin-bottom: 3px;">{{ node.cpu_percent or 0.0 }}% / {{ node.cpu_total or 0 }} core</div>
-            <div style="width: 85px; background: rgba(128, 128, 128, 0.2); height: 5px; border-radius: 3px; overflow: hidden;">
-              <div class="node-cpu-bar" style="width: {{ [node.cpu_percent or 0, 100]|min }}%; background: #3b82f6; height: 100%;"></div>
-            </div>
-          </td>
-          <td class="node-ram-cell" style="white-space: nowrap;">
-            <div class="node-ram-text" style="font-size: 0.8rem; font-weight: 500; margin-bottom: 3px;">{{ '%.1f'|format((node.memory_used_mb or 0) / 1024) }} / {{ '%.1f'|format((node.memory_total_mb or 0) / 1024) }} GB</div>
-            <div style="width: 85px; background: rgba(128, 128, 128, 0.2); height: 5px; border-radius: 3px; overflow: hidden;">
-              <div class="node-ram-bar" style="width: {{ [(((node.memory_used_mb or 0) / node.memory_total_mb * 100) if node.memory_total_mb else 0), 100]|min }}%; background: #10b981; height: 100%;"></div>
-            </div>
-          </td>
-          <td class="node-disk-cell" style="white-space: nowrap; font-size: 0.8rem;">
-            <span>{{ '%.1f'|format((node.disk_used_mb or 0) / 1024) }} / {{ '%.1f'|format((node.disk_total_mb or 0) / 1024) }} GB</span>
-          </td>
-          <td style="text-align: center; white-space: nowrap;">
-            <span class="badge node-container-count" style="background: rgba(128, 128, 128, 0.12); color: var(--text-main); font-weight: 600; min-width: 22px; display: inline-block;">{{ node.active_containers_count or 0 }}</span>
-          </td>
-          <td class="node-labels-cell" style="white-space: nowrap;">
-            <div class="node-labels-container" style="display: inline-flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
-              {% set labels_dict = node.labels_json|from_json if node.labels_json else {} %}
-              {% for k, v in (labels_dict.items() if labels_dict is mapping else []) %}
-                <span class="badge badge-flavor" style="font-size: 0.7rem; padding: 0.1rem 0.35rem;">{{ k }}={{ v }}</span>
-              {% else %}
-                <span class="no-labels" style="color: var(--text-muted); font-size: 0.8rem;">—</span>
-              {% endfor %}
-              <button type="button" class="btn btn-secondary btn-sm btn-edit-labels" data-node-id="{{ node.id }}" data-labels='{{ node.labels_json or "{}" }}' style="padding: 0.1rem 0.35rem; font-size: 0.75rem;" title="Etiketleri Düzenle">🏷️</button>
-            </div>
-          </td>
-          <td class="node-last-seen-cell" style="white-space: nowrap; font-size: 0.8rem; color: var(--text-muted);">{{ node.last_seen_at or '—' }}</td>
-          <td style="text-align: right; white-space: nowrap;">
-            <div style="display: inline-flex; gap: 0.35rem; align-items: center; justify-content: flex-end; flex-wrap: nowrap;">
-              <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}" style="white-space: nowrap; padding: 0.25rem 0.5rem; font-size: 0.75rem;">{{ 'Drain Et' if node.schedulable else 'Planlamaya Aç' }}</button>
-              <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token Yenile" style="padding: 0.25rem 0.45rem; font-size: 0.75rem;">🔑</button>
-              <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Master'dan OTA Güncelle" style="white-space: nowrap; padding: 0.25rem 0.5rem; font-size: 0.75rem;">⚡ Güncelle</button>
-              <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Sil</button>
-            </div>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="10" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  
+  <table class="table" id="admin-nodes-table" style="width: 100%; margin: 0; border-collapse: collapse;">
+    <thead>
+      <tr>
+        <th style="padding: 0.6rem 0.5rem;">WORKER</th>
+        <th style="padding: 0.6rem 0.4rem; text-align: center;">DURUM</th>
+        <th style="padding: 0.6rem 0.5rem;">CPU</th>
+        <th style="padding: 0.6rem 0.5rem;">RAM</th>
+        <th style="padding: 0.6rem 0.5rem;">DİSK / CNT</th>
+        <th style="padding: 0.6rem 0.4rem;">ETİKETLER</th>
+        <th style="padding: 0.6rem 0.4rem; text-align: right;">İŞLEMLER</th>
+      </tr>
+    </thead>
+    <tbody id="node-table-body">
+    {% for node in nodes %}
+      {% set node_st = (node.status.value if node.status.value is defined else node.status)|lower %}
+      <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="vertical-align: middle;">
+        <td style="padding: 0.6rem 0.5rem;">
+          <div style="font-weight: 700; color: var(--heading); font-size: 0.88rem;">{{ node.name }}</div>
+          <div class="node-hostname-cell" style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.2;">{{ node.hostname or 'Henüz bağlanmadı' }}</div>
+          <div class="node-last-seen-cell" style="font-size: 0.68rem; color: var(--text-muted); line-height: 1.2;">{{ node.last_seen_at or '' }}</div>
+        </td>
+        <td style="text-align: center; padding: 0.6rem 0.4rem;">
+          <span class="badge badge-{{ 'running' if node_st == 'online' else 'stopped' }} node-status-badge">{{ node_st|upper }}</span>
+        </td>
+        <td class="node-cpu-cell" style="padding: 0.6rem 0.5rem;">
+          <div class="node-cpu-text" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 2px;">{{ node.cpu_percent or 0.0 }}% <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">({{ node.cpu_total or 0 }}c)</span></div>
+          <div style="width: 55px; background: rgba(128, 128, 128, 0.2); height: 4px; border-radius: 2px; overflow: hidden;">
+            <div class="node-cpu-bar" style="width: {{ [node.cpu_percent or 0, 100]|min }}%; background: #3b82f6; height: 100%;"></div>
+          </div>
+        </td>
+        <td class="node-ram-cell" style="padding: 0.6rem 0.5rem;">
+          <div class="node-ram-text" style="font-size: 0.75rem; font-weight: 600; margin-bottom: 2px;">{{ '%.1f'|format((node.memory_used_mb or 0) / 1024) }}<span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">/{{ '%.1f'|format((node.memory_total_mb or 0) / 1024) }}G</span></div>
+          <div style="width: 55px; background: rgba(128, 128, 128, 0.2); height: 4px; border-radius: 2px; overflow: hidden;">
+            <div class="node-ram-bar" style="width: {{ [(((node.memory_used_mb or 0) / node.memory_total_mb * 100) if node.memory_total_mb else 0), 100]|min }}%; background: #10b981; height: 100%;"></div>
+          </div>
+        </td>
+        <td style="padding: 0.6rem 0.5rem;">
+          <div class="node-disk-cell" style="font-size: 0.75rem; font-weight: 500;">
+            <span>{{ '%.1f'|format((node.disk_used_mb or 0) / 1024) }} GB</span>
+          </div>
+          <div style="margin-top: 2px;">
+            <span class="badge node-container-count" style="background: rgba(128, 128, 128, 0.12); color: var(--text-main); font-size: 0.68rem; padding: 0.05rem 0.35rem;" title="Aktif Container">{{ node.active_containers_count or 0 }} cnt</span>
+          </div>
+        </td>
+        <td class="node-labels-cell" style="padding: 0.6rem 0.4rem;">
+          <div class="node-labels-container" style="display: flex; flex-wrap: wrap; gap: 0.2rem; align-items: center;">
+            {% set labels_dict = node.labels_json|from_json if node.labels_json else {} %}
+            {% for k, v in (labels_dict.items() if labels_dict is mapping else []) %}
+              <span class="badge badge-flavor" style="font-size: 0.65rem; padding: 0.05rem 0.3rem;">{{ k }}={{ v }}</span>
+            {% else %}
+              <span class="no-labels" style="color: var(--text-muted); font-size: 0.75rem;">—</span>
+            {% endfor %}
+            <button type="button" class="btn btn-secondary btn-sm btn-edit-labels" data-node-id="{{ node.id }}" data-labels='{{ node.labels_json or "{}" }}' style="padding: 0.05rem 0.3rem; font-size: 0.7rem;" title="Etiketleri Düzenle">🏷️</button>
+          </div>
+        </td>
+        <td style="text-align: right; padding: 0.6rem 0.4rem;">
+          <div style="display: inline-flex; gap: 0.25rem; align-items: center; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}" style="white-space: nowrap; padding: 0.2rem 0.45rem; font-size: 0.72rem;">{{ 'Drain' if node.schedulable else 'Aç' }}</button>
+            <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token Yenile" style="padding: 0.2rem 0.4rem; font-size: 0.72rem;">🔑</button>
+            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Master'dan OTA Güncelle" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">⚡ Güncelle</button>
+            <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">Sil</button>
+          </div>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </section>
 {% endif %}
 
@@ -572,7 +572,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
 {% endif %}
 
 {% if admin_section == 'workspaces' %}
-<div class="card" style="overflow-x: auto;">
+<section class="card">
   <div class="card-header">
     <div>
       <h2 class="card-title">Tüm Container ve Çalışma Alanları</h2>
