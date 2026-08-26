@@ -160,6 +160,42 @@ async def ensure_download_settings_columns(conn) -> None:
                 raise
 
 
+async def _node_column_names(conn) -> set[str]:
+    return await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("nodes")
+        }
+    )
+
+
+async def ensure_node_columns(conn) -> None:
+    """Add telemetry and metadata columns to existing nodes tables."""
+    try:
+        existing_columns = await _node_column_names(conn)
+    except (OperationalError, ProgrammingError):
+        return
+
+    columns = {
+        "cpu_percent": "FLOAT NOT NULL DEFAULT 0.0",
+        "memory_used_mb": "INTEGER NOT NULL DEFAULT 0",
+        "disk_used_mb": "INTEGER NOT NULL DEFAULT 0",
+        "active_containers_count": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for column_name, definition in columns.items():
+        if column_name in existing_columns:
+            continue
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(f"ALTER TABLE nodes ADD COLUMN {column_name} {definition}")
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _node_column_names(conn)
+            if column_name not in current_columns:
+                raise
+
+
 async def init_db() -> None:
     """Initialize database schemas and create tables."""
     # Ensure models are imported so Base has metadata
@@ -176,3 +212,4 @@ async def init_db() -> None:
         await ensure_user_quota_columns(conn)
         await ensure_workspace_columns(conn)
         await ensure_download_settings_columns(conn)
+        await ensure_node_columns(conn)

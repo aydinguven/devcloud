@@ -295,28 +295,29 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       </thead>
       <tbody id="node-table-body">
       {% for node in nodes %}
+        {% set node_st = node.status.value if node.status.value is defined else node.status %}
         <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}">
           <td><strong>{{ node.name }}</strong></td>
           <td class="node-hostname-cell">{{ node.hostname or 'Henüz bağlanmadı' }}</td>
-          <td><span class="badge badge-{{ 'running' if node.status.value == 'online' else 'stopped' }} node-status-badge">{{ node.status.value }}</span></td>
+          <td><span class="badge badge-{{ 'running' if node_st == 'online' else 'stopped' }} node-status-badge">{{ node_st }}</span></td>
           <td class="node-cpu-cell">
-            <div class="node-cpu-text" style="font-size:0.8rem;margin-bottom:2px;">{{ node.cpu_percent }}% / {{ node.cpu_total }} core</div>
+            <div class="node-cpu-text" style="font-size:0.8rem;margin-bottom:2px;">{{ node.cpu_percent or 0.0 }}% / {{ node.cpu_total or 0 }} core</div>
             <div style="width:85px;background:rgba(255,255,255,0.1);height:6px;border-radius:3px;overflow:hidden;">
-              <div class="node-cpu-bar" style="width:{{ [node.cpu_percent, 100]|min }}%;background:var(--accent,#38bdf8);height:100%;"></div>
+              <div class="node-cpu-bar" style="width:{{ [node.cpu_percent or 0, 100]|min }}%;background:var(--accent,#38bdf8);height:100%;"></div>
             </div>
           </td>
           <td class="node-ram-cell">
-            <div class="node-ram-text" style="font-size:0.8rem;margin-bottom:2px;">{{ '%.1f'|format(node.memory_used_mb / 1024) }} / {{ '%.1f'|format(node.memory_total_mb / 1024) }} GB</div>
+            <div class="node-ram-text" style="font-size:0.8rem;margin-bottom:2px;">{{ '%.1f'|format((node.memory_used_mb or 0) / 1024) }} / {{ '%.1f'|format((node.memory_total_mb or 0) / 1024) }} GB</div>
             <div style="width:85px;background:rgba(255,255,255,0.1);height:6px;border-radius:3px;overflow:hidden;">
-              <div class="node-ram-bar" style="width:{{ [(node.memory_used_mb / node.memory_total_mb * 100) if node.memory_total_mb else 0, 100]|min }}%;background:var(--secondary,#10b981);height:100%;"></div>
+              <div class="node-ram-bar" style="width:{{ [(((node.memory_used_mb or 0) / node.memory_total_mb * 100) if node.memory_total_mb else 0), 100]|min }}%;background:var(--secondary,#10b981);height:100%;"></div>
             </div>
           </td>
-          <td class="node-disk-cell"><span style="font-size:0.8rem;">{{ '%.1f'|format(node.disk_used_mb / 1024) }} / {{ '%.1f'|format(node.disk_total_mb / 1024) }} GB</span></td>
-          <td><span class="badge node-container-count" style="background:rgba(255,255,255,0.15);">{{ node.active_containers_count }}</span></td>
+          <td class="node-disk-cell"><span style="font-size:0.8rem;">{{ '%.1f'|format((node.disk_used_mb or 0) / 1024) }} / {{ '%.1f'|format((node.disk_total_mb or 0) / 1024) }} GB</span></td>
+          <td><span class="badge node-container-count" style="background:rgba(255,255,255,0.15);">{{ node.active_containers_count or 0 }}</span></td>
           <td class="node-labels-cell">
             <div class="node-labels-container" style="display:flex;flex-wrap:wrap;gap:0.25rem;align-items:center;">
               {% set labels_dict = node.labels_json|from_json if node.labels_json else {} %}
-              {% for k, v in labels_dict.items() %}
+              {% for k, v in (labels_dict.items() if labels_dict is mapping else []) %}
                 <span class="badge badge-flavor" style="font-size:0.7rem;padding:0.1rem 0.35rem;">{{ k }}={{ v }}</span>
               {% else %}
                 <span class="no-labels" style="color:var(--text-muted);font-size:0.75rem;">—</span>
