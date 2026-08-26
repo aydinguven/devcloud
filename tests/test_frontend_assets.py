@@ -107,15 +107,16 @@ def test_public_download_page_exposes_worker_bootstrap_command():
 def test_institutional_brand_mark_replaces_text_placeholder():
     template = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
     css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(encoding="utf-8")
-    mark = (PROJECT_ROOT / "app/static/favicon.svg").read_text(encoding="utf-8")
+    logo_svg = (PROJECT_ROOT / "app/static/img/tcmb_ai_factory_logo.svg").read_text(encoding="utf-8")
 
-    assert 'class="logo-mark"' in template
-    assert 'aria-label="DevCloud ana sayfa"' in template
+    assert 'TCMB' in template
+    assert 'AI FACTORY' in template
+    assert 'Yapay Zeka Geliştirme Platformu' in template
+    assert 'Yapay Zekâ' not in template
     assert 'logo-icon" aria-hidden="true">DC' not in template
-    assert ".navbar-brand .logo-mark" in css
-    assert "flex: 0 0 46px" in css
-    assert "background: transparent" in css
-    assert "DevCloud kurumsal amblemi" in mark
-    assert '#d50032' in mark
-    assert '#263244' in mark
-    assert '#d6ca84' in mark
+    assert ".brand-tcmb" in css
+    assert ".brand-ai" in css
+    assert 'TCMB' in logo_svg
+    assert 'AI FACTORY' in logo_svg
+    assert 'Yapay Zeka Geliştirme Platformu' in logo_svg
+    assert 'Yapay Zekâ' not in logo_svg
