@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import json
+import secrets
 from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy import select, func
@@ -22,6 +25,9 @@ from app.download_updates import (
 from app.models.user import User
 from app.models.directory_settings import DirectorySettings
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.node import Node, NodeStatus
+from app.models.mlflow_settings import MlflowSettings
+from app.agents.manager import agent_manager
 from app.orchestrator.podman_service import podman_service
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -30,8 +36,197 @@ from app.schemas.directory import (
     DirectoryTestResult,
 )
 from app.schemas.workspace import WorkspaceOut
+from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate
+from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
+from app.security.secrets import encrypt_secret
+from app.integrations.mlflow import (
+    MlflowClient,
+    MlflowConfigurationError,
+    MlflowConnectionError,
+    config_from_update as mlflow_config_from_update,
+    validate_config as validate_mlflow_config,
+)
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def _mlflow_settings_out(record: MlflowSettings) -> MlflowSettingsOut:
+    return MlflowSettingsOut(
+        enabled=record.enabled,
+        base_url=record.base_url,
+        auth_type=record.auth_type,
+        username=record.username,
+        has_secret=bool(record.encrypted_secret),
+        validate_tls=record.validate_tls,
+        ca_cert_file=record.ca_cert_file,
+        timeout_seconds=record.timeout_seconds,
+    )
+
+
+async def _get_or_create_mlflow_settings(db: AsyncSession) -> MlflowSettings:
+    record = await db.get(MlflowSettings, 1)
+    if record:
+        return record
+    record = MlflowSettings(id=1)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+@admin_router.get("/mlflow-settings", response_model=MlflowSettingsOut)
+async def get_mlflow_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return _mlflow_settings_out(await _get_or_create_mlflow_settings(db))
+
+
+@admin_router.put("/mlflow-settings", response_model=MlflowSettingsOut)
+async def update_mlflow_settings(
+    update: MlflowSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await _get_or_create_mlflow_settings(db)
+    try:
+        candidate = mlflow_config_from_update(update, record)
+        if update.enabled:
+            validate_mlflow_config(candidate)
+    except MlflowConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for field_name, value in update.model_dump(exclude={"secret"}).items():
+        setattr(record, field_name, value)
+    if update.secret:
+        record.encrypted_secret = encrypt_secret(update.secret)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _mlflow_settings_out(record)
+
+
+@admin_router.post("/mlflow-settings/test", response_model=MlflowTestResult)
+async def test_mlflow_settings(
+    update: MlflowSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await _get_or_create_mlflow_settings(db)
+    try:
+        candidate = mlflow_config_from_update(update, record)
+        validate_mlflow_config(candidate)
+        count, elapsed_ms = await MlflowClient(candidate).test()
+    except MlflowConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MlflowConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return MlflowTestResult(
+        success=True,
+        message="MLflow Model Registry bağlantısı başarılı.",
+        response_time_ms=elapsed_ms,
+        model_count=count,
+    )
+
+
+def _node_out(node: Node, enrollment_token: str | None = None):
+    values = dict(
+        id=node.id,
+        name=node.name,
+        hostname=node.hostname,
+        enabled=node.enabled,
+        schedulable=node.schedulable,
+        status=node.status,
+        cpu_total=node.cpu_total,
+        memory_total_mb=node.memory_total_mb,
+        disk_total_mb=node.disk_total_mb,
+        labels=json.loads(node.labels_json or "{}"),
+        capabilities=json.loads(node.capabilities_json or "{}"),
+        agent_version=node.agent_version,
+        last_seen_at=node.last_seen_at,
+        created_at=node.created_at,
+        connected=agent_manager.is_connected(node.id),
+    )
+    if enrollment_token is not None:
+        return NodeCreated(**values, enrollment_token=enrollment_token)
+    return NodeOut(**values)
+
+
+@admin_router.get("/nodes", response_model=list[NodeOut])
+async def list_nodes(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    return [_node_out(node) for node in nodes]
+
+
+@admin_router.post("/nodes", response_model=NodeCreated, status_code=status.HTTP_201_CREATED)
+async def create_node(
+    data: NodeCreate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    existing = (await db.execute(select(Node).where(Node.name == data.name))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Bu isimde bir worker zaten var.")
+    token = secrets.token_urlsafe(32)
+    node = Node(
+        name=data.name,
+        schedulable=data.schedulable,
+        labels_json=json.dumps(data.labels, ensure_ascii=False),
+        agent_token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        status=NodeStatus.PENDING,
+    )
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    return _node_out(node, token)
+
+
+@admin_router.patch("/nodes/{node_id}", response_model=NodeOut)
+async def update_node(
+    node_id: str,
+    data: NodeUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    values = data.model_dump(exclude_unset=True)
+    labels = values.pop("labels", None)
+    for field_name, value in values.items():
+        setattr(node, field_name, value)
+    if labels is not None:
+        node.labels_json = json.dumps(labels, ensure_ascii=False)
+    if not node.schedulable and node.status == NodeStatus.ONLINE:
+        node.status = NodeStatus.DRAINING
+    elif node.schedulable and agent_manager.is_connected(node.id):
+        node.status = NodeStatus.ONLINE
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    if not node.enabled:
+        await agent_manager.disconnect(node.id, "Worker yönetici tarafından devre dışı bırakıldı")
+    return _node_out(node)
+
+
+@admin_router.post("/nodes/{node_id}/rotate-token", response_model=NodeCreated)
+async def rotate_node_token(
+    node_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    token = secrets.token_urlsafe(32)
+    node.agent_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    await agent_manager.disconnect(node.id, "Worker enrollment token'ı yenilendi")
+    return _node_out(node, token)
 
 
 def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:

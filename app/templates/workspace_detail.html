@@ -31,12 +31,14 @@
           ▶ Başlat
         </button>
       {% endif %}
-      <a href="/api/workspaces/{{ workspace.id }}/backup/download" class="btn btn-secondary">
-        💾 Yedek İndir (.zip)
-      </a>
-      <button class="btn btn-secondary" id="btn-open-snapshot-modal">
-        📸 Şablon Yap (Snapshot)
-      </button>
+      {% if not workspace.node_id %}
+        <a href="/api/workspaces/{{ workspace.id }}/backup/download" class="btn btn-secondary">
+          💾 Yedek İndir (.zip)
+        </a>
+        <button class="btn btn-secondary" id="btn-open-snapshot-modal">
+          📸 Şablon Yap (Snapshot)
+        </button>
+      {% endif %}
       <button class="btn btn-danger" data-action="delete" data-workspace-id="{{ workspace.id }}">
         Sil
       </button>
@@ -67,7 +69,7 @@
   <div class="card">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Çalışma Süresi</div>
     <div id="detail-val-uptime" style="font-size: 1.25rem; font-weight: 700; color: #a855f7; margin-top: 0.25rem;">--</div>
-    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Port: {{ workspace.host_port }}</div>
+    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">{{ workspace.node_id or 'local' }} · Port {{ workspace.host_port }}</div>
   </div>
 </div>
 
@@ -188,4 +190,3 @@
   </div>
 </div>
 {% endblock %}
-

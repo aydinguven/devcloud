@@ -113,6 +113,74 @@ sudo bash deploy/deploy_offline.sh</pre>
   </details>
 </div>
 
+<section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--secondary);">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Worker Node'ları</h2>
+      <p class="admin-section-description">Workspace çalıştıracak CPU worker'ları kaydedin ve drain durumlarını yönetin.</p>
+    </div>
+    <span class="admin-section-count">{{ nodes|length }} worker</span>
+  </div>
+  <form id="node-create-form" style="display:flex;gap:.75rem;align-items:end;margin-bottom:1rem;flex-wrap:wrap;">
+    <label class="form-group" style="margin:0;flex:1;min-width:220px;">
+      <span class="form-label">Worker adı</span>
+      <input class="form-input" name="name" placeholder="cpu-worker-01" pattern="^[a-zA-Z0-9_.-]+$" required>
+    </label>
+    <button class="btn btn-primary" type="submit">Worker Ekle</button>
+    <span id="node-create-status" class="quota-form-status" role="status"></span>
+  </form>
+  <div id="node-enrollment-token" class="terminal-window" style="display:none;margin-bottom:1rem;white-space:pre-wrap;"></div>
+  <div style="overflow-x:auto;">
+    <table class="table">
+      <thead><tr><th>Ad</th><th>Host</th><th>Durum</th><th>CPU</th><th>RAM</th><th>Son bağlantı</th><th>Planlama</th></tr></thead>
+      <tbody id="node-table-body">
+      {% for node in nodes %}
+        <tr data-node-id="{{ node.id }}">
+          <td><strong>{{ node.name }}</strong></td>
+          <td>{{ node.hostname or 'Henüz bağlanmadı' }}</td>
+          <td><span class="badge badge-{{ 'running' if node.status.value == 'online' else 'stopped' }}">{{ node.status.value }}</span></td>
+          <td>{{ node.cpu_total }}</td>
+          <td>{{ '%.1f'|format(node.memory_total_mb / 1024) }} GB</td>
+          <td>{{ node.last_seen_at or '—' }}</td>
+          <td><button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}">{{ 'Drain Et' if node.schedulable else 'Planlamaya Aç' }}</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">MLflow Model Registry</h2>
+      <p class="admin-section-description">Model bilgilerini kullanıcıya açmadan master üzerinden MLflow API'ına bağlanın.</p>
+    </div>
+    <span id="mlflow-status-badge" class="badge {% if mlflow_settings and mlflow_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if mlflow_settings and mlflow_settings.enabled else 'Devre Dışı' }}</span>
+  </div>
+  <form id="mlflow-settings-form" autocomplete="off">
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="enabled" {% if mlflow_settings and mlflow_settings.enabled %}checked{% endif %}><span>MLflow görünümünü etkinleştir</span></label>
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="validate_tls" {% if not mlflow_settings or mlflow_settings.validate_tls %}checked{% endif %}><span>TLS sertifikasını doğrula</span></label>
+    </div>
+    <div class="grid grid-cols-3" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;grid-column:span 2;"><span class="form-label">MLflow adresi</span><input class="form-input" name="base_url" value="{{ mlflow_settings.base_url if mlflow_settings else '' }}" placeholder="https://mlflow.example.internal" required></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Authentication</span><select class="form-input" name="auth_type"><option value="none" {% if not mlflow_settings or mlflow_settings.auth_type == 'none' %}selected{% endif %}>Yok</option><option value="basic" {% if mlflow_settings and mlflow_settings.auth_type == 'basic' %}selected{% endif %}>Basic</option><option value="bearer" {% if mlflow_settings and mlflow_settings.auth_type == 'bearer' %}selected{% endif %}>Bearer token</option></select></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Kullanıcı adı</span><input class="form-input" name="username" value="{{ mlflow_settings.username if mlflow_settings else '' }}"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Parola / token</span><input class="form-input" type="password" name="secret" placeholder="{% if mlflow_settings and mlflow_settings.encrypted_secret %}Kayıtlı değeri korumak için boş bırakın{% endif %}" autocomplete="new-password"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Timeout (sn)</span><input class="form-input" type="number" name="timeout_seconds" min="1" max="120" value="{{ mlflow_settings.timeout_seconds if mlflow_settings else 10 }}"></label>
+      <label class="form-group" style="margin:0;grid-column:1/-1;"><span class="form-label">Özel CA sertifika dosyası (master yolu)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_settings.ca_cert_file if mlflow_settings else '' }}"></label>
+    </div>
+    <div style="display:flex;gap:.75rem;align-items:center;">
+      <button id="btn-test-mlflow" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
+      <button id="btn-save-mlflow" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
+      <span id="mlflow-form-status" class="quota-form-status" role="status"></span>
+    </div>
+  </form>
+</section>
+
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid #2563eb;">
   <div class="card-header">
     <div>
@@ -306,6 +374,7 @@ sudo bash deploy/deploy_offline.sh</pre>
         <th>Sahip ID</th>
         <th>Şablon</th>
         <th>Kaynak Profili</th>
+        <th>Worker</th>
         <th>Host Portu</th>
         <th>Durum</th>
         <th>İşlemler</th>
@@ -319,6 +388,7 @@ sudo bash deploy/deploy_offline.sh</pre>
           <td>Kullanıcı #{{ ws.user_id }}</td>
           <td>{{ ws.template_id }}</td>
           <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
+          <td><code>{{ ws.node_id or 'local' }}</code></td>
           <td><code>{{ ws.host_port }}</code></td>
           <td><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
           <td>

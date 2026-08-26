@@ -4,6 +4,10 @@ import pytest
 from httpx import AsyncClient
 
 import app.proxy.router as proxy_module
+from app.agents.manager import AgentStream, StreamChunk
+from app.models.workspace import Workspace
+from sqlalchemy import update
+from tests.conftest import TestingSessionLocal
 
 @pytest.mark.asyncio
 async def test_proxy_auth_guard(client: AsyncClient):
@@ -275,6 +279,7 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
             "Authorization": f"Bearer {token}",
             "Accept-Encoding": "gzip",
             "Origin": "http://test",
+            "Cookie": f"devcloud_session={token}; _xsrf=workspace-xsrf",
         },
     )
 
@@ -291,3 +296,92 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
     assert captured_headers["host"] == "test"
     assert captured_headers["x-forwarded-host"] == "test"
     assert captured_headers["x-forwarded-proto"] == "http"
+    assert captured_headers["cookie"] == "_xsrf=workspace-xsrf"
+    assert token not in captured_headers["cookie"]
+
+
+@pytest.mark.asyncio
+async def test_custom_port_path_is_dispatched_before_catch_all_proxy(client: AsyncClient, monkeypatch):
+    register = await client.post(
+        "/api/auth/register",
+        json={"username": "custom_port_user", "email": "custom-port@test.com", "password": "Password123!"},
+    )
+    token = register.json()["access_token"]
+    workspace = await client.post(
+        "/api/workspaces",
+        json={"name": "Custom Port", "template_id": "vscode-empty", "flavor_id": "t1.nano"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    workspace_id = workspace.json()["id"]
+    captured = {}
+
+    class Upstream:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+        async def aiter_raw(self):
+            yield b'{"ok":true}'
+        async def aclose(self):
+            return None
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            return None
+        def build_request(self, **kwargs):
+            captured.update(kwargs)
+            return object()
+        async def send(self, request, stream=False):
+            return Upstream()
+        async def aclose(self):
+            return None
+
+    async def container_ip(_name):
+        return "10.88.0.42"
+
+    monkeypatch.setattr(proxy_module.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(proxy_module.podman_service, "get_container_ip", container_ip)
+    response = await client.get(
+        f"/proxy/{workspace_id}/port/5173/api/health?verbose=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert captured["url"] == "http://10.88.0.42:5173/api/health?verbose=1"
+
+
+@pytest.mark.asyncio
+async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(client: AsyncClient, monkeypatch):
+    register = await client.post(
+        "/api/auth/register",
+        json={"username": "remote_proxy_user", "email": "remote-proxy@test.com", "password": "Password123!"},
+    )
+    token = register.json()["access_token"]
+    workspace = await client.post(
+        "/api/workspaces",
+        json={"name": "Remote Port", "template_id": "vscode-empty", "flavor_id": "t1.nano"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    workspace_id = workspace.json()["id"]
+    async with TestingSessionLocal() as session:
+        await session.execute(update(Workspace).where(Workspace.id == workspace_id).values(node_id="remote-node"))
+        await session.commit()
+
+    captured = {}
+
+    class Connection:
+        async def open_stream(self, action, payload):
+            captured["action"] = action
+            captured["payload"] = payload
+            stream = AgentStream("stream-1")
+            await stream.queue.put(StreamChunk(b"remote-ok"))
+            await stream.queue.put(None)
+            return {"status_code": 200, "headers": [["content-type", "text/plain"]]}, stream
+
+    monkeypatch.setattr(proxy_module.agent_manager, "get", lambda node_id: Connection())
+    response = await client.get(
+        f"/proxy/{workspace_id}/port/3000/health",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.text == "remote-ok"
+    assert captured["action"] == "proxy.http.open"
+    assert captured["payload"]["custom_port"] == 3000
+    assert captured["payload"]["path"] == "/health"

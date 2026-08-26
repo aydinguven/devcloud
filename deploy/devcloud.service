@@ -6,7 +6,9 @@ After=network.target
 Type=simple
 User={{USER}}
 WorkingDirectory={{PROJECT_DIR}}
-ExecStart={{PROJECT_DIR}}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --timeout-graceful-shutdown 1
+# Agent tunnels live in-process; keep a single async master process until the
+# tunnel registry is moved to an external broker.
+ExecStart={{PROJECT_DIR}}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 10
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3

@@ -12,10 +12,13 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.directory_settings import DirectorySettings
+from app.models.mlflow_settings import MlflowSettings
+from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
-from app.orchestrator.podman_service import podman_service
+from app.orchestrator.runtime_backend import runtime_for_node
+from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_system_usage, get_user_usage
 from app.schemas.workspace import WorkspaceOut
 
@@ -101,7 +104,10 @@ async def dashboard_page(
     status_changed = False
     for ws in workspaces:
         if ws.status == WorkspaceStatus.CREATING and ws.container_name:
-            actual_status = await podman_service.get_container_status(ws.container_name)
+            try:
+                actual_status = await runtime_for_node(ws.node_id).get_container_status(ws.container_name)
+            except AgentUnavailable:
+                continue
             if actual_status == "running":
                 ws.status = WorkspaceStatus.RUNNING
                 db.add(ws)
@@ -175,7 +181,10 @@ async def workspace_detail_page(
 
     # Reconcile status with Podman if needed
     if workspace.container_name:
-        actual_status = await podman_service.get_container_status(workspace.container_name)
+        try:
+            actual_status = await runtime_for_node(workspace.node_id).get_container_status(workspace.container_name)
+        except AgentUnavailable:
+            actual_status = "worker-offline"
         if actual_status == "running" and workspace.status != WorkspaceStatus.RUNNING:
             workspace.status = WorkspaceStatus.RUNNING
             db.add(workspace)
@@ -215,6 +224,47 @@ async def profile_page(
     )
 
 
+@view_router.get("/models", response_class=HTMLResponse)
+async def models_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    mlflow_settings = await db.get(MlflowSettings, 1)
+    return templates.TemplateResponse(
+        request=request,
+        name="models.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+            "mlflow_base_url": mlflow_settings.base_url if mlflow_settings else "",
+        },
+    )
+
+
+@view_router.get("/models/{model_name}", response_class=HTMLResponse)
+async def model_detail_page(
+    model_name: str,
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="model_detail.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "model_name": model_name,
+        },
+    )
+
+
 @view_router.get("/admin", response_class=HTMLResponse)
 async def admin_page(
     request: Request,
@@ -235,6 +285,8 @@ async def admin_page(
         get_all_user_usage, users, workspaces
     )
     directory_settings = await db.get(DirectorySettings, 1)
+    mlflow_settings = await db.get(MlflowSettings, 1)
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
 
     return templates.TemplateResponse(
         request=request,
@@ -246,5 +298,7 @@ async def admin_page(
             "all_workspaces": workspaces,
             "usage_by_user": usage_by_user,
             "directory_settings": directory_settings,
+            "mlflow_settings": mlflow_settings,
+            "nodes": nodes,
         },
     )

@@ -75,3 +75,11 @@ async def test_admin_access_controls(client: AsyncClient):
     assert "Kurumsal Dizin (LDAPS / Active Directory)" in admin_page.text
     assert 'id="directory-settings-form"' in admin_page.text
     assert 'value="ldaps.tcmb.gov.tr"' in admin_page.text
+    assert "Worker Node'ları" in admin_page.text
+    assert 'id="node-create-form"' in admin_page.text
+    assert "MLflow Model Registry" in admin_page.text
+    assert 'id="mlflow-settings-form"' in admin_page.text
+
+    models_page = await client.get("/models", headers=admin_headers)
+    assert models_page.status_code == 200
+    assert "MLflow henüz etkin değil" in models_page.text

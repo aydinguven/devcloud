@@ -1,13 +1,10 @@
 import asyncio
-import base64
-import hashlib
 import logging
 import secrets
 import ssl
 import time
 from dataclasses import dataclass
 
-from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +15,7 @@ from app.models.directory_settings import DirectorySettings
 from app.models.user import User, UserRole
 from app.schemas.directory import DirectorySettingsUpdate
 from app.schemas.user import UserCreate
+from app.security.secrets import SecretDecryptionError, decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("devcloud.auth.ldap")
 
@@ -61,23 +59,14 @@ class DirectoryIdentity:
     is_admin: bool
 
 
-def _secret_cipher() -> Fernet:
-    digest = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
-    return Fernet(base64.urlsafe_b64encode(digest))
-
-
 def encrypt_directory_secret(secret: str) -> str:
-    if not secret:
-        return ""
-    return _secret_cipher().encrypt(secret.encode("utf-8")).decode("ascii")
+    return encrypt_secret(secret)
 
 
 def decrypt_directory_secret(token: str) -> str:
-    if not token:
-        return ""
     try:
-        return _secret_cipher().decrypt(token.encode("ascii")).decode("utf-8")
-    except (InvalidToken, ValueError) as exc:
+        return decrypt_secret(token)
+    except SecretDecryptionError as exc:
         raise DirectoryConfigurationError(
             "Kayıtlı bind parolası çözülemedi. Parolayı yeniden kaydedin."
         ) from exc

@@ -4,19 +4,22 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.auth.internal import hash_password
 from app.config import settings
 from app.database import init_db, AsyncSessionLocal
 from app.models.user import User, UserRole
+from app.models.node import Node, NodeStatus
 from app.orchestrator.podman_service import podman_service
 from app.proxy.router import proxy_router
 from app.routes.admin_routes import admin_router
+from app.routes.agent_routes import agent_router
 from app.routes.auth_routes import auth_router
 from app.routes.download_routes import download_router
 from app.routes.view_routes import view_router
 from app.routes.workspace_routes import workspace_router
+from app.routes.mlflow_routes import mlflow_router
 
 # Setup logging
 logging.basicConfig(
@@ -48,6 +51,13 @@ async def seed_initial_admin():
             await db.commit()
 
 
+async def mark_workers_offline_on_startup():
+    """A persisted online state is stale until a worker reconnects to this process."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(update(Node).values(status=NodeStatus.OFFLINE))
+        await db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
@@ -56,6 +66,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Initializing DevCloud Database...")
     await init_db()
+    await mark_workers_offline_on_startup()
     await seed_initial_admin()
     logger.info(
         f"DevCloud ready. Podman mode: {'MOCK' if podman_service.is_mock else 'NATIVE'}"
@@ -99,6 +110,8 @@ app.include_router(auth_router)
 app.include_router(workspace_router)
 app.include_router(file_router)
 app.include_router(admin_router)
+app.include_router(agent_router)
+app.include_router(mlflow_router)
 app.include_router(proxy_router)
 app.include_router(download_router)
 app.include_router(view_router)

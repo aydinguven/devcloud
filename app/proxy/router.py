@@ -1,7 +1,10 @@
 import asyncio
+import base64
 import logging
 from html import escape
+from http.cookies import SimpleCookie
 from typing import Annotated
+from urllib.parse import parse_qsl, urlencode
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 import httpx
@@ -9,11 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import websockets
 
-from app.auth.dependencies import get_current_user_optional, get_token_from_request
+from app.auth.dependencies import get_current_user_optional
+from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
+from app.orchestrator.runtime_backend import runtime_for_node
+from app.agents.manager import AgentCommandError, AgentUnavailable, agent_manager
 
 logger = logging.getLogger("devcloud.proxy")
 proxy_router = APIRouter(prefix="/proxy", tags=["Proxy"])
@@ -223,6 +229,147 @@ async def port_is_ready(host_port: int) -> bool:
     return True
 
 
+def _forward_headers(request: Request, workspace: Workspace, custom_port: int | None = None) -> dict[str, str]:
+    excluded = {"host", "content-length", "connection", "authorization", "cookie"}
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in excluded}
+    incoming_cookie = request.headers.get("cookie", "")
+    if incoming_cookie:
+        parsed = SimpleCookie()
+        parsed.load(incoming_cookie)
+        parsed.pop(settings.COOKIE_NAME, None)
+        if parsed:
+            headers["Cookie"] = "; ".join(
+                f"{name}={morsel.value}" for name, morsel in parsed.items()
+            )
+    if custom_port is None and "jupyter" in workspace.template_id:
+        public_host = request.headers.get("host")
+        if public_host:
+            headers["Host"] = public_host
+            headers["X-Forwarded-Host"] = public_host
+        headers["X-Forwarded-Proto"] = request.url.scheme
+        headers["Authorization"] = f"token {workspace.workspace_token}"
+    return headers
+
+
+def _workspace_websocket_query(websocket: WebSocket) -> str:
+    """Do not forward the DevCloud query-token credential into the container."""
+    raw = websocket.scope.get("query_string", b"").decode()
+    return urlencode([(key, value) for key, value in parse_qsl(raw, keep_blank_values=True) if key != "token"])
+
+
+async def proxy_remote_http(
+    workspace: Workspace,
+    request: Request,
+    path: str,
+    custom_port: int | None = None,
+):
+    """Stream an HTTP request through the worker-initiated tunnel."""
+    if not workspace.node_id:
+        raise RuntimeError("Remote proxy için node_id gereklidir.")
+    connection = agent_manager.get(workspace.node_id)
+    payload = {
+        "workspace_id": workspace.id,
+        "container_name": workspace.container_name,
+        "host_port": workspace.host_port,
+        "custom_port": custom_port,
+        "method": request.method,
+        "path": path,
+        "query": request.url.query,
+        "headers": _forward_headers(request, workspace, custom_port),
+        "body": base64.b64encode(await request.body()).decode("ascii"),
+    }
+    try:
+        metadata, stream = await connection.open_stream("proxy.http.open", payload)
+    except (AgentUnavailable, AgentCommandError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    header_pairs = metadata.get("headers") or []
+    response_headers: dict[str, str] = {}
+    set_cookies: list[str] = []
+    for key, value in header_pairs:
+        lower = key.lower()
+        if lower == "set-cookie":
+            set_cookies.append(value)
+        elif lower not in {"transfer-encoding", "content-length", "connection"}:
+            response_headers[key] = value
+
+    async def response_stream():
+        while True:
+            item = await stream.queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item.data
+
+    response = StreamingResponse(
+        response_stream(),
+        status_code=int(metadata.get("status_code", 502)),
+        headers=response_headers,
+        media_type=response_headers.get("content-type"),
+    )
+    for cookie in set_cookies:
+        response.raw_headers.append((b"set-cookie", cookie.encode("latin-1")))
+    return response
+
+
+async def proxy_remote_websocket(
+    websocket: WebSocket,
+    workspace: Workspace,
+    path: str,
+    custom_port: int | None = None,
+) -> None:
+    if not workspace.node_id:
+        raise RuntimeError("Remote proxy için node_id gereklidir.")
+    connection = agent_manager.get(workspace.node_id)
+    headers = {}
+    if custom_port is None and "jupyter" in workspace.template_id:
+        headers["Authorization"] = f"token {workspace.workspace_token}"
+    metadata, stream = await connection.open_stream(
+        "proxy.websocket.open",
+        {
+            "workspace_id": workspace.id,
+            "container_name": workspace.container_name,
+            "host_port": workspace.host_port,
+            "custom_port": custom_port,
+            "path": path,
+            "query": _workspace_websocket_query(websocket),
+            "headers": headers,
+        },
+    )
+    if not metadata.get("connected"):
+        raise AgentCommandError("Worker WebSocket hedefine bağlanamadı.")
+
+    async def forward_to_worker():
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("text") is not None:
+                    await connection.send_stream_data(
+                        stream.id, message["text"].encode("utf-8"), text=True
+                    )
+                elif message.get("bytes") is not None:
+                    await connection.send_stream_data(stream.id, message["bytes"])
+                elif message.get("type") == "websocket.disconnect":
+                    break
+        finally:
+            await connection.close_stream(stream.id)
+
+    async def forward_to_client():
+        while True:
+            item = await stream.queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            if item.is_text:
+                await websocket.send_text(item.data.decode("utf-8"))
+            else:
+                await websocket.send_bytes(item.data)
+
+    await asyncio.gather(forward_to_worker(), forward_to_client(), return_exceptions=True)
+
+
 @proxy_router.get("/{workspace_id}/_devcloud/status")
 async def proxy_workspace_status(
     workspace_id: str,
@@ -240,11 +387,15 @@ async def proxy_workspace_status(
     )
     response.headers["Cache-Control"] = "no-store"
     safe_tail = max(20, min(tail, 200))
-    container_status, ready, logs = await asyncio.gather(
-        podman_service.get_container_status(workspace.container_name),
-        port_is_ready(workspace.host_port),
-        podman_service.get_logs(workspace.container_name, tail=safe_tail),
-    )
+    runtime = runtime_for_node(workspace.node_id)
+    try:
+        container_status, ready, logs = await asyncio.gather(
+            runtime.get_container_status(workspace.container_name),
+            runtime.port_ready(workspace.container_name, workspace.host_port),
+            runtime.get_logs(workspace.container_name, tail=safe_tail),
+        )
+    except AgentUnavailable:
+        container_status, ready, logs = "worker-offline", False, "Worker tunnel bağlantısı yok."
     return {
         "workspace_id": workspace.id,
         "workspace_status": workspace.status.value,
@@ -272,19 +423,26 @@ async def proxy_http_request(
 ):
     """Proxy HTTP requests to the target container's local port."""
     workspace = await get_authorized_workspace(workspace_id, db, current_user)
+    custom_parts = path.split("/", 2)
+    if len(custom_parts) >= 2 and custom_parts[0] == "port" and custom_parts[1].isdigit():
+        return await proxy_custom_port_http(
+            workspace_id=workspace_id,
+            port=int(custom_parts[1]),
+            request=request,
+            db=db,
+            current_user=current_user,
+            path=custom_parts[2] if len(custom_parts) == 3 else "",
+        )
     upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
+    if workspace.node_id:
+        return await proxy_remote_http(workspace, request, upstream_path)
     target_url = f"http://127.0.0.1:{workspace.host_port}{upstream_path}"
     
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
 
     # Filter headers to pass through
-    excluded_headers = {"host", "content-length"}
-    headers = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() not in excluded_headers
-    }
+    headers = _forward_headers(request, workspace)
     if "jupyter" in workspace.template_id:
         # Keep Jupyter's same-origin check intact. The TCP hop is loopback, but
         # Origin must be compared with the browser-facing Host rather than the
@@ -296,8 +454,6 @@ async def proxy_http_request(
         else:
             headers["Host"] = f"127.0.0.1:{workspace.host_port}"
         headers["X-Forwarded-Proto"] = request.url.scheme
-        # Authenticate only the trusted loopback hop; never expose this token.
-        headers["Authorization"] = f"token {workspace.workspace_token}"
     else:
         headers["Host"] = f"127.0.0.1:{workspace.host_port}"
 
@@ -394,7 +550,7 @@ async def proxy_websocket(
     await websocket.accept()
 
     # Extract auth token from query params or cookies
-    token = websocket.query_params.get("token") or websocket.cookies.get("devcloud_session")
+    token = websocket.query_params.get("token") or websocket.cookies.get(settings.COOKIE_NAME)
     from app.auth.internal import decode_access_token
     payload = decode_access_token(token) if token else None
     user_id = payload.get("user_id") if payload else None
@@ -411,13 +567,47 @@ async def proxy_websocket(
         await websocket.close(code=4003, reason=str(e.detail))
         return
 
-    upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
-    target_ws_url = f"ws://127.0.0.1:{workspace.host_port}{upstream_path}"
-    if websocket.scope.get("query_string"):
-        target_ws_url += f"?{websocket.scope['query_string'].decode()}"
+    custom_port = None
+    custom_parts = path.split("/", 2)
+    if len(custom_parts) >= 2 and custom_parts[0] == "port" and custom_parts[1].isdigit():
+        custom_port = int(custom_parts[1])
+        upstream_path = "/" + (custom_parts[2] if len(custom_parts) == 3 else "")
+    else:
+        upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
+
+    if workspace.node_id:
+        try:
+            await proxy_remote_websocket(
+                websocket,
+                workspace,
+                upstream_path,
+                custom_port=custom_port,
+            )
+        except Exception as exc:
+            logger.warning("Remote WebSocket proxy closed: %s", exc)
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+        return
+
+    target_host = "127.0.0.1"
+    target_port = workspace.host_port
+    if custom_port is not None:
+        container_ip = await podman_service.get_container_ip(workspace.container_name)
+        if not container_ip:
+            await websocket.close(code=1011, reason="Container IP adresi bulunamadı")
+            return
+        target_host = container_ip
+        target_port = custom_port
+    target_ws_url = f"ws://{target_host}:{target_port}{upstream_path}"
+    forwarded_query = _workspace_websocket_query(websocket)
+    if forwarded_query:
+        target_ws_url += f"?{forwarded_query}"
 
     additional_headers = None
-    if "jupyter" in workspace.template_id:
+    if custom_port is None and "jupyter" in workspace.template_id:
         additional_headers = {"Authorization": f"token {workspace.workspace_token}"}
 
     try:
@@ -479,10 +669,18 @@ async def proxy_custom_port_http(
     """Proxy HTTP traffic to a custom secondary port running inside the container (e.g. 5173, 5000, 3000)."""
     workspace = await get_authorized_workspace(workspace_id, db, current_user)
 
+    subpath = f"/{path.lstrip('/')}"
+    if workspace.node_id:
+        return await proxy_remote_http(
+            workspace,
+            request,
+            subpath,
+            custom_port=port,
+        )
+
     container_ip = await podman_service.get_container_ip(workspace.container_name)
     target_host = container_ip if container_ip else "127.0.0.1"
 
-    subpath = f"/{path.lstrip('/')}"
     target_url = f"http://{target_host}:{port}{subpath}"
     if request.url.query:
         target_url += f"?{request.url.query}"
@@ -531,4 +729,3 @@ async def proxy_custom_port_http(
     except Exception as exc:
         await client.aclose()
         raise HTTPException(status_code=500, detail=f"Custom port proxy error: {str(exc)}")
-

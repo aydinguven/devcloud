@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ model_name }} - MLflow{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">MLflow Model Registry</span>
+    <h1>{{ model_name }}</h1>
+    <p><a href="/models">← Model listesine dön</a></p>
+  </div>
+</div>
+<section id="model-detail" class="card" data-model-name="{{ model_name }}">
+  <div id="model-detail-status" role="status">Model ayrıntıları yükleniyor...</div>
+  <div id="model-detail-content" hidden>
+    <p id="model-description"></p>
+    <div id="model-tags" style="display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1rem;"></div>
+    <div style="overflow-x:auto;">
+      <table class="table">
+        <thead><tr><th>Versiyon</th><th>Alias</th><th>Durum</th><th>Run ID</th><th>Kaynak</th><th>Oluşturulma</th></tr></thead>
+        <tbody id="model-versions"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const root = document.getElementById("model-detail");
+  const status = document.getElementById("model-detail-status");
+  const content = document.getElementById("model-detail-content");
+  const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]);
+  fetch(`/api/mlflow/models/${encodeURIComponent(root.dataset.modelName)}`, {cache:"no-store"})
+    .then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `Model yüklenemedi (${response.status})`);
+      document.getElementById("model-description").textContent = data.description || "Açıklama girilmemiş.";
+      document.getElementById("model-tags").innerHTML = Object.entries(data.tags_map || {}).map(([key, value]) => `<span class="badge badge-neutral">${escapeHtml(key)}: ${escapeHtml(value)}</span>`).join("");
+      document.getElementById("model-versions").innerHTML = (data.versions || []).map(version => {
+        const aliases = (version.aliases || []).map(escapeHtml).join(", ") || "—";
+        const created = version.creation_timestamp ? new Date(Number(version.creation_timestamp)).toLocaleString("tr-TR") : "—";
+        return `<tr><td><strong>v${escapeHtml(version.version)}</strong></td><td>${aliases}</td><td>${escapeHtml(version.status || "—")}</td><td><code>${escapeHtml(version.run_id || "—")}</code></td><td><code>${escapeHtml(version.source || "—")}</code></td><td>${created}</td></tr>`;
+      }).join("");
+      status.textContent = "";
+      content.hidden = false;
+    })
+    .catch(error => { status.textContent = error.message; status.className = "text-destructive"; });
+})();
+</script>
+{% endblock %}
+

@@ -175,6 +175,8 @@ a:hover { color: var(--primary); }
   text-decoration: none;
 }
 .nav-link-admin { color: #75691f; }
+.text-muted { color: var(--text-muted); }
+.text-destructive { color: var(--danger); }
 
 /* Page structure */
 .container {

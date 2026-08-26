@@ -31,26 +31,33 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
+- **Outbound-Only CPU Workers**: Schedule workspaces across worker nodes without opening inbound worker or container ports.
+- **MLflow Registry View**: Configure a server-side, read-only MLflow API connection and browse registered models, versions, aliases, and tags.
 
 ---
 
 ## Architecture Overview
 
 ```
-User Browser
-    │
-    ▼ (HTTP / WebSockets)
-FastAPI Web App & Reverse Proxy (:8000)
-    ├── Auth Engine (JWT / Session Cookies)
-    ├── SQLite / PostgreSQL Database
-    └── Podman Orchestrator
-            │
-            ├── vscode-empty container    <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
-            ├── vscode-python container   <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
-            ├── vscode-react container    <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
-            ├── jupyter-python container  <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
-            └── vscode-java container     <── Mount: /var/lib/devcloud/workspaces/{uid}/{wsid}
+User Browser ── HTTPS/WSS :443 ──> DevCloud Master
+                                      ├── UI / API / LDAP
+                                      ├── Scheduler / Database
+                                      ├── Workspace Port Proxy
+                                      └── MLflow API Connector
+                                                ▲
+                                                │ outbound WSS :443
+                           ┌────────────────────┴────────────────────┐
+                           │                                         │
+                    CPU Worker 01                            CPU Worker 02
+                    ├── Worker Agent                         ├── Worker Agent
+                    ├── Podman                               ├── Podman
+                    └── Local workspace storage              └── Local workspace storage
 ```
+
+Worker hosts expose no workspace ports. The master keeps the public proxy URL,
+authenticates each request, resolves the assigned node, and carries HTTP and
+WebSocket streams over the worker-initiated tunnel. A legacy single-host mode
+remains available when no workers have been registered.
 
 ---
 
@@ -110,6 +117,7 @@ bind and user search before enabling directory login.
 
 For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CLOUDFLARE.md).
 For Rocky/RHEL enforcing mode, follow [the SELinux deployment guide](SELINUX.md).
+For the master plus CPU-worker topology, follow [the worker deployment guide](WORKERS.md).
 
 ### 1. Automated Deployment Script
 We provide an automated setup script that installs Podman, configures permissions, builds workspace container images, and sets up a systemd service:

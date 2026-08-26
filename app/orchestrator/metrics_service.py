@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from app.orchestrator.podman_service import podman_service
+from app.orchestrator.runtime_backend import runtime_for_node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.time_utils import ensure_utc
 
@@ -39,8 +39,11 @@ def format_bytes_human(num_bytes: int) -> str:
 async def get_workspace_live_metrics(workspace: Workspace) -> dict:
     """Gather live CPU %, memory, disk usage, and uptime for a single workspace."""
     disk_bytes = 0
+    runtime = runtime_for_node(workspace.node_id)
     if workspace.storage_path:
-        disk_bytes = get_dir_size_bytes(workspace.storage_path)
+        disk_bytes = await runtime.get_storage_size(
+            workspace.container_name, workspace.storage_path
+        )
 
     uptime_seconds = 0
     uptime_display = "Stopped"
@@ -67,7 +70,7 @@ async def get_workspace_live_metrics(workspace: Workspace) -> dict:
     }
 
     if workspace.status == WorkspaceStatus.RUNNING and workspace.container_name:
-        stats = await podman_service.get_container_stats(workspace.container_name)
+        stats = await runtime.get_container_stats(workspace.container_name)
 
     return {
         "workspace_id": workspace.id,

@@ -36,6 +36,7 @@ class WorkspaceOut(BaseModel):
     name: str
     description: str
     user_id: int
+    node_id: str | None = None
     template_id: str
     flavor_id: str
     container_name: str

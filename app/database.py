@@ -99,6 +99,24 @@ async def ensure_workspace_columns(conn) -> None:
                 )
         except (OperationalError, ProgrammingError):
             pass
+    if "node_id" not in existing_columns:
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text("ALTER TABLE workspaces ADD COLUMN node_id VARCHAR(36)")
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _workspace_column_names(conn)
+            if "node_id" not in current_columns:
+                raise
+    try:
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_workspaces_node_id ON workspaces (node_id)")
+        )
+    except (OperationalError, ProgrammingError):
+        # Some managed databases use a different idempotent-index syntax; the
+        # column remains functional and a real migration can add the index.
+        pass
 
 
 async def init_db() -> None:
@@ -108,6 +126,8 @@ async def init_db() -> None:
     from app.models.workspace import Workspace  # noqa: F401
     from app.models.custom_template import CustomTemplate  # noqa: F401
     from app.models.directory_settings import DirectorySettings  # noqa: F401
+    from app.models.node import Node  # noqa: F401
+    from app.models.mlflow_settings import MlflowSettings  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

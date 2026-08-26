@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initLogPolling();
   initQuotaForms();
   initDirectorySettings();
+  initNodeManagement();
+  initMlflowSettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
   initWorkspaceTabs();
@@ -442,6 +444,131 @@ function initDirectorySettings() {
     } finally {
       testButton.disabled = false;
       saveButton.disabled = false;
+    }
+  });
+}
+
+function initNodeManagement() {
+  const form = document.getElementById("node-create-form");
+  if (!form) return;
+  const status = document.getElementById("node-create-status");
+  const tokenBox = document.getElementById("node-enrollment-token");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    status.textContent = "Worker kaydediliyor...";
+    try {
+      const response = await fetch("/api/admin/nodes", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({name: form.elements.name.value.trim(), schedulable: true, labels: {}}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
+      tokenBox.style.display = "block";
+      tokenBox.textContent = `Worker: ${data.name}\nNode ID: ${data.id}\nEnrollment token (yalnızca şimdi gösterilir):\n${data.enrollment_token}\n\nDEVCLOUD_MASTER_URL=https://<master-host>\nDEVCLOUD_NODE_ID=${data.id}\nDEVCLOUD_NODE_TOKEN=${data.enrollment_token}`;
+      status.textContent = "Worker kaydedildi. Token'ı worker yapılandırmasına ekleyin.";
+      status.className = "quota-form-status quota-status-success";
+      form.reset();
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.querySelectorAll(".node-toggle-schedule").forEach(button => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const schedulable = button.dataset.schedulable === "true";
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/nodes/${row.dataset.nodeId}`, {
+          method: "PATCH",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({schedulable: !schedulable}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Worker güncellenemedi.");
+        window.location.reload();
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "quota-form-status quota-status-error";
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+function initMlflowSettings() {
+  const form = document.getElementById("mlflow-settings-form");
+  if (!form) return;
+  const testButton = document.getElementById("btn-test-mlflow");
+  const saveButton = document.getElementById("btn-save-mlflow");
+  const status = document.getElementById("mlflow-form-status");
+  const badge = document.getElementById("mlflow-status-badge");
+
+  function payload() {
+    const data = new FormData(form);
+    return {
+      enabled: form.elements.enabled.checked,
+      base_url: String(data.get("base_url") || "").trim(),
+      auth_type: String(data.get("auth_type") || "none"),
+      username: String(data.get("username") || "").trim(),
+      secret: String(data.get("secret") || "") || null,
+      validate_tls: form.elements.validate_tls.checked,
+      ca_cert_file: String(data.get("ca_cert_file") || "").trim(),
+      timeout_seconds: Number(data.get("timeout_seconds") || 10),
+    };
+  }
+
+  async function send(url, method) {
+    const response = await fetch(url, {
+      method,
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload()),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || `MLflow işlemi başarısız (${response.status})`);
+    return data;
+  }
+
+  testButton.addEventListener("click", async () => {
+    testButton.disabled = saveButton.disabled = true;
+    status.textContent = "MLflow bağlantısı test ediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const result = await send("/api/admin/mlflow-settings/test", "POST");
+      status.textContent = `${result.message} ${result.response_time_ms} ms`;
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      testButton.disabled = saveButton.disabled = false;
+    }
+  });
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    testButton.disabled = saveButton.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    try {
+      const result = await send("/api/admin/mlflow-settings", "PUT");
+      form.elements.secret.value = "";
+      form.elements.secret.placeholder = "Kayıtlı değeri korumak için boş bırakın";
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      status.textContent = "MLflow ayarları kaydedildi.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      testButton.disabled = saveButton.disabled = false;
     }
   });
 }

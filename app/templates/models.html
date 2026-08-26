@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}ML Modelleri - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">MLflow Model Registry</span>
+    <h1>ML Modelleri</h1>
+    <p>Kayıtlı modelleri, son versiyonlarını ve yayın alias'larını görüntüleyin.</p>
+  </div>
+</div>
+
+{% if not mlflow_enabled %}
+<section class="card">
+  <h2 class="card-title">MLflow henüz etkin değil</h2>
+  <p class="text-muted">Bir yönetici, Yönetim Paneli üzerinden MLflow API bağlantısını yapılandırmalıdır.</p>
+</section>
+{% else %}
+<section class="card" style="margin-bottom: 1rem;">
+  <form id="mlflow-search-form" style="display: flex; gap: 0.75rem; align-items: end;">
+    <label class="form-group" style="margin: 0; flex: 1;">
+      <span class="form-label">Model ara</span>
+      <input id="mlflow-search" class="form-input" type="search" placeholder="Model adı">
+    </label>
+    <button class="btn btn-primary" type="submit">Ara</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title">Kayıtlı Modeller</h2>
+    <span id="mlflow-model-count" class="badge badge-neutral">Yükleniyor</span>
+  </div>
+  <div id="mlflow-model-status" role="status" aria-live="polite">MLflow modelleri yükleniyor...</div>
+  <div id="mlflow-model-list" class="admin-user-list" hidden></div>
+  <button id="mlflow-load-more" class="btn btn-secondary" type="button" hidden style="margin-top: 1rem;">Daha fazla yükle</button>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if mlflow_enabled %}
+<script>
+(() => {
+  const list = document.getElementById("mlflow-model-list");
+  const status = document.getElementById("mlflow-model-status");
+  const count = document.getElementById("mlflow-model-count");
+  const more = document.getElementById("mlflow-load-more");
+  const search = document.getElementById("mlflow-search");
+  let nextToken = "";
+  let total = 0;
+
+  const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]);
+  const modelCard = (model) => {
+    const latest = model.latest_version || {};
+    const aliases = (model.aliases_list || []).map(alias => `<span class="badge badge-running">${escapeHtml(alias)}</span>`).join(" ");
+    const version = latest.version ? `v${escapeHtml(latest.version)}` : "Versiyon yok";
+    return `<article class="admin-user-card" style="grid-template-columns: minmax(0, 1fr) auto;">
+      <div>
+        <a href="/models/${encodeURIComponent(model.name)}" class="admin-user-name">${escapeHtml(model.name)}</a>
+        <p class="admin-section-description">${escapeHtml(model.description || "Açıklama girilmemiş")}</p>
+        <div style="display:flex;gap:.35rem;flex-wrap:wrap;">${aliases}</div>
+      </div>
+      <div style="text-align:right;"><strong>${version}</strong><br><span class="text-muted">${escapeHtml(latest.status || "")}</span></div>
+    </article>`;
+  };
+
+  async function load(append = false) {
+    status.textContent = "MLflow modelleri yükleniyor...";
+    const params = new URLSearchParams();
+    if (search.value.trim()) params.set("search", search.value.trim());
+    if (append && nextToken) params.set("page_token", nextToken);
+    const response = await fetch(`/api/mlflow/models?${params}`, {cache: "no-store"});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || `MLflow isteği başarısız (${response.status})`);
+    if (!append) { list.innerHTML = ""; total = 0; }
+    list.insertAdjacentHTML("beforeend", data.models.map(modelCard).join(""));
+    total += data.models.length;
+    nextToken = data.next_page_token || "";
+    count.textContent = `${total} model`;
+    list.hidden = total === 0;
+    status.textContent = total ? "" : "Kayıtlı model bulunamadı.";
+    more.hidden = !nextToken;
+  }
+
+  document.getElementById("mlflow-search-form").addEventListener("submit", event => { event.preventDefault(); load().catch(showError); });
+  more.addEventListener("click", () => load(true).catch(showError));
+  function showError(error) { status.textContent = error.message; status.className = "text-destructive"; }
+  load().catch(showError);
+})();
+</script>
+{% endif %}
+{% endblock %}
+

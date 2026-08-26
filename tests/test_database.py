@@ -5,7 +5,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
-from app.database import ensure_user_quota_columns
+from app.database import ensure_user_quota_columns, ensure_workspace_columns
 
 
 @pytest.mark.asyncio
@@ -56,3 +56,19 @@ async def test_existing_users_table_receives_quota_columns(tmp_path):
         settings.DEFAULT_USER_MEMORY_MB_QUOTA,
         settings.DEFAULT_USER_DISK_MB_QUOTA,
     )
+
+
+@pytest.mark.asyncio
+async def test_existing_workspaces_table_receives_node_id_column(tmp_path):
+    database_path = (tmp_path / "legacy-workspaces.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE TABLE workspaces (id VARCHAR(36) PRIMARY KEY)"))
+            await ensure_workspace_columns(conn)
+            columns = await conn.run_sync(
+                lambda sync_conn: {column["name"] for column in inspect(sync_conn).get_columns("workspaces")}
+            )
+    finally:
+        await engine.dispose()
+    assert "node_id" in columns

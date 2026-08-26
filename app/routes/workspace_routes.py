@@ -12,12 +12,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
 from app.orchestrator.templates import get_template, list_templates, resolve_template
 from app.orchestrator.podman_service import podman_service, PodmanExecutionError
+from app.orchestrator.runtime_backend import runtime_for_node
+from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
 from app.resource_usage import get_system_usage, get_user_usage, quota_violations
 from app.schemas.workspace import (
     FlavorInfo,
@@ -29,6 +32,18 @@ from app.schemas.workspace import (
 
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
+
+
+async def allocate_workspace_port(db: AsyncSession, remote: bool) -> int:
+    """Allocate a globally unique port; remote workers validate it again locally."""
+    stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
+    used_ports = set((await db.execute(stmt)).scalars().all())
+    if not remote:
+        return await podman_service.find_available_port(used_ports)
+    for port in range(settings.PORT_RANGE_START, settings.PORT_RANGE_END + 1):
+        if port not in used_ports:
+            return port
+    raise RuntimeError("Workspace port aralığında boş port kalmadı.")
 
 
 async def get_quota_error(
@@ -123,15 +138,10 @@ async def create_workspace(
     if quota_error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=quota_error)
 
-    # Fetch currently used ports from database
-    stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
-    result = await db.execute(stmt)
-    used_ports = set(result.scalars().all())
-
-    # Find free port
     try:
-        host_port = await podman_service.find_available_port(used_ports)
-    except RuntimeError as e:
+        node = await select_worker_node(db, flavor)
+        host_port = await allocate_workspace_port(db, remote=node is not None)
+    except (NoSchedulableNode, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
     # Generate the final identity before the first commit so concurrent
@@ -142,6 +152,7 @@ async def create_workspace(
         name=data.name.strip(),
         description=data.description.strip(),
         user_id=current_user.id,
+        node_id=node.id if node else None,
         template_id=data.template_id,
         flavor_id=data.flavor_id,
         container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
@@ -159,7 +170,8 @@ async def create_workspace(
 
     # Launch container via Podman
     try:
-        container_id, storage_path = await podman_service.create_workspace_container(
+        runtime = runtime_for_node(workspace.node_id)
+        container_id, storage_path = await runtime.create_workspace_container(
             workspace_id=workspace.id,
             user_id=current_user.id,
             container_name=workspace.container_name,
@@ -234,15 +246,12 @@ async def deploy_workspace_stream(
             await emit_log(f"Şablon: {template.name} ({template.image_tag})", "info")
             await emit_log(f"Çalışma alanı kaynağı: {flavor.cpus} CPU, {flavor.memory_display} RAM ({flavor.name})", "info")
 
-            # Host port selection
-            stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
-            result = await db.execute(stmt)
-            used_ports = set(result.scalars().all())
-
             try:
-                host_port = await podman_service.find_available_port(used_ports)
-                await emit_log(f"Host portu ayrıldı: {host_port}", "info")
-            except RuntimeError as e:
+                node = await select_worker_node(db, flavor)
+                host_port = await allocate_workspace_port(db, remote=node is not None)
+                placement = node.name if node else "yerel runtime"
+                await emit_log(f"Worker seçildi: {placement}; host portu ayrıldı: {host_port}", "info")
+            except (NoSchedulableNode, RuntimeError) as e:
                 await emit_error(f"Port ayrılamadı: {str(e)}")
                 return
 
@@ -254,6 +263,7 @@ async def deploy_workspace_stream(
                 name=data.name.strip(),
                 description=data.description.strip(),
                 user_id=current_user.id,
+                node_id=node.id if node else None,
                 template_id=data.template_id,
                 flavor_id=data.flavor_id,
                 container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
@@ -271,7 +281,8 @@ async def deploy_workspace_stream(
             await emit_log(f"Kullanıcı #{current_user.id} için kalıcı volume hazırlandı", "info")
 
             # Launch container with progress callback
-            container_id, storage_path = await podman_service.create_workspace_container(
+            runtime = runtime_for_node(workspace.node_id)
+            container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=current_user.id,
                 container_name=workspace.container_name,
@@ -357,21 +368,22 @@ async def start_workspace_endpoint(
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
     try:
-        container_exists = await podman_service.container_exists(workspace.container_name)
+        runtime = runtime_for_node(workspace.node_id)
+        container_exists = await runtime.container_exists(workspace.container_name)
         if workspace.status == WorkspaceStatus.RUNNING and container_exists:
             ws_out = WorkspaceOut.model_validate(workspace)
             ws_out.web_url = f"/proxy/{workspace.id}/"
             return ws_out
 
         if container_exists:
-            success = await podman_service.start_container(workspace.container_name)
+            success = await runtime.start_container(workspace.container_name)
         else:
             logger.info(
                 "Recreating missing container %s with persistent storage %s",
                 workspace.container_name,
                 workspace.storage_path,
             )
-            container_id, storage_path = await podman_service.create_workspace_container(
+            container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=workspace.user_id,
                 container_name=workspace.container_name,
@@ -420,7 +432,8 @@ async def stop_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
-    await podman_service.stop_container(workspace.container_name)
+    runtime = runtime_for_node(workspace.node_id)
+    await runtime.stop_container(workspace.container_name)
     workspace.status = WorkspaceStatus.STOPPED
     workspace.last_stopped_at = datetime.now(timezone.utc)
 
@@ -457,10 +470,11 @@ async def delete_workspace_endpoint(
         )
 
     # 1. Stop and remove container in Podman
-    await podman_service.delete_container(workspace.container_name)
+    runtime = runtime_for_node(workspace.node_id)
+    await runtime.delete_container(workspace.container_name, workspace.storage_path)
 
     # 2. Permanently remove persistent storage directory on disk
-    if workspace.storage_path and os.path.exists(workspace.storage_path):
+    if not workspace.node_id and workspace.storage_path and os.path.exists(workspace.storage_path):
         try:
             shutil.rmtree(workspace.storage_path, ignore_errors=True)
             logger.info(f"Deleted persistent storage folder at: {workspace.storage_path}")
@@ -490,7 +504,8 @@ async def get_workspace_logs(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
-    logs = await podman_service.get_logs(workspace.container_name, tail=tail)
+    runtime = runtime_for_node(workspace.node_id)
+    logs = await runtime.get_logs(workspace.container_name, tail=tail)
     return {"workspace_id": workspace_id, "logs": logs}
 
 
@@ -557,6 +572,11 @@ async def download_workspace_backup(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
+    if workspace.node_id:
+        raise HTTPException(
+            status_code=501,
+            detail="Remote worker backup streaming henüz etkin değil.",
+        )
     if not workspace.storage_path or not os.path.exists(workspace.storage_path):
         raise HTTPException(status_code=404, detail="Storage path does not exist.")
 
@@ -591,6 +611,11 @@ async def snapshot_workspace_endpoint(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
+    if workspace.node_id:
+        raise HTTPException(
+            status_code=501,
+            detail="Worker snapshot'ları merkezi image registry tamamlandıktan sonra etkinleştirilecek.",
+        )
 
     slug = re.sub(r"[^a-zA-Z0-9_\-]", "", template_name.lower().replace(" ", "-"))[:30]
     template_id = f"custom-{slug}"
@@ -619,4 +644,3 @@ async def snapshot_workspace_endpoint(
         "template_name": template_name,
         "image_tag": image_tag_or_err,
     }
-

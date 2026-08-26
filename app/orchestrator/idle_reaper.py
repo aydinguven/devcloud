@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.podman_service import podman_service
+from app.orchestrator.runtime_backend import runtime_for_node
 from app.time_utils import ensure_utc
 
 logger = logging.getLogger("devcloud.reaper")
@@ -35,7 +35,7 @@ async def run_idle_reaper_cycle() -> int:
                     f"after {elapsed_minutes:.1f}m of activity (limit: {ws.auto_stop_minutes}m)."
                 )
                 try:
-                    await podman_service.stop_container(ws.container_name)
+                    await runtime_for_node(ws.node_id).stop_container(ws.container_name)
                     ws.status = WorkspaceStatus.STOPPED
                     ws.last_stopped_at = now
                     db.add(ws)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.node import Node
     from app.models.user import User
 
 
@@ -34,6 +35,12 @@ class Workspace(Base):
     # Ownership
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     owner: Mapped["User"] = relationship("User", back_populates="workspaces")
+
+    # Placement. Null preserves legacy single-host workspaces.
+    node_id: Mapped[str | None] = mapped_column(
+        ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    node: Mapped["Node | None"] = relationship("Node", back_populates="workspaces")
 
     # Specifications
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-empty, vscode-python, etc.
@@ -66,4 +73,3 @@ class Workspace(Base):
 
     def __repr__(self) -> str:
         return f"<Workspace id={self.id} name='{self.name}' status='{self.status}'>"
-
