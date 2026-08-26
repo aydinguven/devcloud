@@ -179,14 +179,17 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 
 ## Air-Gapped / Offline Installation
 
-DevCloud supports installation on isolated Linux x86_64 VMs. The target must
-already have its operating-system prerequisites (Python 3.11+, pip/venv,
-Podman, sudo/systemd, and SELinux tooling when enforcing).
+DevCloud supports installation on isolated Rocky Linux 10.x and RHEL 10.x
+x86_64 VMs. New bundles include the complete distribution-matched RPM closure
+for Python, Podman, `crun`, SELinux tooling, and `subscription-manager`. The
+Rocky and RHEL RPM closures remain distribution-specific.
+The base VM still needs DNF, systemd, `sudo`, `tar`, and `sha256sum`.
 
 ### Step 1: Prepare the Offline Bundle (On Connected Machine)
 Commit the source first, then run the fail-fast packager on an
-internet-connected machine. Select the exact CPython major/minor installed on
-the target VM:
+internet-connected Rocky 10 or RHEL 10 machine matching the target distribution.
+Its enabled DNF repositories must be reachable; a RHEL builder must have access
+to the entitled RHEL repositories. Select the target CPython major/minor:
 
 ```bash
 git status
@@ -206,13 +209,29 @@ sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 
-python3 deploy/package_offline.py --verify . --check-runtime
 sudo bash deploy/deploy_offline.sh
 ```
 
-A connected deployment can also publish bundles at `/download/`. Administrators
-can trigger a verified background rebuild from the Admin page after explicitly
-enabling the download settings documented in [AIRGAP.md](AIRGAP.md).
+The installer verifies and installs the bundled system RPMs without enabling
+network repositories, then verifies the full manifest and completes setup.
+Installing `subscription-manager` does not register the host automatically;
+Rocky nodes can subsequently be registered to Foreman/Katello using your normal
+organization and activation-key workflow.
+
+A connected deployment can also publish separate master and CPU-worker bundles
+at `/download/`. Administrators can trigger either verified background rebuild
+from the Admin page after enabling the download settings documented in
+[AIRGAP.md](AIRGAP.md).
+
+After publishing a Worker bundle, a connected worker can bootstrap directly
+from the Master without placing its enrollment token on the command line:
+
+```bash
+curl -fsSL https://master.example.com/download/install-worker.sh | sudo bash
+```
+
+The initial bootstrap/Master address is `http://10.253.6.189` and can be
+changed without restarting DevCloud from the Offline Downloads card in Admin.
 
 See [AIRGAP.md](AIRGAP.md) for prerequisites, multi-version bundles, Git release
 publishing, SELinux notes, and validation commands.

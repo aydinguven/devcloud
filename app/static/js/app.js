@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initDirectorySettings();
   initNodeManagement();
   initMlflowSettings();
+  initDownloadSettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
   initWorkspaceTabs();
@@ -574,15 +575,50 @@ function initMlflowSettings() {
 }
 
 // 6. Admin offline-download publisher
-function initDownloadUpdater() {
-  const button = document.getElementById("btn-update-downloads");
-  if (!button) return;
+function initDownloadSettings() {
+  const form = document.getElementById("download-settings-form");
+  if (!form) return;
+  const saveButton = document.getElementById("btn-save-download-settings");
+  const status = document.getElementById("download-settings-status");
+  const command = document.getElementById("worker-bootstrap-command");
 
-  const badge = document.getElementById("download-update-badge");
-  const message = document.getElementById("download-update-message");
-  const currentLink = document.getElementById("download-current-link");
-  const logs = document.getElementById("download-update-logs");
-  let pollTimer = null;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const publicBaseUrl = String(form.elements.public_base_url.value || "")
+      .trim()
+      .replace(/\/+$/, "");
+    saveButton.disabled = true;
+    status.textContent = "Master URL kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/download-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({public_base_url: publicBaseUrl}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `Master URL kaydedilemedi (${response.status})`);
+      }
+      form.elements.public_base_url.value = data.public_base_url;
+      if (command) {
+        command.textContent = `# Önerilen: Master'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
+      }
+      status.textContent = "Master URL kaydedildi; yeni bootstrap scriptleri bu adresi kullanacak.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+}
+
+function initDownloadUpdater() {
+  const serverButton = document.getElementById("btn-update-downloads");
+  const workerButton = document.getElementById("btn-update-worker-downloads");
+  if (!serverButton && !workerButton) return;
 
   function badgeForState(state) {
     if (state === "success") return ["badge badge-running", "Hazır"];
@@ -593,81 +629,117 @@ function initDownloadUpdater() {
     return ["badge badge-stopped", state === "disabled" ? "Devre Dışı" : "Beklemede"];
   }
 
-  function renderStatus(data) {
-    const effectiveState = data.enabled ? data.state : "disabled";
-    const [badgeClass, badgeText] = badgeForState(effectiveState);
-    badge.className = badgeClass;
-    badge.textContent = badgeText;
-    message.textContent = data.enabled
-      ? (data.message || "Güncel paket oluşturulmaya hazır.")
-      : "İndirme güncellemeleri bu kurulumda kapalı. Sunucuda sudo bash deploy/enable_downloads.sh komutunu çalıştırın.";
+  function createBundleController(config) {
+    const button = document.getElementById(config.buttonId);
+    if (!button) return null;
+    const badge = document.getElementById(config.badgeId);
+    const message = document.getElementById(config.messageId);
+    const currentLink = document.getElementById(config.linkId);
+    const logs = document.getElementById(config.logsId);
+    let pollTimer = null;
 
-    const active = data.state === "queued" || data.state === "running";
-    button.disabled = !data.enabled || active;
-    button.textContent = active ? "Güncelleniyor..." : "İndirmeleri Güncelle";
+    function renderStatus(data) {
+      const effectiveState = data.enabled ? data.state : "disabled";
+      const [badgeClass, badgeText] = badgeForState(effectiveState);
+      badge.className = badgeClass;
+      badge.textContent = badgeText;
+      message.textContent = data.enabled
+        ? (data.message || `${config.label} paketi oluşturulmaya hazır.`)
+        : "İndirme güncellemeleri kapalı. Sunucuda sudo bash deploy/enable_downloads.sh komutunu çalıştırın.";
 
-    if (data.current) {
-      currentLink.href = data.current.download_url;
-      currentLink.textContent = `${data.current.filename} (${data.current.size_display})`;
-      currentLink.style.display = "inline";
-    } else {
-      currentLink.style.display = "none";
-      currentLink.textContent = "";
-    }
+      const active = data.state === "queued" || data.state === "running";
+      button.disabled = !data.enabled || active;
+      button.textContent = active ? "Güncelleniyor..." : `${config.label} Paketini Güncelle`;
 
-    const output = Array.isArray(data.logs) && data.logs.length
-      ? data.logs.join("\n")
-      : "Henüz güncelleme logu yok.";
-    if (logs.textContent !== output) {
-      logs.textContent = output;
-      logs.scrollTop = logs.scrollHeight;
-    }
-    return active;
-  }
-
-  async function refreshStatus() {
-    if (pollTimer) clearTimeout(pollTimer);
-    try {
-      const response = await fetch("/api/admin/downloads/status", { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.detail || `Durum isteği başarısız (${response.status})`);
+      if (data.current) {
+        currentLink.href = data.current.download_url;
+        currentLink.textContent = `${data.current.filename} (${data.current.size_display})`;
+        currentLink.style.display = "inline";
+      } else {
+        currentLink.style.display = "none";
+        currentLink.textContent = "";
       }
-      const active = renderStatus(data);
-      pollTimer = setTimeout(refreshStatus, active ? 2000 : 10000);
-    } catch (error) {
-      badge.className = "badge badge-error";
-      badge.textContent = "Hata";
-      message.textContent = error.message;
+
+      const output = Array.isArray(data.logs) && data.logs.length
+        ? data.logs.join("\n")
+        : `Henüz ${config.label.toLowerCase()} paket logu yok.`;
+      if (logs.textContent !== output) {
+        logs.textContent = output;
+        logs.scrollTop = logs.scrollHeight;
+      }
+      return active;
+    }
+
+    async function refreshStatus() {
+      if (pollTimer) clearTimeout(pollTimer);
+      try {
+        const response = await fetch(config.statusUrl, { cache: "no-store" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Durum isteği başarısız (${response.status})`);
+        }
+        const active = renderStatus(data);
+        pollTimer = setTimeout(refreshStatus, active ? 2000 : 10000);
+      } catch (error) {
+        badge.className = "badge badge-error";
+        badge.textContent = "Hata";
+        message.textContent = error.message;
+        button.disabled = true;
+        pollTimer = setTimeout(refreshStatus, 10000);
+      }
+    }
+
+    button.addEventListener("click", async () => {
+      const confirmed = confirm(
+        `${config.label} çevrim dışı paketi oluşturulup yayımlansın mı? Bu işlem sistem RPM'lerini indirir, beş container image'ını yeniden oluşturur ve birkaç dakika sürebilir.`
+      );
+      if (!confirmed) return;
+
       button.disabled = true;
-      pollTimer = setTimeout(refreshStatus, 10000);
-    }
+      button.textContent = "Sıraya alınıyor...";
+      try {
+        const response = await fetch(config.updateUrl, { method: "POST" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Güncelleme isteği başarısız (${response.status})`);
+        }
+        renderStatus(data);
+        await refreshStatus();
+      } catch (error) {
+        badge.className = "badge badge-error";
+        badge.textContent = "Hata";
+        message.textContent = error.message;
+        button.disabled = false;
+        button.textContent = `${config.label} Paketini Güncelle`;
+      }
+    });
+
+    refreshStatus();
+    return { refreshStatus };
   }
 
-  button.addEventListener("click", async () => {
-    const confirmed = confirm(
-      "Güncel çevrim dışı paket oluşturulup yayımlansın mı? Bu işlem beş container image'ını yeniden oluşturur ve birkaç dakika sürebilir."
-    );
-    if (!confirmed) return;
-
-    button.disabled = true;
-    button.textContent = "Sıraya alınıyor...";
-    try {
-      const response = await fetch("/api/admin/downloads/update", { method: "POST" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.detail || `Güncelleme isteği başarısız (${response.status})`);
-      }
-      renderStatus(data);
-      await refreshStatus();
-    } catch (error) {
-      badge.className = "badge badge-error";
-      badge.textContent = "Hata";
-      message.textContent = error.message;
-      button.disabled = false;
-      button.textContent = "İndirmeleri Güncelle";
-    }
-  });
+  const controllers = [
+    createBundleController({
+      label: "Master",
+      buttonId: "btn-update-downloads",
+      badgeId: "download-update-badge",
+      messageId: "download-update-message",
+      linkId: "download-current-link",
+      logsId: "download-update-logs",
+      statusUrl: "/api/admin/downloads/server/status",
+      updateUrl: "/api/admin/downloads/server/update",
+    }),
+    createBundleController({
+      label: "Worker",
+      buttonId: "btn-update-worker-downloads",
+      badgeId: "worker-download-update-badge",
+      messageId: "worker-download-update-message",
+      linkId: "worker-download-current-link",
+      logsId: "worker-download-update-logs",
+      statusUrl: "/api/admin/downloads/worker/status",
+      updateUrl: "/api/admin/downloads/worker/update",
+    }),
+  ].filter(Boolean);
 
   const cleanButton = document.getElementById("btn-clean-downloads");
   if (cleanButton) {
@@ -684,7 +756,7 @@ function initDownloadUpdater() {
         const res = await response.json();
         if (!response.ok) throw new Error(res.detail || "Temizleme başarısız.");
         alert(`Temizlik tamamlandı: ${res.cleaned_count} öğe silindi, ${res.freed_display} disk alanı kazanıldı.`);
-        await refreshStatus();
+        await Promise.all(controllers.map((controller) => controller.refreshStatus()));
       } catch (err) {
         alert(`Hata: ${err.message}`);
       } finally {
@@ -694,7 +766,6 @@ function initDownloadUpdater() {
     });
   }
 
-  refreshStatus();
 }
 
 // 6. Live Metrics Polling for Dashboard & Detail Views

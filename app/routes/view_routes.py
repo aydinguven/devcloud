@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.directory_settings import DirectorySettings
 from app.models.mlflow_settings import MlflowSettings
+from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
@@ -286,6 +287,7 @@ async def admin_page(
     )
     directory_settings = await db.get(DirectorySettings, 1)
     mlflow_settings = await db.get(MlflowSettings, 1)
+    download_settings = await db.get(DownloadSettings, 1)
     nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
 
     return templates.TemplateResponse(
@@ -299,6 +301,11 @@ async def admin_page(
             "usage_by_user": usage_by_user,
             "directory_settings": directory_settings,
             "mlflow_settings": mlflow_settings,
+            "download_public_base_url": (
+                download_settings.public_base_url
+                if download_settings
+                else settings.DOWNLOAD_PUBLIC_BASE_URL
+            ),
             "nodes": nodes,
         },
     )

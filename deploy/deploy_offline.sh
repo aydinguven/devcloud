@@ -26,14 +26,16 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 mkdir -p /run/user/0 /run/containers/storage /var/lib/containers/storage
 chmod 0700 /run/user/0 /run/containers/storage 2>/dev/null || true
 
-# 1. Verify Prerequisites & OCI Runtime
+# 1. Install and verify bundled operating-system prerequisites
+bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
+
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is not found. Please ensure Python 3.11+ is installed."
+    echo "ERROR: python3 is not found after the bundled RPM installation."
     exit 1
 fi
 
 if ! command -v podman >/dev/null 2>&1; then
-    echo "ERROR: podman is not found. Please ensure Podman is installed (sudo dnf install -y podman)."
+    echo "ERROR: podman is not found after the bundled RPM installation."
     exit 1
 fi
 
@@ -58,9 +60,7 @@ if [ -z "$OCI_RUNTIME" ]; then
     echo "=============================================================================="
     echo "ERROR: No OCI container runtime found (neither crun nor runc)."
     echo "Podman requires an OCI runtime to create containers."
-    echo "Please install crun or runc:"
-    echo "  sudo dnf install -y crun"
-    echo "  (or: sudo dnf install -y runc)"
+    echo "The bundled RPM transaction must provide crun or runc."
     echo "=============================================================================="
     exit 1
 fi
@@ -78,7 +78,7 @@ if [ ! -d "${WHEELS_DIR}" ]; then
 fi
 
 echo "--> Verifying air-gap artifact manifest and checksums..."
-python3 "${PROJECT_DIR}/deploy/package_offline.py" --verify "${PROJECT_DIR}" --check-runtime
+python3 "${PROJECT_DIR}/deploy/package_offline.py" --verify "${PROJECT_DIR}" --check-runtime --expected-role server
 
 # Print Detected Environment Info
 PYTHON_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")

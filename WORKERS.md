@@ -44,6 +44,49 @@ sudo systemctl enable --now devcloud-worker
 sudo journalctl -u devcloud-worker -f
 ```
 
+### Air-gapped worker installation
+
+The admin page publishes a separate `devcloud-worker-offline-*.tar.gz` archive.
+It contains the worker agent source, the compatible Python wheel set, all five
+workspace images, Rocky 10 or RHEL 10 bootstrap RPMs, a role-marked artifact manifest, and
+`deploy/deploy_worker_offline.sh`.
+
+After creating the node and retaining its one-time token on the master:
+
+```bash
+curl -fsSL https://master.example.com/download/install-worker.sh | sudo bash
+```
+
+The bootstrapper downloads the latest worker archive and checksum from that
+master, verifies them, installs under `/opt/devcloud-worker`, and requests the
+node ID and token through `/dev/tty` so the token is not placed in shell history
+or the process list. For non-interactive provisioning, create
+`/etc/devcloud/worker.env` first.
+
+The bootstrap and worker connection base URL is managed from the Master's
+**Admin > Çevrim Dışı İndirmeler** card. Its initial value is
+`http://10.253.6.189`.
+
+The manual transfer workflow remains available for fully isolated hosts:
+
+```bash
+sha256sum -c devcloud-worker-offline-*.tar.gz.sha256
+tar -xzf devcloud-worker-offline-*.tar.gz
+cd devcloud-worker
+
+sudo install -d -m 0755 /etc/devcloud
+sudo install -m 0600 deploy/worker.env.example /etc/devcloud/worker.env
+sudo vi /etc/devcloud/worker.env
+sudo bash deploy/deploy_worker_offline.sh
+```
+
+The installer refuses a master bundle, validates the Rocky/RHEL distribution,
+installs missing Python, Podman, `crun`, and SELinux packages from verified local
+RPMs, validates all bundled artifacts, loads the Podman images, installs the
+outbound worker service, and starts it without opening an inbound port. Both
+Rocky and RHEL bundles install `subscription-manager` for Foreman/Katello or
+Red Hat registration, but do not register the host automatically.
+
 The required firewall flow is worker to master TCP 443. No Podman socket,
 workspace port or worker management port should be exposed.
 

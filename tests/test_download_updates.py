@@ -6,13 +6,20 @@ import pytest
 from app.config import Settings, settings
 from app.download_updates import (
     DownloadUpdateDisabled,
+    DownloadUpdateInProgress,
     DownloadUpdateManager,
 )
 
 
-def _write_bundle_pair(root: Path, revision: str, content: bytes) -> tuple[Path, Path]:
+def _write_bundle_pair(
+    root: Path,
+    revision: str,
+    content: bytes,
+    bundle_role: str = "server",
+) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
-    archive = root / f"devcloud-offline-v2.0.0-20260825-{revision}.tar.gz"
+    prefix = "devcloud-worker-offline" if bundle_role == "worker" else "devcloud-offline"
+    archive = root / f"{prefix}-v2.0.0-20260825-{revision}.tar.gz"
     archive.write_bytes(content)
     checksum = archive.with_name(archive.name + ".sha256")
     checksum.write_text(
@@ -63,6 +70,36 @@ def test_publish_rejects_tampered_checksum(tmp_path: Path, monkeypatch):
         manager._verify_pair(archive, checksum)
 
 
+def test_worker_publish_preserves_current_server_bundle(tmp_path: Path, monkeypatch):
+    download_root = tmp_path / "downloads"
+    build_root = tmp_path / "build"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    monkeypatch.setattr(settings, "BASE_DIR", source_root)
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(download_root))
+    monkeypatch.setattr(settings, "DOWNLOAD_BUILD_ROOT", str(build_root))
+
+    server_archive, server_checksum = _write_bundle_pair(
+        download_root, "aaaaaaaaaaaa", b"server"
+    )
+    old_worker, old_worker_checksum = _write_bundle_pair(
+        download_root, "bbbbbbbbbbbb", b"old worker", "worker"
+    )
+    new_worker, new_worker_checksum = _write_bundle_pair(
+        tmp_path / "staged", "cccccccccccc", b"new worker", "worker"
+    )
+
+    manager = DownloadUpdateManager()
+    manager._publish_pair(new_worker, new_worker_checksum, "worker")
+
+    assert server_archive.exists()
+    assert server_checksum.exists()
+    assert not old_worker.exists()
+    assert not old_worker_checksum.exists()
+    assert manager.current_bundle("worker")["filename"] == new_worker.name
+    assert manager.current_bundle("server")["filename"] == server_archive.name
+
+
 def test_download_publisher_is_enabled_by_default():
     defaults = Settings(_env_file=None)
     assert defaults.DOWNLOADS_ENABLED is True
@@ -81,6 +118,24 @@ def test_start_rejects_disabled_updates(monkeypatch):
         DownloadUpdateManager().start()
 
 
+def test_clean_rejects_active_bundle_build(tmp_path: Path, monkeypatch):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    monkeypatch.setattr(settings, "BASE_DIR", source_root)
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(tmp_path / "downloads"))
+    monkeypatch.setattr(settings, "DOWNLOAD_BUILD_ROOT", str(tmp_path / "build"))
+
+    manager = DownloadUpdateManager()
+    manager.lock_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.lock_path.write_text(
+        f'{{"pid": {__import__("os").getpid()}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DownloadUpdateInProgress, match="disk temizliği"):
+        manager.clean_old_bundles()
+
+
 def test_clean_old_bundles_cleans_stale_files_and_preserves_current(tmp_path: Path, monkeypatch):
     download_root = tmp_path / "downloads"
     build_root = tmp_path / "build"
@@ -95,6 +150,9 @@ def test_clean_old_bundles_cleans_stale_files_and_preserves_current(tmp_path: Pa
     )
     current_archive, current_checksum = _write_bundle_pair(
         download_root, "999999999999", b"current bundle"
+    )
+    worker_archive, worker_checksum = _write_bundle_pair(
+        download_root, "888888888888", b"current worker", "worker"
     )
     # Stale upload file
     stale_tmp = download_root / ".stale.uploading"
@@ -115,4 +173,5 @@ def test_clean_old_bundles_cleans_stale_files_and_preserves_current(tmp_path: Pa
     assert not stale_build.exists()
     assert current_archive.exists()
     assert current_checksum.exists()
-
+    assert worker_archive.exists()
+    assert worker_checksum.exists()

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     DOWNLOADS_ROOT: str = "/srv/devcloud-downloads"
     DOWNLOAD_BUILD_ROOT: str = str(BASE_DIR / "data" / "download-builds")
     DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
+    DOWNLOAD_PUBLIC_BASE_URL: str = "http://10.253.6.189"
 
     # Podman Configuration
     PODMAN_BIN: str = "podman"

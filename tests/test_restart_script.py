@@ -42,6 +42,51 @@ def test_service_uses_runtime_directory_for_configured_user():
     assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in service
 
 
+def test_worker_service_uses_runtime_directory_for_configured_user():
+    service = (PROJECT_ROOT / "deploy" / "devcloud-worker.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in service
+    assert "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U" in service
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in service
+
+
+def test_offline_worker_installer_requires_worker_manifest_and_enrollment():
+    installer = (PROJECT_ROOT / "deploy" / "deploy_worker_offline.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--expected-role worker" in installer
+    assert "DEVCLOUD_MASTER_URL" in installer
+    assert "DEVCLOUD_NODE_ID" in installer
+    assert "DEVCLOUD_NODE_TOKEN" in installer
+    assert "devcloud-worker.service" in installer
+
+
+def test_master_and_worker_offline_installers_bootstrap_system_rpms():
+    for relative_path in (
+        "deploy/deploy_offline.sh",
+        "deploy/deploy_worker_offline.sh",
+    ):
+        installer = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+        bootstrap_position = installer.index("install_offline_system_packages.sh")
+        podman_check_position = installer.index("command -v podman")
+        assert bootstrap_position < podman_check_position
+
+
+def test_system_rpm_installer_is_offline_and_distribution_scoped():
+    installer = (
+        PROJECT_ROOT / "deploy" / "install_offline_system_packages.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "rocky|rhel" in installer
+    assert '[[ "${MAJOR_VERSION}" == "10" ]]' in installer
+    assert "sha256sum -c SHA256SUMS" in installer
+    assert "--disable-repo='*'" in installer
+    assert "subscription-manager" in installer
+
+
 def test_installers_use_bounded_restart_helper():
     for relative_path in ("deploy/deploy.sh", "deploy/deploy_offline.sh"):
         installer = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")

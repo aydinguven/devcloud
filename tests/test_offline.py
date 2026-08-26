@@ -62,6 +62,155 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     with pytest.raises(package_offline.PackageError, match="unlisted"):
         package_offline.verify_staged_bundle(bundle_root)
 
+
+def test_worker_manifest_role_is_verified(tmp_path: Path):
+    bundle_root = tmp_path / "devcloud-worker"
+    wheels_dir = bundle_root / "offline" / "wheels"
+    images_dir = bundle_root / "offline" / "images"
+    wheels_dir.mkdir(parents=True)
+    images_dir.mkdir(parents=True)
+    (bundle_root / "requirements.txt").write_text("httpx\n", encoding="utf-8")
+    (wheels_dir / "httpx-1-py3-none-any.whl").write_bytes(b"wheel")
+    for name, _, _ in package_offline.IMAGES:
+        (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+
+    package_offline.write_manifest(
+        bundle_root,
+        git_commit="b" * 40,
+        python_versions=["3.12"],
+        bundle_role="worker",
+    )
+
+    manifest = package_offline.verify_staged_bundle(
+        bundle_root,
+        expected_role="worker",
+    )
+    assert manifest["bundle_role"] == "worker"
+    with pytest.raises(package_offline.PackageError, match="server bundle was expected"):
+        package_offline.verify_staged_bundle(bundle_root, expected_role="server")
+
+
+def test_worker_bundle_cli_uses_explicit_role():
+    args = package_offline.parse_args(["--bundle-role", "worker"])
+    assert args.bundle_role == "worker"
+
+
+@pytest.mark.parametrize(
+    ("distribution_id", "version_id"),
+    (("rocky", "10.2"), ("rhel", "10.1")),
+)
+def test_system_package_profile_targets_el10_distribution(
+    tmp_path: Path,
+    distribution_id: str,
+    version_id: str,
+):
+    os_release = tmp_path / "os-release"
+    os_release.write_text(
+        f'ID="{distribution_id}"\nVERSION_ID="{version_id}"\n',
+        encoding="utf-8",
+    )
+
+    profile = package_offline.detect_system_package_profile(
+        os_release,
+        system_name="Linux",
+        machine="x86_64",
+    )
+
+    assert profile["profile"] == f"{distribution_id}-10-x86_64"
+    assert "podman" in profile["requested_packages"]
+    assert "crun" in profile["requested_packages"]
+    assert "subscription-manager" in profile["requested_packages"]
+
+
+def test_system_package_profile_rejects_unsupported_release(tmp_path: Path):
+    os_release = tmp_path / "os-release"
+    os_release.write_text('ID="rocky"\nVERSION_ID="9.6"\n', encoding="utf-8")
+
+    with pytest.raises(package_offline.PackageError, match="major version 10"):
+        package_offline.detect_system_package_profile(
+            os_release,
+            system_name="Linux",
+            machine="x86_64",
+        )
+
+
+def test_system_rpm_download_collects_dependency_closure_and_checksums(
+    tmp_path: Path, monkeypatch
+):
+    os_release = tmp_path / "os-release"
+    os_release.write_text('ID="rocky"\nVERSION_ID="10.2"\n', encoding="utf-8")
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        destination = Path(command[command.index("--destdir") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
+            (destination / f"{package}-1-1.el10.x86_64.rpm").write_bytes(
+                package.encode()
+            )
+
+    monkeypatch.setattr(package_offline, "run", fake_run)
+    rpm_root = tmp_path / "system-rpms"
+    profile = package_offline.download_system_rpms(
+        rpm_root,
+        dnf_bin="dnf5",
+        os_release_path=os_release,
+        system_name="Linux",
+        machine="x86_64",
+    )
+
+    command = commands[0]
+    assert command[:4] == ["dnf5", "download", "--resolve", "--alldeps"]
+    assert "podman" in command
+    assert "subscription-manager" in command
+    assert profile["profile"] == "rocky-10-x86_64"
+    checksum_index = (rpm_root / "SHA256SUMS").read_text(encoding="ascii")
+    assert "rocky-10-x86_64/podman-1-1.el10.x86_64.rpm" in checksum_index
+
+
+def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path):
+    bundle_root = tmp_path / "devcloud"
+    wheels_dir = bundle_root / "offline" / "wheels"
+    images_dir = bundle_root / "offline" / "images"
+    rpm_root = bundle_root / "offline" / "system-rpms"
+    rpm_dir = rpm_root / "rocky-10-x86_64"
+    wheels_dir.mkdir(parents=True)
+    images_dir.mkdir(parents=True)
+    rpm_dir.mkdir(parents=True)
+    (bundle_root / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
+    for name, _, _ in package_offline.IMAGES:
+        (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+    for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
+        (rpm_dir / f"{package}-1-1.el10.x86_64.rpm").write_bytes(package.encode())
+    (rpm_root / "SHA256SUMS").write_text("checksums\n", encoding="ascii")
+    profile = {
+        "distribution_id": "rocky",
+        "version_id": "10.2",
+        "major_version": "10",
+        "architecture": "x86_64",
+        "profile": "rocky-10-x86_64",
+        "requested_packages": list(
+            package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]
+        ),
+    }
+
+    package_offline.write_manifest(
+        bundle_root,
+        git_commit="c" * 40,
+        python_versions=["3.12"],
+        system_package_profile=profile,
+    )
+    manifest = package_offline.verify_staged_bundle(bundle_root)
+
+    assert manifest["target"]["system_packages"]["profile"] == "rocky-10-x86_64"
+    assert any(record["kind"] == "system-rpm" for record in manifest["artifacts"])
+    assert any(
+        record["kind"] == "system-rpm-checksums"
+        for record in manifest["artifacts"]
+    )
+
 def test_outer_checksum_uses_portable_sha256sum_format(tmp_path: Path):
     bundle = tmp_path / "devcloud-offline-test.tar.gz"
     bundle.write_bytes(b"bundle")

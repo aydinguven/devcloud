@@ -21,9 +21,17 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-BUNDLE_PATTERN = re.compile(
-    r"^devcloud-offline-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-)?([0-9a-f]{12})\.tar\.gz$"
-)
+BUNDLE_ROLES = ("server", "worker")
+BUNDLE_PREFIXES = {
+    "server": "devcloud-offline",
+    "worker": "devcloud-worker-offline",
+}
+BUNDLE_PATTERNS = {
+    role: re.compile(
+        rf"^{prefix}-(?:v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]{{8}}-)?([0-9a-f]{{12}})\.tar\.gz$"
+    )
+    for role, prefix in BUNDLE_PREFIXES.items()
+}
 MAX_LOG_LINES = 120
 ACTIVE_TASKS: set[asyncio.Task[None]] = set()
 
@@ -61,6 +69,19 @@ def _format_size(size: int) -> str:
     return f"{size} B"
 
 
+def _validate_bundle_role(bundle_role: str) -> str:
+    if bundle_role not in BUNDLE_ROLES:
+        raise ValueError(f"Unsupported bundle role: {bundle_role}")
+    return bundle_role
+
+
+def _bundle_role_from_name(filename: str) -> str | None:
+    for role, pattern in BUNDLE_PATTERNS.items():
+        if pattern.fullmatch(filename):
+            return role
+    return None
+
+
 class DownloadUpdateManager:
     """Coordinate one durable-status update job across Uvicorn workers."""
 
@@ -80,27 +101,38 @@ class DownloadUpdateManager:
     def status_path(self) -> Path:
         return self.project_root / "data" / "download_update_status.json"
 
+    def status_path_for(self, bundle_role: str) -> Path:
+        bundle_role = _validate_bundle_role(bundle_role)
+        if bundle_role == "server":
+            return self.status_path
+        return self.project_root / "data" / f"download_update_{bundle_role}_status.json"
+
     @property
     def lock_path(self) -> Path:
         return self.project_root / "data" / "download_update.lock"
 
-    def current_bundle(self) -> dict[str, Any] | None:
+    def current_bundle(self, bundle_role: str = "server") -> dict[str, Any] | None:
+        bundle_role = _validate_bundle_role(bundle_role)
         root = self.download_root
         if not root.is_dir():
             return None
         candidates = [
             path
-            for path in root.glob("devcloud-offline-*.tar.gz")
-            if path.is_file() and BUNDLE_PATTERN.fullmatch(path.name)
+            for path in root.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz")
+            if path.is_file() and BUNDLE_PATTERNS[bundle_role].fullmatch(path.name)
             and not path.is_symlink()
         ]
         if not candidates:
             return None
-        bundle = max(candidates, key=lambda path: path.stat().st_mtime)
+        bundle = max(
+            candidates,
+            key=lambda path: (path.stat().st_mtime_ns, path.name),
+        )
         checksum = bundle.with_name(bundle.name + ".sha256")
         checksum_available = checksum.is_file() and not checksum.is_symlink()
         return {
             "filename": bundle.name,
+            "bundle_role": bundle_role,
             "checksum_filename": checksum.name if checksum_available else None,
             "size": bundle.stat().st_size,
             "size_display": _format_size(bundle.stat().st_size),
@@ -111,15 +143,22 @@ class DownloadUpdateManager:
             ).isoformat(),
         }
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self, bundle_role: str = "server") -> dict[str, Any]:
+        bundle_role = _validate_bundle_role(bundle_role)
+        status_path = self.status_path_for(bundle_role)
         status: dict[str, Any] = {
             "state": "idle",
-            "message": "Henüz indirme güncellemesi başlatılmadı.",
+            "message": (
+                "Henüz worker paketi güncellemesi başlatılmadı."
+                if bundle_role == "worker"
+                else "Henüz sunucu paketi güncellemesi başlatılmadı."
+            ),
             "logs": [],
+            "bundle_role": bundle_role,
         }
-        if self.status_path.is_file():
+        if status_path.is_file():
             try:
-                loaded = json.loads(self.status_path.read_text(encoding="utf-8"))
+                loaded = json.loads(status_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     status.update(loaded)
             except (OSError, json.JSONDecodeError):
@@ -133,18 +172,19 @@ class DownloadUpdateManager:
             logs = status.setdefault("logs", [])
             logs.append("HATA: Güncelleme worker işlemi artık çalışmıyor.")
             del logs[:-MAX_LOG_LINES]
-            self._write_status(status)
+            self._write_status(status, bundle_role)
         status["enabled"] = (
             settings.DOWNLOADS_ENABLED and settings.DOWNLOAD_UPDATES_ENABLED
         )
-        status["current"] = self.current_bundle()
+        status["current"] = self.current_bundle(bundle_role)
         status["target_python_version"] = (
             settings.DOWNLOAD_TARGET_PYTHON_VERSION
             or f"{sys.version_info.major}.{sys.version_info.minor}"
         )
         return status
 
-    def start(self) -> dict[str, Any]:
+    def start(self, bundle_role: str = "server") -> dict[str, Any]:
+        bundle_role = _validate_bundle_role(bundle_role)
         if not settings.DOWNLOADS_ENABLED or not settings.DOWNLOAD_UPDATES_ENABLED:
             raise DownloadUpdateDisabled(
                 "İndirme yayını devre dışı. Sunucuda sudo bash "
@@ -154,13 +194,18 @@ class DownloadUpdateManager:
         try:
             status = {
                 "state": "queued",
-                "message": "İndirme paketi güncellemesi sıraya alındı.",
+                "message": (
+                    "Worker indirme paketi güncellemesi sıraya alındı."
+                    if bundle_role == "worker"
+                    else "Sunucu indirme paketi güncellemesi sıraya alındı."
+                ),
                 "started_at": _utc_now(),
                 "finished_at": None,
                 "logs": ["Güncelleme yönetim API tarafından kabul edildi."],
+                "bundle_role": bundle_role,
             }
-            self._write_status(status)
-            task = asyncio.create_task(self._run(status))
+            self._write_status(status, bundle_role)
+            task = asyncio.create_task(self._run(status, bundle_role))
         except Exception:
             self._release_lock()
             raise
@@ -216,15 +261,21 @@ class DownloadUpdateManager:
             return False
         return True
 
-    def _write_status(self, status: dict[str, Any]) -> None:
-        self.status_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.status_path.with_name(
-            f".{self.status_path.name}.{uuid.uuid4().hex}.tmp"
+    def _write_status(self, status: dict[str, Any], bundle_role: str = "server") -> None:
+        status_path = self.status_path_for(bundle_role)
+        status_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = status_path.with_name(
+            f".{status_path.name}.{uuid.uuid4().hex}.tmp"
         )
         temporary.write_text(json.dumps(status, indent=2), encoding="utf-8")
-        temporary.replace(self.status_path)
+        temporary.replace(status_path)
 
-    def _append_log(self, status: dict[str, Any], message: str) -> None:
+    def _append_log(
+        self,
+        status: dict[str, Any],
+        message: str,
+        bundle_role: str = "server",
+    ) -> None:
         cleaned = message.rstrip()
         if not cleaned:
             return
@@ -232,36 +283,47 @@ class DownloadUpdateManager:
         logs = status.setdefault("logs", [])
         logs.append(cleaned)
         del logs[:-MAX_LOG_LINES]
-        self._write_status(status)
+        self._write_status(status, bundle_role)
 
-    async def _run(self, status: dict[str, Any]) -> None:
+    async def _run(self, status: dict[str, Any], bundle_role: str) -> None:
         try:
             status["state"] = "running"
-            self._append_log(status, "Çevrim dışı paket güncellemesi başlatıldı.")
-            result = await self._build_and_publish(status)
+            self._append_log(
+                status,
+                f"{bundle_role.capitalize()} çevrim dışı paket güncellemesi başlatıldı.",
+                bundle_role,
+            )
+            result = await self._build_and_publish(status, bundle_role)
             status.update(result)
             status["state"] = "success"
             status["finished_at"] = _utc_now()
-            self._append_log(status, result["message"])
+            self._append_log(status, result["message"], bundle_role)
         except Exception as exc:
             logger.exception("Download bundle update failed")
             status["state"] = "failed"
             status["message"] = str(exc)
             status["finished_at"] = _utc_now()
-            self._append_log(status, f"ERROR: {exc}")
+            self._append_log(status, f"ERROR: {exc}", bundle_role)
         finally:
             self._release_lock()
 
-    async def _build_and_publish(self, status: dict[str, Any]) -> dict[str, Any]:
+    async def _build_and_publish(
+        self,
+        status: dict[str, Any],
+        bundle_role: str = "server",
+    ) -> dict[str, Any]:
+        bundle_role = _validate_bundle_role(bundle_role)
         commit = await self._git_commit()
         short_commit = commit[:12]
         status["source_commit"] = commit
 
         existing = None
         if self.download_root.is_dir():
-            for path in self.download_root.glob("devcloud-offline-*.tar.gz"):
+            for path in self.download_root.glob(
+                f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz"
+            ):
                 if path.is_file() and not path.is_symlink():
-                    match = BUNDLE_PATTERN.fullmatch(path.name)
+                    match = BUNDLE_PATTERNS[bundle_role].fullmatch(path.name)
                     if match and match.group(1) == short_commit:
                         existing = path
                         break
@@ -272,7 +334,11 @@ class DownloadUpdateManager:
                     self._verify_pair, existing, existing.with_name(existing.name + ".sha256")
                 )
             except RuntimeError as exc:
-                self._append_log(status, f"Mevcut paket geçersiz; yeniden oluşturuluyor: {exc}")
+                self._append_log(
+                    status,
+                    f"Mevcut paket geçersiz; yeniden oluşturuluyor: {exc}",
+                    bundle_role,
+                )
             else:
                 return {
                     "message": f"Yayımlanan paket zaten {existing.name} olarak güncel.",
@@ -296,6 +362,8 @@ class DownloadUpdateManager:
                 str(self.project_root / "deploy" / "package_offline.py"),
                 "--python-version",
                 target_python,
+                "--bundle-role",
+                bundle_role,
                 "--output-dir",
                 str(output_dir),
             ]
@@ -303,11 +371,14 @@ class DownloadUpdateManager:
             environment["TMPDIR"] = str(temp_dir)
             self._append_log(
                 status,
-                f"{short_commit} commit sürümü CPython {target_python} için oluşturuluyor.",
+                f"{short_commit} commit sürümünün {bundle_role} paketi CPython {target_python} için oluşturuluyor.",
+                bundle_role,
             )
-            await self._run_process(command, status, environment)
+            await self._run_process(command, status, environment, bundle_role)
 
-            archives = list(output_dir.glob("devcloud-offline-*.tar.gz"))
+            archives = list(
+                output_dir.glob(f"{BUNDLE_PREFIXES[bundle_role]}-*.tar.gz")
+            )
             if len(archives) != 1:
                 raise RuntimeError(
                     f"Bir arşiv bekleniyordu, {len(archives)} arşiv bulundu."
@@ -315,7 +386,12 @@ class DownloadUpdateManager:
             archive = archives[0]
             checksum = archive.with_name(archive.name + ".sha256")
             await asyncio.to_thread(self._verify_pair, archive, checksum)
-            await asyncio.to_thread(self._publish_pair, archive, checksum)
+            await asyncio.to_thread(
+                self._publish_pair,
+                archive,
+                checksum,
+                bundle_role,
+            )
             return {
                 "message": f"{archive.name} başarıyla yayımlandı.",
                 "published_filename": archive.name,
@@ -345,6 +421,7 @@ class DownloadUpdateManager:
         command: list[str],
         status: dict[str, Any],
         environment: dict[str, str],
+        bundle_role: str = "server",
     ) -> None:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -354,13 +431,17 @@ class DownloadUpdateManager:
             stderr=asyncio.subprocess.STDOUT,
         )
         status["builder_pid"] = process.pid
-        self._write_status(status)
+        self._write_status(status, bundle_role)
         assert process.stdout is not None
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
-            self._append_log(status, line.decode("utf-8", errors="replace"))
+            self._append_log(
+                status,
+                line.decode("utf-8", errors="replace"),
+                bundle_role,
+            )
         return_code = await process.wait()
         if return_code != 0:
             raise RuntimeError(f"Çevrim dışı paketleyici {return_code} koduyla kapandı.")
@@ -384,7 +465,15 @@ class DownloadUpdateManager:
         if _sha256_file(archive) != fields[0].lower():
             raise RuntimeError("Oluşturulan arşivin checksum doğrulaması başarısız.")
 
-    def _publish_pair(self, archive: Path, checksum: Path) -> None:
+    def _publish_pair(
+        self,
+        archive: Path,
+        checksum: Path,
+        bundle_role: str = "server",
+    ) -> None:
+        bundle_role = _validate_bundle_role(bundle_role)
+        if not BUNDLE_PATTERNS[bundle_role].fullmatch(archive.name):
+            raise RuntimeError("Oluşturulan arşiv adı paket rolüyle eşleşmiyor.")
         root = self.download_root
         if root == Path(root.anchor) or root == self.project_root:
             raise RuntimeError(
@@ -407,36 +496,58 @@ class DownloadUpdateManager:
             os.replace(temporary_archive, published_archive)
             os.replace(temporary_checksum, published_checksum)
 
-            self.clean_old_bundles(preserve_filename=archive.name)
+            self.clean_old_bundles(
+                preserve_filename=archive.name,
+                allow_in_progress=True,
+            )
         finally:
             temporary_archive.unlink(missing_ok=True)
             temporary_checksum.unlink(missing_ok=True)
 
-    def clean_old_bundles(self, preserve_filename: str | None = None) -> dict[str, Any]:
+    def clean_old_bundles(
+        self,
+        preserve_filename: str | None = None,
+        *,
+        allow_in_progress: bool = False,
+    ) -> dict[str, Any]:
         """Remove all older/stale bundles, orphan checksums, and temporary build directories to save disk."""
+        if (
+            not allow_in_progress
+            and self.lock_path.is_file()
+            and not self._remove_stale_lock()
+        ):
+            raise DownloadUpdateInProgress(
+                "Paket oluşturulurken disk temizliği başlatılamaz."
+            )
         root = self.download_root
         cleaned_files: list[str] = []
         freed_bytes = 0
 
-        if not preserve_filename:
-            current = self.current_bundle()
-            preserve_filename = current["filename"] if current else None
+        preserved: set[str] = set()
+        if preserve_filename:
+            preserved.add(preserve_filename)
+        for bundle_role in BUNDLE_ROLES:
+            if preserve_filename and _bundle_role_from_name(preserve_filename) == bundle_role:
+                continue
+            current = self.current_bundle(bundle_role)
+            if current:
+                preserved.add(current["filename"])
 
         if root.is_dir():
-            for path in root.glob("devcloud-offline-*"):
-                if preserve_filename and (
-                    path.name == preserve_filename
-                    or path.name == f"{preserve_filename}.sha256"
-                ):
-                    continue
-                if path.is_file() or path.is_symlink():
-                    try:
-                        sz = path.stat().st_size
-                        path.unlink()
-                        cleaned_files.append(path.name)
-                        freed_bytes += sz
-                    except OSError:
-                        pass
+            for prefix in BUNDLE_PREFIXES.values():
+                for path in root.glob(f"{prefix}-*"):
+                    if path.name in preserved or any(
+                        path.name == f"{filename}.sha256" for filename in preserved
+                    ):
+                        continue
+                    if path.is_file() or path.is_symlink():
+                        try:
+                            sz = path.stat().st_size
+                            path.unlink()
+                            cleaned_files.append(path.name)
+                            freed_bytes += sz
+                        except OSError:
+                            pass
 
             # Clean any stale uploading or tmp files
             for pattern in ("*.uploading", ".*.uploading", "*.tmp", ".*.tmp"):
@@ -463,15 +574,16 @@ class DownloadUpdateManager:
         # Clean dist/ directory in project root
         dist_dir = self.project_root / "dist"
         if dist_dir.is_dir():
-            for path in dist_dir.glob("devcloud-offline-*"):
-                if path.is_file():
-                    try:
-                        sz = path.stat().st_size
-                        path.unlink()
-                        cleaned_files.append(path.name)
-                        freed_bytes += sz
-                    except OSError:
-                        pass
+            for prefix in BUNDLE_PREFIXES.values():
+                for path in dist_dir.glob(f"{prefix}-*"):
+                    if path.is_file():
+                        try:
+                            sz = path.stat().st_size
+                            path.unlink()
+                            cleaned_files.append(path.name)
+                            freed_bytes += sz
+                        except OSError:
+                            pass
 
         logger.info(
             "Cleaned %d stale bundle files/folders, freed %s",

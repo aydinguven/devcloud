@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Install an air-gapped DevCloud CPU worker and its outbound-only agent service.
+set -Eeuo pipefail
+
+log() {
+    printf '[devcloud-worker-install] %s\n' "$*"
+}
+
+fail() {
+    printf '[devcloud-worker-install] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+[[ "$(id -u)" -eq 0 ]] || fail "Run with sudo: sudo bash deploy/deploy_worker_offline.sh"
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WHEELS_DIR="${PROJECT_DIR}/offline/wheels"
+IMAGES_DIR="${PROJECT_DIR}/offline/images"
+WORKSPACES_DIR="/var/lib/devcloud/workspaces"
+WORKER_ENV_FILE="/etc/devcloud/worker.env"
+WORKER_ENV_SOURCE="${DEVCLOUD_WORKER_ENV_FILE:-${WORKER_ENV_FILE}}"
+
+[[ -d "${WHEELS_DIR}" ]] || fail "Offline wheels directory is missing: ${WHEELS_DIR}"
+[[ -d "${IMAGES_DIR}" ]] || fail "Offline image directory is missing: ${IMAGES_DIR}"
+[[ -f "${WORKER_ENV_SOURCE}" ]] || fail \
+    "Create ${WORKER_ENV_FILE} from deploy/worker.env.example before installation, or set DEVCLOUD_WORKER_ENV_FILE."
+
+for required_key in DEVCLOUD_MASTER_URL DEVCLOUD_NODE_ID DEVCLOUD_NODE_TOKEN; do
+    grep -Eq "^${required_key}=[^[:space:]]+$" "${WORKER_ENV_SOURCE}" || fail \
+        "${required_key} is missing from ${WORKER_ENV_SOURCE}."
+done
+grep -Eq '^DEVCLOUD_MASTER_URL=https?://[^[:space:]]+$' "${WORKER_ENV_SOURCE}" || fail \
+    "DEVCLOUD_MASTER_URL must start with http:// or https://."
+grep -Eq '^DEVCLOUD_NODE_ID=(replace-with-node-id)?$' "${WORKER_ENV_SOURCE}" && fail \
+    "Replace the placeholder DEVCLOUD_NODE_ID in ${WORKER_ENV_SOURCE}."
+grep -Eq '^DEVCLOUD_NODE_TOKEN=(replace-with-node-token)?$' "${WORKER_ENV_SOURCE}" && fail \
+    "Replace the placeholder DEVCLOUD_NODE_TOKEN in ${WORKER_ENV_SOURCE}."
+
+bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
+
+command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Python 3."
+command -v podman >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Podman."
+
+OCI_RUNTIME="$(command -v crun 2>/dev/null || command -v runc 2>/dev/null || true)"
+[[ -n "${OCI_RUNTIME}" ]] || fail "Bundled RPM installation did not provide crun or runc."
+
+log "Verifying the worker bundle and target runtime..."
+python3 "${PROJECT_DIR}/deploy/package_offline.py" \
+    --verify "${PROJECT_DIR}" --check-runtime --expected-role worker
+
+export XDG_RUNTIME_DIR="/run/user/0"
+install -d -m 0700 /run/user/0 /run/containers/storage
+install -d -m 0755 /var/lib/containers/storage
+install -d -m 0755 /etc/containers/containers.conf.d
+cat > /etc/containers/containers.conf.d/00-runtime.conf <<EOF
+[engine]
+runtime = "${OCI_RUNTIME}"
+EOF
+
+log "Preparing worker storage and SELinux labels..."
+DEVCLOUD_SERVICE_USER=root bash "${PROJECT_DIR}/deploy/configure_selinux.sh"
+
+log "Installing Python packages from the offline wheel set..."
+cd "${PROJECT_DIR}"
+if [[ ! -d .venv ]]; then
+    python3 -m venv .venv
+fi
+source .venv/bin/activate
+python -m pip install --no-index --find-links="${WHEELS_DIR}" -r requirements.txt
+
+log "Loading the five verified workspace images..."
+IMAGE_COUNT=0
+for image_archive in "${IMAGES_DIR}"/*.tar; do
+    [[ -f "${image_archive}" ]] || continue
+    podman load -i "${image_archive}"
+    IMAGE_COUNT=$((IMAGE_COUNT + 1))
+done
+[[ "${IMAGE_COUNT}" -eq 5 ]] || fail "Expected 5 images, loaded ${IMAGE_COUNT}."
+
+for required_image in \
+    localhost/devcloud-vscode-empty:latest \
+    localhost/devcloud-vscode-python:latest \
+    localhost/devcloud-vscode-react:latest \
+    localhost/devcloud-jupyter-python:latest \
+    localhost/devcloud-vscode-java:latest; do
+    podman image exists "${required_image}" || fail "Required image is missing: ${required_image}"
+done
+
+log "Installing worker enrollment and systemd service..."
+install -d -m 0755 /etc/devcloud
+if [[ "${WORKER_ENV_SOURCE}" != "${WORKER_ENV_FILE}" ]]; then
+    install -m 0600 "${WORKER_ENV_SOURCE}" "${WORKER_ENV_FILE}"
+else
+    chmod 0600 "${WORKER_ENV_FILE}"
+fi
+
+sed -e 's|{{USER}}|root|g' \
+    -e "s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
+    "${PROJECT_DIR}/deploy/devcloud-worker.service" \
+    > /etc/systemd/system/devcloud-worker.service
+chmod 0644 /etc/systemd/system/devcloud-worker.service
+
+systemctl daemon-reload
+systemctl enable devcloud-worker
+systemctl restart devcloud-worker
+
+log "Worker installed. It will connect outbound to the configured master."
+log "Follow logs with: sudo journalctl -u devcloud-worker -f"

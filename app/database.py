@@ -128,6 +128,7 @@ async def init_db() -> None:
     from app.models.directory_settings import DirectorySettings  # noqa: F401
     from app.models.node import Node  # noqa: F401
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
+    from app.models.download_settings import DownloadSettings  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -38,6 +38,36 @@ def test_platform_updater_waits_for_new_healthy_service():
     assert "window.location.replace" in javascript
 
 
+def test_admin_has_separate_worker_offline_bundle_controls():
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+
+    assert 'id="btn-update-worker-downloads"' in template
+    assert 'id="worker-download-update-logs"' in template
+    assert "/api/admin/downloads/worker/status" in javascript
+    assert "/api/admin/downloads/worker/update" in javascript
+    assert 'id="download-settings-form"' in template
+    assert 'name="public_base_url"' in template
+    assert "/api/admin/download-settings" in javascript
+    assert "initDownloadSettings()" in javascript
+
+
+def test_public_download_page_exposes_worker_bootstrap_command():
+    template = (PROJECT_ROOT / "app/templates/downloads.html").read_text(
+        encoding="utf-8"
+    )
+    bootstrap = (PROJECT_ROOT / "app/templates/install_worker.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "worker_bootstrap_url" in template
+    assert "curl -fsSL" in template
+    assert "/opt/devcloud-worker" in bootstrap
+    assert "sha256sum -c" in bootstrap
+    assert "read -r -s NODE_TOKEN" in bootstrap
+    assert "DEVCLOUD_NODE_TOKEN" not in template
+
+
 def test_institutional_brand_mark_replaces_text_placeholder():
     template = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
     css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(encoding="utf-8")

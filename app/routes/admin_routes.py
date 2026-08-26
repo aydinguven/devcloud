@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import secrets
-from typing import Annotated
+from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from app.models.directory_settings import DirectorySettings
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
+from app.models.download_settings import DownloadSettings
 from app.agents.manager import agent_manager
 from app.orchestrator.podman_service import podman_service
 from app.schemas.user import UserOut, UserQuotaUpdate
@@ -38,6 +39,8 @@ from app.schemas.directory import (
 from app.schemas.workspace import WorkspaceOut
 from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
+from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
+from app.config import settings
 from app.security.secrets import encrypt_secret
 from app.integrations.mlflow import (
     MlflowClient,
@@ -48,6 +51,50 @@ from app.integrations.mlflow import (
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:
+    base_url = record.public_base_url.rstrip("/")
+    return DownloadSettingsOut(
+        public_base_url=base_url,
+        worker_bootstrap_url=f"{base_url}/download/install-worker.sh",
+    )
+
+
+async def _get_or_create_download_settings(db: AsyncSession) -> DownloadSettings:
+    record = await db.get(DownloadSettings, 1)
+    if record:
+        return record
+    record = DownloadSettings(
+        id=1,
+        public_base_url=settings.DOWNLOAD_PUBLIC_BASE_URL,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+@admin_router.get("/download-settings", response_model=DownloadSettingsOut)
+async def get_download_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return _download_settings_out(await _get_or_create_download_settings(db))
+
+
+@admin_router.put("/download-settings", response_model=DownloadSettingsOut)
+async def update_download_settings(
+    update: DownloadSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await _get_or_create_download_settings(db)
+    record.public_base_url = update.public_base_url
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _download_settings_out(record)
 
 
 def _mlflow_settings_out(record: MlflowSettings) -> MlflowSettingsOut:
@@ -658,9 +705,47 @@ async def start_download_update(
         ) from exc
 
 
+@admin_router.get("/downloads/{bundle_role}/status")
+async def get_role_download_update_status(
+    bundle_role: Literal["server", "worker"],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Admin: Return durable status for one offline bundle role."""
+    return download_update_manager.get_status(bundle_role)
+
+
+@admin_router.post(
+    "/downloads/{bundle_role}/update",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_role_download_update(
+    bundle_role: Literal["server", "worker"],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Admin: Build and atomically publish one offline bundle role."""
+    try:
+        return download_update_manager.start(bundle_role)
+    except DownloadUpdateDisabled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except DownloadUpdateInProgress as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+
 @admin_router.post("/downloads/clean")
 async def clean_old_downloads(
     _admin: Annotated[User, Depends(get_current_admin_user)],
 ):
     """Admin: Remove older offline bundles and temporary files to reclaim disk space."""
-    return download_update_manager.clean_old_bundles()
+    try:
+        return download_update_manager.clean_old_bundles()
+    except DownloadUpdateInProgress as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
