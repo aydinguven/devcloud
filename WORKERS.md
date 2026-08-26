@@ -12,7 +12,7 @@ connection.
 2. Expose the normal DevCloud hostname on HTTPS/WSS 443 and retain the long
    proxy timeouts from `deploy/nginx.conf.example`.
 3. Open **Yönetim → Worker Node'ları**, create `cpu-worker-01` and
-   `cpu-worker-02`, and retain each one-time enrollment token.
+   `cpu-worker-02`, and retain each node token. The UI displays it only once.
 4. Once a worker connects, verify that its state is `online`, capacity is
    populated, and scheduling is enabled.
 
@@ -29,7 +29,7 @@ with mode `0600`:
 ```ini
 DEVCLOUD_MASTER_URL=https://devcloud.example.com
 DEVCLOUD_NODE_ID=<node-id>
-DEVCLOUD_NODE_TOKEN=<one-time-enrollment-token>
+DEVCLOUD_NODE_TOKEN=<node-token>
 # Optional mTLS values:
 # DEVCLOUD_AGENT_CA_FILE=/etc/devcloud/pki/ca.pem
 # DEVCLOUD_AGENT_CERT_FILE=/etc/devcloud/pki/worker.pem
@@ -49,12 +49,13 @@ workspace port or worker management port should be exposed.
 
 ## TLS
 
-The enrollment token authenticates the application-level connection. For mTLS,
+The long-lived, node-specific token authenticates the application-level
+connection and can be rotated from the admin UI. For mTLS,
 issue each worker a separate client certificate and configure the optional
 `DEVCLOUD_AGENT_CA_FILE`, `DEVCLOUD_AGENT_CERT_FILE`, and
 `DEVCLOUD_AGENT_KEY_FILE` variables. The TLS terminator in front of the master
-must verify the client certificate for the agent connection. Keep the enrollment
-token enabled as a second, node-specific credential.
+must verify the client certificate for the agent connection. Keep the node token
+enabled as a second credential.
 
 ## Scheduling and drain
 

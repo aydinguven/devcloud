@@ -44,6 +44,16 @@ async def connect_agent(
             message = await websocket.receive_json()
             if message.get("type") == "heartbeat":
                 heartbeat = NodeHeartbeat.model_validate(message.get("payload") or {})
+                # Admin changes happen in another request/session. Refresh the
+                # policy fields before applying heartbeat data so a stale,
+                # long-lived agent session cannot undo drain/disable decisions.
+                await db.refresh(node, attribute_names=["enabled", "schedulable"])
+                if not node.enabled:
+                    await websocket.close(
+                        code=4403,
+                        reason="Worker yönetici tarafından devre dışı bırakıldı",
+                    )
+                    break
                 node.hostname = heartbeat.hostname
                 node.cpu_total = heartbeat.cpu_total
                 node.memory_total_mb = heartbeat.memory_total_mb
@@ -65,4 +75,3 @@ async def connect_agent(
             fresh_node.status = NodeStatus.OFFLINE
             db.add(fresh_node)
             await db.commit()
-

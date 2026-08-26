@@ -468,7 +468,7 @@ function initNodeManagement() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
       tokenBox.style.display = "block";
-      tokenBox.textContent = `Worker: ${data.name}\nNode ID: ${data.id}\nEnrollment token (yalnızca şimdi gösterilir):\n${data.enrollment_token}\n\nDEVCLOUD_MASTER_URL=https://<master-host>\nDEVCLOUD_NODE_ID=${data.id}\nDEVCLOUD_NODE_TOKEN=${data.enrollment_token}`;
+      tokenBox.textContent = `Worker: ${data.name}\nNode ID: ${data.id}\nWorker token (yalnızca şimdi gösterilir; gerektiğinde yenilenebilir):\n${data.enrollment_token}\n\nDEVCLOUD_MASTER_URL=https://<master-host>\nDEVCLOUD_NODE_ID=${data.id}\nDEVCLOUD_NODE_TOKEN=${data.enrollment_token}`;
       status.textContent = "Worker kaydedildi. Token'ı worker yapılandırmasına ekleyin.";
       status.className = "quota-form-status quota-status-success";
       form.reset();

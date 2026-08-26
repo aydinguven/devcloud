@@ -119,8 +119,16 @@ class WorkerAgent:
             await asyncio.sleep(20)
 
     def _registered_storage(self, container_name: str) -> str:
-        entry = self.registry.get(container_name) or {}
+        entry = self._registered_entry(container_name)
         return str(entry.get("storage_path") or "")
+
+    def _registered_entry(self, container_name: str, workspace_id: str = "") -> dict:
+        entry = self.registry.get(container_name)
+        if not isinstance(entry, dict):
+            raise PermissionError("Container bu worker'a kayıtlı değil.")
+        if workspace_id and str(entry.get("workspace_id") or "") != workspace_id:
+            raise PermissionError("Workspace ve container eşleşmesi doğrulanamadı.")
+        return entry
 
     def _safe_workspace_path(self, container_name: str, relative_path: str = "") -> Path:
         storage_path = self._registered_storage(container_name)
@@ -150,6 +158,7 @@ class WorkerAgent:
             return {"container_id": container_id, "storage_path": storage_path}
         if not name:
             raise ValueError("container_name gereklidir.")
+        registered = self._registered_entry(name)
         if action == "container.exists":
             return {"exists": await podman_service.container_exists(name)}
         if action == "container.start":
@@ -162,7 +171,6 @@ class WorkerAgent:
             tail = max(1, min(int(payload.get("tail", 100)), 1000))
             return {"logs": await podman_service.get_logs(name, tail=tail)}
         if action == "container.port_ready":
-            registered = self.registry.get(name) or {}
             host_port = int(payload.get("host_port", -1))
             if int(registered.get("host_port", -2)) != host_port:
                 raise PermissionError("Workspace port eşleşmesi doğrulanamadı.")
@@ -179,8 +187,6 @@ class WorkerAgent:
                 pass
             return {"ready": True}
         if action == "container.stats":
-            if name not in self.registry:
-                raise PermissionError("Container bu worker'a kayıtlı değil.")
             return await podman_service.get_container_stats(name)
         if action == "container.storage_size":
             storage_path = self._registered_storage(name)
@@ -295,14 +301,19 @@ class WorkerAgent:
             if not 1 <= port <= 65535:
                 raise ValueError("Geçersiz custom port.")
             container_name = str(payload["container_name"])
-            if container_name not in self.registry:
-                raise PermissionError("Container bu worker'a kayıtlı değil.")
+            self._registered_entry(
+                container_name,
+                str(payload.get("workspace_id") or ""),
+            )
             host = await podman_service.get_container_ip(container_name)
             if not host:
                 raise RuntimeError("Container IP adresi bulunamadı.")
         else:
             port = int(payload["host_port"])
-            registered = self.registry.get(str(payload["container_name"])) or {}
+            registered = self._registered_entry(
+                str(payload["container_name"]),
+                str(payload.get("workspace_id") or ""),
+            )
             if int(registered.get("host_port", -1)) != port:
                 raise PermissionError("Workspace port eşleşmesi doğrulanamadı.")
             host = "127.0.0.1"

@@ -1,4 +1,7 @@
+import hashlib
+
 import pytest
+from fastapi import WebSocketDisconnect
 from httpx import AsyncClient
 from sqlalchemy import update
 
@@ -6,6 +9,7 @@ from app.models.node import Node, NodeStatus
 from app.models.user import User, UserRole
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
+from app.routes.agent_routes import connect_agent
 from tests.conftest import TestingSessionLocal
 
 
@@ -77,3 +81,62 @@ async def test_scheduler_uses_online_cpu_worker_and_never_falls_back_when_worker
     await db_session.commit()
     with pytest.raises(NoSchedulableNode):
         await select_worker_node(db_session, get_flavor("t1.small"))
+
+
+@pytest.mark.asyncio
+async def test_agent_heartbeat_preserves_admin_drain_change(db_session):
+    token = "node-secret"
+    worker = Node(
+        name="cpu-worker-drain",
+        status=NodeStatus.PENDING,
+        enabled=True,
+        schedulable=True,
+        agent_token_hash=hashlib.sha256(token.encode()).hexdigest(),
+    )
+    db_session.add(worker)
+    await db_session.commit()
+    await db_session.refresh(worker)
+
+    class FakeWebSocket:
+        headers = {"authorization": f"Bearer {token}"}
+
+        def __init__(self):
+            self.receive_count = 0
+            self.status_during_connection = None
+
+        async def accept(self):
+            return None
+
+        async def close(self, **_kwargs):
+            return None
+
+        async def receive_json(self):
+            self.receive_count += 1
+            if self.receive_count == 1:
+                async with TestingSessionLocal() as admin_session:
+                    await admin_session.execute(
+                        update(Node)
+                        .where(Node.id == worker.id)
+                        .values(schedulable=False, status=NodeStatus.DRAINING)
+                    )
+                    await admin_session.commit()
+                return {
+                    "type": "heartbeat",
+                    "payload": {
+                        "hostname": "worker-drain",
+                        "cpu_total": 8,
+                        "memory_total_mb": 16384,
+                        "disk_total_mb": 100000,
+                        "capabilities": {"runtime": "podman"},
+                        "agent_version": "test",
+                    },
+                }
+            async with TestingSessionLocal() as observer:
+                fresh = await observer.get(Node, worker.id)
+                self.status_during_connection = fresh.status
+            raise WebSocketDisconnect()
+
+    websocket = FakeWebSocket()
+    await connect_agent(websocket, worker.id, db_session)
+
+    assert websocket.status_during_connection == NodeStatus.DRAINING
