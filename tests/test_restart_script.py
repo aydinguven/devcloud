@@ -34,11 +34,38 @@ def test_service_supports_standard_systemd_reload():
     assert "ExecReload=/bin/kill -HUP $MAINPID" in service
 
 
+def test_service_uses_runtime_directory_for_configured_user():
+    service = (PROJECT_ROOT / "deploy" / "devcloud.service").read_text(encoding="utf-8")
+
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in service
+    assert "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U" in service
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in service
+
+
 def test_installers_use_bounded_restart_helper():
     for relative_path in ("deploy/deploy.sh", "deploy/deploy_offline.sh"):
         installer = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
         assert 'bash "${PROJECT_DIR}/deploy/restart.sh"' in installer
         assert "systemctl restart devcloud" not in installer
+
+
+def test_installers_keep_distribution_specific_python_packages():
+    installer = (PROJECT_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    apt_install = next(line for line in installer.splitlines() if "apt-get install" in line)
+    dnf_install = next(line for line in installer.splitlines() if "dnf install" in line)
+
+    assert "python3-venv" in apt_install
+    assert "python3-venv" not in dnf_install
+
+
+def test_offline_installer_requires_documented_sudo_and_does_not_alias_runtimes():
+    installer = (PROJECT_ROOT / "deploy" / "deploy_offline.sh").read_text(encoding="utf-8")
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (PROJECT_ROOT / "AIRGAP.md").read_text(encoding="utf-8")
+
+    assert "sudo bash deploy/deploy_offline.sh" in readme
+    assert "sudo bash deploy/deploy_offline.sh" in runbook
+    assert "ln -sf /usr/bin/runc /usr/bin/crun" not in installer
 
 
 def test_platform_updater_is_atomic_and_uses_bounded_restart_helper():

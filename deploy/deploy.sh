@@ -11,7 +11,7 @@ if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y podman crun python3 python3-pip python3-venv git curl
 elif command -v dnf >/dev/null 2>&1; then
     echo "Installing Podman & Python via DNF..."
-    sudo dnf install -y podman crun python3 python3-pip python3-venv git curl policycoreutils-python-utils selinux-policy-targeted
+    sudo dnf install -y podman crun python3 python3-pip git curl policycoreutils-python-utils selinux-policy-targeted
 else
     echo "Unsupported package manager. Please ensure Podman, crun, and Python 3.11+ are installed."
 fi

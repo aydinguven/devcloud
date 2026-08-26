@@ -207,7 +207,7 @@ tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 
 python3 deploy/package_offline.py --verify . --check-runtime
-bash deploy/deploy_offline.sh
+sudo bash deploy/deploy_offline.sh
 ```
 
 A connected deployment can also publish bundles at `/download/`. Administrators

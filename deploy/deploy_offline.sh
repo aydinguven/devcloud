@@ -21,8 +21,6 @@ OFFLINE_DIR="${PROJECT_DIR}/offline"
 WHEELS_DIR="${OFFLINE_DIR}/wheels"
 IMAGES_DIR="${OFFLINE_DIR}/images"
 WORKSPACES_DIR="/var/lib/devcloud/workspaces"
-TARGET_USER="${SUDO_USER:-root}"
-
 # Fix Podman RunRoot & Storage permissions (prevent "RunRoot is pointing to a path which is not writeable")
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 mkdir -p /run/user/0 /run/containers/storage /var/lib/containers/storage
@@ -73,11 +71,6 @@ cat <<EOF > /etc/containers/containers.conf.d/00-runtime.conf
 [engine]
 runtime = "${OCI_RUNTIME}"
 EOF
-
-# If crun is absent but runc exists, create convenience fallback symlink
-if ! command -v crun >/dev/null 2>&1 && [ -x "/usr/bin/runc" ] && [ ! -e "/usr/bin/crun" ]; then
-    ln -sf /usr/bin/runc /usr/bin/crun 2>/dev/null || true
-fi
 
 if [ ! -d "${WHEELS_DIR}" ]; then
     echo "ERROR: Offline wheels directory (${WHEELS_DIR}) not found!"

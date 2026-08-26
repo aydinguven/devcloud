@@ -22,7 +22,7 @@ its Rocky/RHEL/Fedora repository or installation media, install and verify:
 On Rocky Linux / RHEL / Fedora / CentOS:
 
 ```bash
-sudo dnf install -y podman crun python3 python3-pip python3-venv policycoreutils-python-utils
+sudo dnf install -y podman crun python3 python3-pip policycoreutils-python-utils
 ```
 
 Record the exact target Python version and verify OCI runtime:
@@ -136,7 +136,7 @@ sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 python3 deploy/package_offline.py --verify . --check-runtime
-bash deploy/deploy_offline.sh
+sudo bash deploy/deploy_offline.sh
 ```
 
 The installer re-verifies every wheel and container archive before changing the

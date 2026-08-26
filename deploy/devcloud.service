@@ -14,8 +14,13 @@ Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 Environment=STORAGE_ROOT=/var/lib/devcloud/workspaces
-Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# System services do not always receive a logind-created runtime directory.
+# The leading "+" runs only this preparation command with full privileges so
+# rootless Podman gets a private directory owned by the configured service user.
+ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U
 
 # Security & Decoupled Podman Process Management
 LimitNOFILE=65535
