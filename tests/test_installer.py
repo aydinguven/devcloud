@@ -329,6 +329,27 @@ def test_controller_public_url_drives_ingress_and_https_default(tmp_path):
     }
 
 
+def test_container_environment_files_do_not_preserve_quote_characters(tmp_path):
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=CommandRunner())
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine._configure_database(candidate)
+    engine._write_configuration(candidate)
+
+    postgresql = (
+        tmp_path / "etc/devcloud/postgresql.env"
+    ).read_text(encoding="utf-8")
+    controller = (
+        tmp_path / "etc/devcloud/controller.env"
+    ).read_text(encoding="utf-8")
+    assert "POSTGRESQL_USER=devcloud\n" in postgresql
+    assert 'POSTGRESQL_USER="devcloud"' not in postgresql
+    assert "DEBUG=False\n" in controller
+    assert 'DEBUG="False"' not in controller
+    assert "DATABASE_URL=postgresql+asyncpg://" in controller
+
+
 def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
     runner = CommandRunner()
     runner.run = lambda command, **_kwargs: subprocess.CompletedProcess(

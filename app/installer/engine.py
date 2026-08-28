@@ -712,6 +712,7 @@ class InstallerEngine:
                     "POSTGRESQL_PASSWORD": password,
                     "POSTGRESQL_DATABASE": "devcloud",
                 },
+                podman=True,
             )
             config.database_url = (
                 "postgresql+asyncpg://devcloud:"
@@ -1046,6 +1047,12 @@ class InstallerEngine:
     def _quote_env(value: str) -> str:
         return json.dumps(value, ensure_ascii=False)
 
+    @staticmethod
+    def _podman_env(value: str) -> str:
+        if any(character in value for character in ("\n", "\r", "\x00")):
+            raise InstallerError("Podman environment values cannot contain newlines")
+        return value
+
     def _read_env(self, path: Path) -> dict[str, str]:
         values: dict[str, str] = {}
         if not path.is_file():
@@ -1064,9 +1071,16 @@ class InstallerEngine:
             values[key] = raw_value.strip('"')
         return values
 
-    def _write_env(self, path: Path, values: dict[str, str]) -> None:
+    def _write_env(
+        self,
+        path: Path,
+        values: dict[str, str],
+        *,
+        podman: bool = False,
+    ) -> None:
+        formatter = self._podman_env if podman else self._quote_env
         payload = "".join(
-            f"{key}={self._quote_env(str(value))}\n"
+            f"{key}={formatter(str(value))}\n"
             for key, value in sorted(values.items())
             if value != ""
         )
@@ -1165,7 +1179,11 @@ class InstallerEngine:
                         ).hexdigest(),
                     }
                 )
-            self._write_env(controller_env_path, controller_values)
+            self._write_env(
+                controller_env_path,
+                controller_values,
+                podman=config.containerized_controller,
+            )
 
         if config.installs_worker:
             if config.role == DeploymentRole.WORKER:
@@ -1214,6 +1232,7 @@ class InstallerEngine:
                     "DEVCLOUD_WORKER_NAME": config.worker_name,
                     "STORAGE_ROOT": config.workspace_root,
                 },
+                podman=config.containerized_worker,
             )
 
     def _run_migrations(self, config: InstallConfig) -> None:
