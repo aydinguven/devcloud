@@ -8,10 +8,13 @@ in-place disconnected update, transfer a signed release or reviewed Git ZIP
 and use devcloud-setup update with the bundle path; do not extract over the
 active release.
 
-This runbook creates self-contained Linux x86_64 controller or CPU-worker bundles
-from a specific Git commit. Each bundle contains the required DevCloud source,
-Python wheels, all five workspace container images, distribution-matched
-operating-system RPMs, a role-marked artifact manifest, and SHA-256 checksums.
+This runbook creates self-contained Linux x86_64 server or CPU-worker bundles
+from a specific Git commit. The server bundle supports both Controller and
+All-in-one installation, including SQLite, bundled PostgreSQL, and external
+PostgreSQL choices. Each bundle contains the required DevCloud source, Python
+wheels, all five workspace container images, a role-specific and
+distribution-matched operating-system RPM closure, an artifact manifest, and
+SHA-256 checksums.
 
 Generated bundles are intentionally excluded from normal Git history. Commit
 and push the packaging code, then attach the generated archive and checksum to
@@ -20,10 +23,11 @@ a Git release (or store them in an approved artifact repository).
 ## 1. Prepare the target VM before isolation
 
 The self-bootstrapping bundle targets Rocky Linux 10.x or RHEL 10.x on x86_64.
-It includes the complete DNF dependency closure for Python, pip, Podman, `crun`,
-Nginx, SELinux tooling, and `subscription-manager`. Rocky and RHEL use
-separate RPM closures, while Rocky nodes can still use the client for
-Foreman/Katello.
+The server bundle includes the complete DNF dependency closure for Python, pip,
+Podman, `crun`, Nginx, SELinux tooling, GnuPG, `subscription-manager`, and
+both PostgreSQL server and client packages. The smaller worker bundle omits
+controller-only Nginx and PostgreSQL packages. Rocky and RHEL use separate RPM
+closures, while Rocky nodes can still use the client for Foreman/Katello.
 
 The minimal target VM must already provide DNF, RPM, systemd, `sudo`, `tar`,
 and `sha256sum`. Record its distribution before isolation:
@@ -61,8 +65,8 @@ the builder to compress with multiple CPU cores; packaging still works with a
 slower single-threaded gzip fallback when `pigz` is unavailable.
 
 ```bash
-git pull --ff-only origin main
-python3 deploy/package_offline.py --python-version 3.12
+git pull --ff-only
+python3 deploy/package_offline.py --bundle-role server --python-version 3.12
 ```
 
 Build the standalone CPU-worker installer separately:
@@ -88,8 +92,9 @@ The builder:
 1. requires a clean tracked working tree;
 2. copies only Git-tracked source into a temporary staging directory;
 3. downloads Linux x86_64 binary wheels for the selected CPython version;
-4. downloads the full Rocky/RHEL system RPM dependency closure, including
-   Podman, `crun`, Nginx, and `subscription-manager`;
+4. downloads the complete role-specific Rocky/RHEL system RPM dependency
+   closure, including every package used by the interactive installer and all
+   server database choices;
 5. rebuilds and exports all five Linux/amd64 Podman images;
 6. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
 7. verifies the stage and creates these ignored files:
@@ -173,25 +178,30 @@ This section is the clean-install flow. Do not extract a new bundle over a live
 project directory: runtime database and local configuration files are
 intentionally excluded from generated archives.
 
-Transfer both files using approved media. From the transfer directory:
+Transfer both files using approved media. Keep the target's public repository
+access disabled for this test. From the transfer directory:
 
 ```bash
 sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
-sudo bash deploy/deploy_offline.sh
+sudo bash deploy/devcloud-setup.sh
 ```
 
-The installer first checks the outer archive workflow, detects Rocky versus
-RHEL, verifies `offline/system-rpms/SHA256SUMS`, and installs the local RPM
-transaction with all network repositories disabled. It then re-verifies every
-manifest artifact, installs Python packages without an index, loads exactly
-five container archives, applies the SELinux workspace policy, installs the
-DevCloud and ingress systemd units, configures Nginx on port 80, and starts
-DevCloud. On Rocky and RHEL, `subscription-manager` is
-installed but registration is intentionally left to the administrator because
-Foreman/Katello or Red Hat registration needs organization credentials and an
-activation key.
+The unified installer detects the manifest before any repository operation,
+verifies `offline/system-rpms/SHA256SUMS`, and installs the local RPM
+transaction with every DNF repository disabled. Once Python is available, it
+verifies every artifact in the manifest before showing the role and database
+questions. Python dependencies are installed with `--no-index`; worker roles
+load the five verified container archives instead of building or pulling
+images. There is no connected-repository fallback for a manifest-marked
+offline bundle.
+
+On Rocky and RHEL, `subscription-manager` is installed but registration is
+intentionally left to the administrator because Foreman/Katello or Red Hat
+registration needs organization credentials and an activation key. External
+PostgreSQL still requires access to the operator-provided database endpoint;
+it does not require internet access.
 
 For an existing controller that can reach the Git remote, use the Git update flow
 in README.md instead of rerunning the clean offline installer. A fully

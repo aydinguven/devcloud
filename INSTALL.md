@@ -19,6 +19,12 @@ repositories. If those repositories cannot provide it, a matching
 offline/system-rpms/distribution-10-x86_64 closure is used when present. The
 installer does not register a subscription or activation key.
 
+When an offline artifact manifest is present, the behavior is stricter: the
+installer verifies and installs the bundled RPM closure with every repository
+disabled before it starts the Python UI. It then verifies the complete artifact
+manifest, installs wheels without an index, and loads bundled workspace images.
+It never falls back to a connected repository for that installation.
+
 ## Controller
 
 Choose SQLite for the smallest footprint, bundled PostgreSQL for a controller

@@ -34,9 +34,23 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE="${DISTRIBUTION_ID}-${MAJOR_VERSION}-x86_64"
 BOOTSTRAP_RPMS="${PROJECT_DIR}/offline/bootstrap-rpms/${PROFILE}"
 SYSTEM_RPMS="${PROJECT_DIR}/offline/system-rpms/${PROFILE}"
+OFFLINE_MANIFEST="${PROJECT_DIR}/offline/MANIFEST.json"
+OFFLINE_BUNDLE=0
+
+if [[ -f "${OFFLINE_MANIFEST}" ]]; then
+    [[ -d "${SYSTEM_RPMS}" ]] || fail \
+        "The offline bundle has no system RPM closure for ${PROFILE}."
+    log "Offline bundle detected; verifying and installing bundled RPMs with all repositories disabled..."
+    bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
+    OFFLINE_BUNDLE=1
+    export DEVCLOUD_OFFLINE_INSTALL=1
+fi
 
 install_subscription_manager() {
     command -v subscription-manager >/dev/null 2>&1 && return 0
+    if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
+        fail "The verified offline RPM transaction did not install subscription-manager."
+    fi
     log "Installing subscription-manager..."
     if dnf install -y subscription-manager; then
         return 0
@@ -54,8 +68,17 @@ install_subscription_manager() {
 install_subscription_manager
 
 if ! command -v python3 >/dev/null 2>&1; then
+    [[ "${OFFLINE_BUNDLE}" -eq 0 ]] || fail \
+        "The verified offline RPM transaction did not install Python 3."
     log "Installing Python 3 from configured repositories..."
     dnf install -y python3
+fi
+
+if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
+    log "Verifying the complete offline artifact manifest..."
+    python3 "${PROJECT_DIR}/deploy/package_offline.py" \
+        --verify "${PROJECT_DIR}" \
+        --check-runtime
 fi
 
 export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"

@@ -43,17 +43,44 @@ CONTAINER_PLATFORM = "linux/amd64"
 SUPPORTED_SYSTEM_PACKAGE_TARGETS = ("rocky", "rhel")
 SUPPORTED_SYSTEM_PACKAGE_MAJOR = "10"
 COMMON_SYSTEM_PACKAGES = (
-    "podman",
-    "crun",
+    "gnupg2",
     "python3",
     "python3-pip",
-    "nginx",
     "policycoreutils-python-utils",
+    "subscription-manager",
 )
-SYSTEM_PACKAGES_BY_DISTRIBUTION = {
-    "rocky": (*COMMON_SYSTEM_PACKAGES, "subscription-manager"),
-    "rhel": (*COMMON_SYSTEM_PACKAGES, "subscription-manager"),
+WORKER_SYSTEM_PACKAGES = (
+    "podman",
+    "crun",
+    "tar",
+    "gzip",
+)
+CONTROLLER_SYSTEM_PACKAGES = (
+    "nginx",
+    "curl",
+    "postgresql-server",
+    "postgresql",
+)
+SYSTEM_PACKAGES_BY_BUNDLE_ROLE = {
+    "server": {
+        "rocky": (
+            *COMMON_SYSTEM_PACKAGES,
+            *CONTROLLER_SYSTEM_PACKAGES,
+            *WORKER_SYSTEM_PACKAGES,
+        ),
+        "rhel": (
+            *COMMON_SYSTEM_PACKAGES,
+            *CONTROLLER_SYSTEM_PACKAGES,
+            *WORKER_SYSTEM_PACKAGES,
+        ),
+    },
+    "worker": {
+        "rocky": (*COMMON_SYSTEM_PACKAGES, *WORKER_SYSTEM_PACKAGES),
+        "rhel": (*COMMON_SYSTEM_PACKAGES, *WORKER_SYSTEM_PACKAGES),
+    },
 }
+# Compatibility for integrations that imported the original server-wide map.
+SYSTEM_PACKAGES_BY_DISTRIBUTION = SYSTEM_PACKAGES_BY_BUNDLE_ROLE["server"]
 IMAGES = (
     ("devcloud-vscode-empty", "localhost/devcloud-vscode-empty:latest", "vscode-empty"),
     ("devcloud-vscode-python", "localhost/devcloud-vscode-python:latest", "vscode-python"),
@@ -248,6 +275,7 @@ def read_os_release(path: Path = Path("/etc/os-release")) -> dict[str, str]:
 def detect_system_package_profile(
     os_release_path: Path = Path("/etc/os-release"),
     *,
+    bundle_role: str = "server",
     system_name: str | None = None,
     machine: str | None = None,
 ) -> dict[str, object]:
@@ -274,14 +302,19 @@ def detect_system_package_profile(
             "System RPM collection supports major version 10 only; "
             f"this host reports VERSION_ID={version_id or 'unknown'}"
         )
+    if bundle_role not in BUNDLE_ROLES:
+        raise PackageError(f"Unsupported bundle role: {bundle_role!r}")
 
-    packages = list(SYSTEM_PACKAGES_BY_DISTRIBUTION[distribution_id])
+    packages = list(
+        SYSTEM_PACKAGES_BY_BUNDLE_ROLE[bundle_role][distribution_id]
+    )
     return {
         "distribution_id": distribution_id,
         "version_id": version_id,
         "major_version": major_version,
         "architecture": "x86_64",
         "profile": f"{distribution_id}-{major_version}-x86_64",
+        "bundle_role": bundle_role,
         "requested_packages": packages,
     }
 
@@ -289,6 +322,7 @@ def detect_system_package_profile(
 def download_system_rpms(
     system_rpms_root: Path,
     *,
+    bundle_role: str = "server",
     dnf_bin: str = "dnf",
     os_release_path: Path = Path("/etc/os-release"),
     system_name: str | None = None,
@@ -296,6 +330,7 @@ def download_system_rpms(
 ) -> dict[str, object]:
     profile = detect_system_package_profile(
         os_release_path,
+        bundle_role=bundle_role,
         system_name=system_name,
         machine=machine,
     )
@@ -512,7 +547,14 @@ def verify_staged_bundle(
             or not all(isinstance(package, str) for package in requested_packages)
         ):
             raise PackageError("The manifest contains an unsupported system package profile")
-        required_packages = set(SYSTEM_PACKAGES_BY_DISTRIBUTION[str(distribution_id)])
+        profile_bundle_role = system_packages.get("bundle_role", bundle_role)
+        if profile_bundle_role != bundle_role:
+            raise PackageError(
+                "The system package profile does not match the bundle role"
+            )
+        required_packages = set(
+            SYSTEM_PACKAGES_BY_BUNDLE_ROLE[bundle_role][str(distribution_id)]
+        )
         if not required_packages.issubset(requested_packages):
             raise PackageError("The system package profile omits required packages")
     if check_runtime:
@@ -721,6 +763,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
         if not args.skip_system_rpms:
             system_package_profile = download_system_rpms(
                 system_rpms_dir,
+                bundle_role=bundle_role,
                 dnf_bin=args.dnf_bin,
             )
         export_images(

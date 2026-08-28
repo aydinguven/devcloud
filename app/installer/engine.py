@@ -600,6 +600,27 @@ class InstallerEngine:
             and config.database_mode == DatabaseMode.EXTERNAL_POSTGRESQL
         ):
             packages.add("postgresql")
+        offline_manifest = self.project_root / "offline" / "MANIFEST.json"
+        if offline_manifest.is_file():
+            profile = detect_platform(self.host_path("/etc/os-release")).profile
+            rpm_root = self.project_root / "offline" / "system-rpms" / profile
+            rpms = sorted(rpm_root.glob("*.rpm")) if rpm_root.is_dir() else []
+            if not rpms:
+                raise InstallerError(
+                    "This release is marked as an offline bundle but has no "
+                    f"RPM closure for {profile}"
+                )
+            self.runner.run(
+                [
+                    "dnf",
+                    "--disable-repo=*",
+                    "install",
+                    "-y",
+                    *[str(path) for path in rpms],
+                ]
+            )
+            return
+
         result = self.runner.run(
             ["dnf", "install", "-y", *sorted(packages)],
             check=False,

@@ -121,6 +121,31 @@ def test_system_package_profile_targets_el10_distribution(
     assert "podman" in profile["requested_packages"]
     assert "crun" in profile["requested_packages"]
     assert "subscription-manager" in profile["requested_packages"]
+    assert "postgresql-server" in profile["requested_packages"]
+    assert "postgresql" in profile["requested_packages"]
+
+
+def test_worker_system_package_profile_omits_controller_only_packages(
+    tmp_path: Path,
+):
+    os_release = tmp_path / "os-release"
+    os_release.write_text(
+        'ID="rocky"\nVERSION_ID="10.2"\n',
+        encoding="utf-8",
+    )
+
+    profile = package_offline.detect_system_package_profile(
+        os_release,
+        bundle_role="worker",
+        system_name="Linux",
+        machine="x86_64",
+    )
+
+    assert profile["bundle_role"] == "worker"
+    assert "podman" in profile["requested_packages"]
+    assert "subscription-manager" in profile["requested_packages"]
+    assert "nginx" not in profile["requested_packages"]
+    assert "postgresql-server" not in profile["requested_packages"]
 
 
 def test_system_package_profile_rejects_unsupported_release(tmp_path: Path):
@@ -166,6 +191,7 @@ def test_system_rpm_download_collects_dependency_closure_and_checksums(
     assert command[:4] == ["dnf5", "download", "--resolve", "--alldeps"]
     assert "podman" in command
     assert "subscription-manager" in command
+    assert "postgresql-server" in command
     assert profile["profile"] == "rocky-10-x86_64"
     checksum_index = (rpm_root / "SHA256SUMS").read_text(encoding="ascii")
     assert "rocky-10-x86_64/podman-1-1.el10.x86_64.rpm" in checksum_index
@@ -193,6 +219,7 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
         "major_version": "10",
         "architecture": "x86_64",
         "profile": "rocky-10-x86_64",
+        "bundle_role": "server",
         "requested_packages": list(
             package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]
         ),

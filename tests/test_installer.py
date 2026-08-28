@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -209,6 +210,53 @@ def test_bundled_postgresql_plan_is_role_scoped(tmp_path):
     assert any("postgresql-server" in command for command in commands)
     assert any("postgresql-setup --initdb" in command for command in commands)
     assert not any(" podman" in f" {command}" for command in commands)
+
+
+def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
+    tmp_path,
+    monkeypatch,
+):
+    source = tmp_path / "source"
+    source.joinpath("app").mkdir(parents=True)
+    source.joinpath("app/__init__.py").write_text(
+        '__version__ = "3.0.0"\n',
+        encoding="utf-8",
+    )
+    source.joinpath("offline/MANIFEST.json").parent.mkdir(parents=True)
+    source.joinpath("offline/MANIFEST.json").write_text("{}\n", encoding="utf-8")
+    rpm_dir = source / "offline/system-rpms/rocky-10-x86_64"
+    rpm_dir.mkdir(parents=True)
+    rpm = rpm_dir / "complete-closure.rpm"
+    rpm.write_bytes(b"rpm")
+
+    host = tmp_path / "host"
+    host.joinpath("etc").mkdir(parents=True)
+    host.joinpath("etc/os-release").write_text(
+        'ID="rocky"\nVERSION_ID="10.2"\n',
+        encoding="utf-8",
+    )
+    runner = CommandRunner(dry_run=True)
+    monkeypatch.setattr(
+        "app.installer.engine.detect_platform",
+        lambda _path: SimpleNamespace(profile="rocky-10-x86_64"),
+    )
+    engine = InstallerEngine(
+        project_root=source,
+        filesystem_root=host,
+        runner=runner,
+    )
+
+    engine._install_packages(config(DeploymentRole.ALL_IN_ONE))
+
+    assert runner.commands == [
+        [
+            "dnf",
+            "--disable-repo=*",
+            "install",
+            "-y",
+            str(rpm),
+        ]
+    ]
 
 
 def test_external_postgresql_url_is_normalized_for_async_controller(tmp_path):

@@ -97,6 +97,19 @@ def test_system_rpm_installer_is_offline_and_distribution_scoped():
     assert "subscription-manager" in installer
 
 
+def test_unified_setup_prefers_and_verifies_offline_artifacts_before_ui():
+    setup = (PROJECT_ROOT / "deploy" / "devcloud-setup.sh").read_text(
+        encoding="utf-8"
+    )
+
+    offline_install = setup.index("install_offline_system_packages.sh")
+    connected_install = setup.index("dnf install -y subscription-manager")
+    assert offline_install < connected_install
+    assert "DEVCLOUD_OFFLINE_INSTALL=1" in setup
+    assert '--verify "${PROJECT_DIR}"' in setup
+    assert "--check-runtime" in setup
+
+
 def test_installers_use_bounded_restart_helper():
     for relative_path in ("deploy/deploy.sh", "deploy/deploy_offline.sh"):
         installer = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
@@ -143,7 +156,7 @@ def test_offline_installer_requires_documented_sudo_and_does_not_alias_runtimes(
     runbook = (PROJECT_ROOT / "AIRGAP.md").read_text(encoding="utf-8")
 
     assert "sudo bash deploy/deploy_offline.sh" in readme
-    assert "sudo bash deploy/deploy_offline.sh" in runbook
+    assert "sudo bash deploy/devcloud-setup.sh" in runbook
     assert "ln -sf /usr/bin/runc /usr/bin/crun" not in installer
 
 
