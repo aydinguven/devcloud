@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
-BUNDLE_FORMAT = 3
+BUNDLE_FORMAT = 4
 BUNDLE_ROLES = ("server", "worker")
 BUNDLE_PREFIXES = {
     "server": "devcloud-offline",
@@ -64,6 +64,7 @@ IMAGES = (
     ("devcloud-vscode-java", "localhost/devcloud-vscode-java:latest", "vscode-java"),
 )
 CONTROLLER_IMAGE_ARCHIVE = "devcloud-controller"
+WORKER_IMAGE_ARCHIVE = "devcloud-worker"
 POSTGRESQL_IMAGE_ARCHIVE = "devcloud-postgresql-16"
 POSTGRESQL_IMAGE = "localhost/devcloud-postgresql:16"
 POSTGRESQL_SOURCE_IMAGE = os.getenv(
@@ -471,6 +472,53 @@ def export_controller_images(
             )
 
 
+def export_worker_image(
+    root_dir: Path,
+    images_dir: Path,
+    *,
+    podman_bin: str,
+    skip_build: bool,
+    version: str,
+) -> None:
+    """Export the rootful worker runtime image for a registry-free install."""
+    run([podman_bin, "--version"], capture_output=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    worker_image = f"localhost/devcloud-worker:{version}"
+    if skip_build:
+        run([podman_bin, "image", "exists", worker_image])
+    else:
+        run(
+            [
+                podman_bin,
+                "build",
+                "--platform",
+                CONTAINER_PLATFORM,
+                "--build-arg",
+                f"DEVCLOUD_VERSION={version}",
+                "--file",
+                str(root_dir / "containers/devcloud-worker/Containerfile"),
+                "--tag",
+                worker_image,
+                str(root_dir),
+            ]
+        )
+    archive = images_dir / f"{WORKER_IMAGE_ARCHIVE}.tar"
+    print(f"Exporting {worker_image} to {archive.name}...")
+    run(
+        [
+            podman_bin,
+            "save",
+            "--format",
+            "oci-archive",
+            "-o",
+            str(archive),
+            worker_image,
+        ]
+    )
+    if not archive.is_file() or archive.stat().st_size == 0:
+        raise PackageError(f"Podman did not create a valid worker archive for {worker_image}")
+
+
 def artifact_record(bundle_root: Path, path: Path, kind: str) -> dict[str, object]:
     return {
         "path": path.relative_to(bundle_root).as_posix(),
@@ -494,6 +542,9 @@ def write_manifest(
     images = sorted((bundle_root / "offline" / "images").glob("*.tar"))
     controller_images = sorted(
         (bundle_root / "offline" / "controller-images").glob("*.tar")
+    )
+    worker_images = sorted(
+        (bundle_root / "offline" / "worker-images").glob("*.tar")
     )
     # Workspace images are lifecycle-managed by the controller and deliberately
     # excluded from controller and worker base installation bundles.
@@ -519,6 +570,18 @@ def write_manifest(
             "Controller image archive set is incomplete; "
             f"missing={sorted(expected_controller_images - actual_controller_images)}, "
             f"extra={sorted(actual_controller_images - expected_controller_images)}"
+        )
+    expected_worker_images = {
+        f"offline/worker-images/{WORKER_IMAGE_ARCHIVE}.tar"
+    }
+    actual_worker_images = {
+        path.relative_to(bundle_root).as_posix() for path in worker_images
+    }
+    if actual_worker_images != expected_worker_images:
+        raise PackageError(
+            "Worker image archive set is incomplete; "
+            f"missing={sorted(expected_worker_images - actual_worker_images)}, "
+            f"extra={sorted(actual_worker_images - expected_worker_images)}"
         )
 
     requirements = bundle_root / "requirements.txt"
@@ -567,6 +630,10 @@ def write_manifest(
             *(
                 artifact_record(bundle_root, path, "controller-container-image")
                 for path in controller_images
+            ),
+            *(
+                artifact_record(bundle_root, path, "worker-container-image")
+                for path in worker_images
             ),
             *(artifact_record(bundle_root, path, "system-rpm") for path in system_rpms),
             *(
@@ -698,6 +765,7 @@ def verify_staged_bundle(
     seen_paths: set[str] = set()
     image_paths: set[str] = set()
     controller_image_paths: set[str] = set()
+    worker_image_paths: set[str] = set()
     wheel_paths: set[str] = set()
     system_rpm_paths: set[str] = set()
     system_rpm_metadata_paths: set[str] = set()
@@ -723,6 +791,8 @@ def verify_staged_bundle(
             image_paths.add(raw_path)
         elif record.get("kind") == "controller-container-image":
             controller_image_paths.add(raw_path)
+        elif record.get("kind") == "worker-container-image":
+            worker_image_paths.add(raw_path)
         elif record.get("kind") == "python-wheel":
             wheel_paths.add(raw_path)
         elif record.get("kind") == "system-rpm":
@@ -749,6 +819,11 @@ def verify_staged_bundle(
         raise PackageError(
             "The manifest does not contain the required controller images"
         )
+    expected_worker_images = {
+        f"offline/worker-images/{WORKER_IMAGE_ARCHIVE}.tar"
+    }
+    if worker_image_paths != expected_worker_images:
+        raise PackageError("The manifest does not contain the required worker image")
     if not wheel_paths:
         raise PackageError("The manifest does not contain Python wheels")
     actual_images = {
@@ -760,8 +835,14 @@ def verify_staged_bundle(
         path.relative_to(bundle_root).as_posix()
         for path in (bundle_root / "offline" / "controller-images").glob("*.tar")
     }
+    actual_worker_images = {
+        path.relative_to(bundle_root).as_posix()
+        for path in (bundle_root / "offline" / "worker-images").glob("*.tar")
+    }
     if actual_controller_images != controller_image_paths:
         raise PackageError("The bundle contains unlisted controller image archives")
+    if actual_worker_images != worker_image_paths:
+        raise PackageError("The bundle contains unlisted worker image archives")
     actual_wheels = {
         path.relative_to(bundle_root).as_posix()
         for path in (bundle_root / "offline" / "wheels").glob("*.whl")
@@ -903,6 +984,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
         copy_tracked_source(root_dir, bundle_root)
         wheels_dir = bundle_root / "offline" / "wheels"
         controller_images_dir = bundle_root / "offline" / "controller-images"
+        worker_images_dir = bundle_root / "offline" / "worker-images"
         system_rpms_dir = bundle_root / "offline" / "system-rpms"
 
         versions = download_wheels(root_dir, wheels_dir, args.python_version)
@@ -922,6 +1004,13 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
                 skip_build=args.skip_image_build,
                 version=version,
             )
+        export_worker_image(
+            root_dir,
+            worker_images_dir,
+            podman_bin=args.podman_bin,
+            skip_build=args.skip_image_build,
+            version=version,
+        )
         write_manifest(
             bundle_root,
             git_commit=commit,

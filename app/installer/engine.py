@@ -229,13 +229,24 @@ class InstallerEngine:
                 lambda: self._install_services(config),
             ),
         ]
+        runtime_step_index = 6
         if config.containerized_controller:
             steps.insert(
-                4,
+                runtime_step_index,
                 PlanStep(
                     "controller-images",
                     "Load verified controller images or build them from this release",
                     lambda: self._prepare_controller_images(config),
+                ),
+            )
+            runtime_step_index += 1
+        if config.containerized_worker:
+            steps.insert(
+                runtime_step_index,
+                PlanStep(
+                    "worker-image",
+                    "Load the verified worker image or build it from this release",
+                    lambda: self._prepare_worker_image(config),
                 ),
             )
         if config.installs_worker:
@@ -301,10 +312,15 @@ class InstallerEngine:
                 ),
                 PlanStep(
                     "controller-images",
-                    "Verify or reload controller container images",
-                    lambda: self._prepare_controller_images(config)
-                    if config.containerized_controller
-                    else None,
+                    "Verify or reload runtime container images",
+                    lambda: (
+                        self._prepare_controller_images(config)
+                        if config.containerized_controller
+                        else None,
+                        self._prepare_worker_image(config)
+                        if config.containerized_worker
+                        else None,
+                    ),
                 ),
                 PlanStep(
                     "configuration",
@@ -349,10 +365,15 @@ class InstallerEngine:
                 ),
                 PlanStep(
                     "controller-images",
-                    "Load the new verified controller image",
-                    lambda: self._prepare_controller_images(config)
-                    if config.containerized_controller
-                    else None,
+                    "Load the new verified runtime images",
+                    lambda: (
+                        self._prepare_controller_images(config)
+                        if config.containerized_controller
+                        else None,
+                        self._prepare_worker_image(config)
+                        if config.containerized_worker
+                        else None,
+                    ),
                 ),
                 PlanStep(
                     "python",
@@ -759,7 +780,7 @@ class InstallerEngine:
                     config.service_user,
                 ]
             )
-            if config.installs_worker:
+            if config.installs_worker and not config.containerized_worker:
                 self.runner.run(
                     [
                         "usermod",
@@ -788,7 +809,7 @@ class InstallerEngine:
                     config.service_user,
                 ]
             )
-        if config.installs_worker:
+        if config.installs_worker and not config.containerized_worker:
             self._ensure_worker_subids(config.service_user)
 
     def _ensure_worker_subids(self, service_user: str) -> None:
@@ -1214,6 +1235,21 @@ class InstallerEngine:
     def _controller_image(self) -> str:
         return f"localhost/devcloud-controller:{self.release_version}"
 
+    def _controller_source_image(self) -> str:
+        return os.environ.get(
+            "DEVCLOUD_CONTROLLER_SOURCE_IMAGE",
+            f"quay.io/aaslangoren/devcloud:controller-{self.release_version}",
+        )
+
+    def _worker_image(self) -> str:
+        return f"localhost/devcloud-worker:{self.release_version}"
+
+    def _worker_source_image(self) -> str:
+        return os.environ.get(
+            "DEVCLOUD_WORKER_SOURCE_IMAGE",
+            f"quay.io/aaslangoren/devcloud:worker-{self.release_version}",
+        )
+
     @staticmethod
     def _postgresql_image() -> str:
         return "localhost/devcloud-postgresql:16"
@@ -1245,17 +1281,9 @@ class InstallerEngine:
                 check=False,
             )
             if exists.returncode != 0 or self.runner.dry_run:
-                build_script = (
-                    self.host_path(config.install_root)
-                    / "current"
-                    / "deploy"
-                    / "container"
-                    / "build-controller-image.sh"
-                )
-                self.runner.run(
-                    ["bash", str(build_script)],
-                    env={"DEVCLOUD_CONTROLLER_IMAGE": controller_image},
-                )
+                source = self._controller_source_image()
+                self.runner.run(["podman", "pull", source])
+                self.runner.run(["podman", "tag", source, controller_image])
         required = [self._controller_image()]
         if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
             required.append(self._postgresql_image())
@@ -1276,6 +1304,32 @@ class InstallerEngine:
                     f"Required controller container image is missing: {image}"
                 )
 
+    def _prepare_worker_image(self, config: InstallConfig) -> None:
+        if not config.containerized_worker:
+            return
+        image_root = (
+            self.host_path(config.install_root)
+            / "current"
+            / "offline"
+            / "worker-images"
+        )
+        archives = sorted(image_root.glob("*.tar")) if image_root.is_dir() else []
+        for archive in archives:
+            self.runner.run(["podman", "load", "-i", str(archive)])
+        worker_image = self._worker_image()
+        exists = self.runner.run(
+            ["podman", "image", "exists", worker_image],
+            check=False,
+        )
+        if exists.returncode != 0 or self.runner.dry_run:
+            if archives and not self.runner.dry_run:
+                raise InstallerError(
+                    f"Required worker container image is missing after loading archives: {worker_image}"
+                )
+            source = self._worker_source_image()
+            self.runner.run(["podman", "pull", source])
+            self.runner.run(["podman", "tag", source, worker_image])
+
     def _install_services(self, config: InstallConfig) -> None:
         release = self.host_path(config.install_root) / "current"
         systemd_dir = self.host_path("/etc/systemd/system")
@@ -1291,7 +1345,7 @@ class InstallerEngine:
             )
         if config.installs_controller and not config.containerized_controller:
             units.append(("devcloud.service", "devcloud-controller.service"))
-        if config.installs_worker:
+        if config.installs_worker and not config.containerized_worker:
             units.append(("devcloud-worker.service", "devcloud-worker.service"))
         for source_name, target_name in units:
             template = (self.project_root / "deploy" / source_name).read_text(
@@ -1316,17 +1370,28 @@ class InstallerEngine:
                     rendered.encode("utf-8"),
                     0o644,
                 )
-        if config.containerized_controller:
+        if config.containerized_controller or config.containerized_worker:
             quadlet_dir = self.host_path("/etc/containers/systemd")
             if not self.runner.dry_run:
                 quadlet_dir.mkdir(parents=True, exist_ok=True)
-            quadlets = [
-                ("devcloud.network", "devcloud.network"),
-                ("devcloud-controller.container", "devcloud-controller.container"),
-            ]
-            if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+            quadlets: list[tuple[str, str]] = []
+            if config.containerized_controller:
+                quadlets.extend(
+                    [
+                        ("devcloud.network", "devcloud.network"),
+                        ("devcloud-controller.container", "devcloud-controller.container"),
+                    ]
+                )
+            if (
+                config.containerized_controller
+                and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+            ):
                 quadlets.append(
                     ("devcloud-postgresql.container", "devcloud-postgresql.container")
+                )
+            if config.containerized_worker:
+                quadlets.append(
+                    ("devcloud-worker.container", "devcloud-worker.container")
                 )
             for source_name, target_name in quadlets:
                 source = (
@@ -1340,6 +1405,9 @@ class InstallerEngine:
                 rendered = rendered.replace(
                     "{{CONTROLLER_IMAGE}}", self._controller_image()
                 ).replace("{{POSTGRES_IMAGE}}", self._postgresql_image())
+                rendered = rendered.replace(
+                    "{{WORKER_IMAGE}}", self._worker_image()
+                ).replace("{{WORKSPACE_ROOT}}", config.workspace_root)
                 dependencies = (
                     "After=devcloud-postgresql.service\n"
                     "Requires=devcloud-postgresql.service"
@@ -1376,6 +1444,14 @@ class InstallerEngine:
     def _prepare_images(self, config: InstallConfig) -> None:
         if not config.installs_worker:
             return
+        release = self.host_path(config.install_root) / "current"
+        image_dir = release / "offline" / "images"
+        archives = sorted(image_dir.glob("*.tar")) if image_dir.is_dir() else []
+        if config.containerized_worker:
+            if archives and config.preload_images:
+                for archive in archives:
+                    self.runner.run(["podman", "load", "-i", str(archive)], cwd=release)
+            return
         uid_result = self.runner.run(
             ["id", "-u", config.service_user],
             capture_output=True,
@@ -1410,9 +1486,6 @@ class InstallerEngine:
             "HOME=/var/lib/devcloud",
             f"XDG_RUNTIME_DIR={runtime_dir}",
         ]
-        release = self.host_path(config.install_root) / "current"
-        image_dir = release / "offline" / "images"
-        archives = sorted(image_dir.glob("*.tar")) if image_dir.is_dir() else []
         if archives and config.preload_images:
             for archive in archives:
                 self.runner.run(
@@ -1449,6 +1522,8 @@ class InstallerEngine:
                 ["systemctl", "enable", "--now", "devcloud-controller.service"]
             )
         if config.installs_worker:
+            if config.containerized_worker:
+                self.runner.run(["systemctl", "enable", "--now", "podman.socket"])
             self.runner.run(
                 ["systemctl", "enable", "--now", "devcloud-worker.service"]
             )
@@ -1473,6 +1548,8 @@ class InstallerEngine:
             self.runner.run(["systemctl", "enable", "devcloud-controller.service"])
             self.runner.run(["systemctl", "restart", "devcloud-controller.service"])
         if config.installs_worker:
+            if config.containerized_worker:
+                self.runner.run(["systemctl", "enable", "--now", "podman.socket"])
             self.runner.run(["systemctl", "enable", "devcloud-worker.service"])
             self.runner.run(["systemctl", "restart", "devcloud-worker.service"])
         self._verify_services(config)
@@ -1527,15 +1604,27 @@ class InstallerEngine:
             worker_env = self._read_env(
                 self.host_path("/etc/devcloud/worker.env")
             )
-            self.runner.run(
-                [
-                    str(release / ".venv" / "bin" / "python"),
-                    "-m",
-                    "app.installer.verify_worker",
-                ],
-                cwd=release,
-                env=worker_env,
-            )
+            if config.containerized_worker:
+                self.runner.run(
+                    [
+                        "podman",
+                        "exec",
+                        "devcloud-worker",
+                        "python",
+                        "-m",
+                        "app.installer.verify_worker",
+                    ]
+                )
+            else:
+                self.runner.run(
+                    [
+                        str(release / ".venv" / "bin" / "python"),
+                        "-m",
+                        "app.installer.verify_worker",
+                    ],
+                    cwd=release,
+                    env=worker_env,
+                )
 
     def _stop_services(
         self,
@@ -1571,12 +1660,13 @@ class InstallerEngine:
         for name in names:
             if not self.runner.dry_run:
                 (systemd_dir / name).unlink(missing_ok=True)
-        if config.containerized_controller:
+        if config.containerized_controller or config.containerized_worker:
             quadlet_dir = self.host_path("/etc/containers/systemd")
             for name in (
                 "devcloud.network",
                 "devcloud-controller.container",
                 "devcloud-postgresql.container",
+                "devcloud-worker.container",
             ):
                 if not self.runner.dry_run:
                     (quadlet_dir / name).unlink(missing_ok=True)

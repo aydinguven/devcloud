@@ -287,7 +287,9 @@ files to a Git release or artifact repository; do not commit the multi-gigabyte
 archive to normal Git history.
 
 Workspace images are deliberately excluded from both controller and worker
-base bundles. To transport the maintained image set separately, run:
+base bundles. The worker runtime image is included in both roles; server
+bundles also include controller and PostgreSQL runtime images. To transport
+the maintained workspace image set separately, run:
 
 ```bash
 python3 deploy/package_workspace_images.py
@@ -395,7 +397,7 @@ intelligent-nobel/
 │   ├── routes/                  # REST APIs (Auth, Workspaces, Admin) & HTML pages
 │   ├── static/                  # CSS and JavaScript frontend logic
 │   └── templates/               # Jinja2 HTML templates
-├── containers/                  # Containerfiles for workspace images
+├── containers/                  # Controller, worker, and workspace Containerfiles
 │   ├── build_images.sh          # Podman batch builder
 │   ├── vscode-empty/
 │   ├── vscode-python/

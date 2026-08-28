@@ -22,9 +22,10 @@ installer does not register a subscription or activation key.
 When an offline artifact manifest is present, the behavior is stricter: the
 installer verifies and installs the bundled RPM closure with every repository
 disabled before it starts the Python UI. It then verifies the complete artifact
-manifest and installs wheels without an index. Base controller and worker
-bundles do not contain workspace images. It never falls back to a connected
-repository for that installation.
+manifest and installs wheels without an index. Both bundle roles include the
+immutable rootful worker image; the server bundle also includes controller and
+PostgreSQL images. Base bundles do not contain workspace images. It never
+falls back to a connected repository for that installation.
 
 ## Controller
 
@@ -37,6 +38,9 @@ Podman Quadlet. The optional bundled PostgreSQL database is a second container
 on a private network and is never published on a host port. Native Python
 systemd installation remains available for existing deployments and
 compatibility.
+Connected installs pull versioned runtime images from
+`quay.io/aaslangoren/devcloud` by default; air-gapped installs load the same
+images from their verified bundle archives.
 
 After installation, add each workspace image under **Admin > Workspace
 Image'ları** from a Quay/internal-registry reference or an OCI/Docker tar
@@ -46,14 +50,22 @@ records under **Admin > Worker'lar** and retain each one-time enrollment token.
 
 ## All-in-one
 
-All-in-one installs the selected controller runtime and the host-native
-devcloud-worker.service. The installer creates one node ID/token pair, seeds
+All-in-one installs the selected controller runtime and the rootful worker
+container. The installer creates one node ID/token pair, seeds
 that node in the database, and connects the worker over loopback. This is a
 convenience deployment, not a separate runtime architecture.
 User-triggered workspace snapshots are supported only in this topology until
 distributed registry export has its own explicit authorization workflow.
 
 ## Worker
+
+New installations run the worker agent as a system Quadlet container. The
+container uses host networking and the rootful host Podman API socket at
+`/run/podman/podman.sock`; workspace containers and images therefore remain in
+the host's root Podman store. The socket is root-equivalent, is mounted only
+into the worker container, and does not require a privileged container. This
+mode is intended for dedicated, trusted worker VMs. Existing native/rootless
+worker installations retain their saved runtime during repair and update.
 
 When the worker can reach the controller, publish a worker bundle and run:
 
@@ -73,9 +85,10 @@ A JSON answer file can be applied with:
 The token file and generated environment files must remain mode 0600.
 Worker installation does not prompt for or preload workspace images. After the
 agent connects, it reconciles the enabled controller image catalogue every 30
-seconds, verifies archive size and SHA-256, loads missing images into rootless
-Podman, and reports its exact synchronized checksums. Scheduling waits until a
-worker reports the currently enabled checksum for the requested template.
+seconds, verifies archive size and SHA-256, loads missing images into rootful
+host Podman through its socket, and reports exact synchronized checksums.
+Scheduling waits until a worker reports the currently enabled checksum for the
+requested template.
 
 ## Updates
 
@@ -93,9 +106,9 @@ Build an official source release with:
     python3 deploy/build_release.py --signing-key GPG_KEY_ID
 
 Container deployments update through the host installer, not through Git
-inside the controller container. A verified server air-gap bundle contains the
-controller and PostgreSQL OCI archives, so update and reinstall require no
-registry connection.
+inside the controller container. A verified server air-gap bundle contains
+controller, worker, and PostgreSQL OCI archives. A worker bundle contains the
+worker archive. Update and reinstall therefore require no registry connection.
 
 Copy published worker releases to /srv/devcloud-downloads/releases. Worker
 downloads require its node ID/token; release source is not publicly exposed.

@@ -14,8 +14,9 @@ All-in-one installation, including SQLite, bundled PostgreSQL, and external
 PostgreSQL choices. Each base bundle contains the required DevCloud source,
 Python wheels, a distribution-matched
 `subscription-manager` bootstrap repository, an artifact manifest, and SHA-256
-checksums. The server bundle also contains the immutable controller image and
-PostgreSQL 16 image. Workspace images use a separate optional archive and are
+checksums. Both roles contain the immutable rootful worker image; the server
+bundle also contains the controller and PostgreSQL 16 images. Workspace images
+use a separate optional archive and are
 added through the controller after installation. All other operating-system
 packages come from an internal Satellite/Foreman service after registration.
 
@@ -107,10 +108,11 @@ The builder:
 4. downloads the Rocky/RHEL `subscription-manager` bootstrap dependency
    closure;
 5. creates local DNF repository metadata and checksums it with the RPM payload;
-6. for the server role, builds the controller image and exports it together
+6. builds and exports the rootful worker image for both roles;
+7. for the server role, builds the controller image and exports it together
    with PostgreSQL 16 as OCI archives;
-7. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
-8. verifies the stage and creates these ignored files:
+8. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
+9. verifies the stage and creates these ignored files:
 
 ```text
 dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
@@ -133,9 +135,9 @@ the old RPM directory as a backup, merges repository records into the target's
 own manifest, and leaves its wheels and container images in place. This permits
 compatible earlier bundle commits while still enforcing bundle format and role.
 
-If the local controller and PostgreSQL image tags for a server bundle are
-already known-good, add --skip-image-build; missing tags still make packaging
-fail.
+If the local controller, worker, and PostgreSQL image tags are already
+known-good, add --skip-image-build; any role-required missing tag still makes
+packaging fail.
 
 Build the optional workspace-image transport independently:
 
@@ -174,8 +176,9 @@ and reloads DevCloud. Then use the separate **Controller Paketini Güncelle** an
 İndirmeler**.
 
 The update operation downloads wheels and the Rocky/RHEL RPM dependency closure,
-builds the controller and PostgreSQL images for server bundles, consumes
-substantial disk space, and requires access to package and container registries.
+builds the worker image and, for server bundles, controller and PostgreSQL
+images, consumes substantial disk space, and requires access to package and
+container registries.
 It does not rebuild or embed workspace images.
 Containerized controllers intentionally disable in-application bundle rebuilds
 and source updates. Build releases on a dedicated connected builder and apply
@@ -243,10 +246,12 @@ The second run installs all other operating-system prerequisites from the
 registered Satellite/Foreman repositories. It then verifies every artifact in
 the manifest before showing the role and database questions. Python
 dependencies are installed from bundled wheels with --no-index. Worker roles
-start without workspace images. Container-controller roles load the verified
-controller archive and, when selected, PostgreSQL archive. Neither installation
-path builds nor pulls an image inside the air gap. External PostgreSQL still
-requires access to the operator-provided database endpoint.
+load the verified worker image but start without workspace images. Server roles
+also load the controller archive and, when selected, PostgreSQL archive. The
+worker Quadlet uses host networking and the rootful `/run/podman/podman.sock`
+socket to manage workspace containers in the host's root Podman store. Neither
+installation path builds nor pulls an image inside the air gap. External
+PostgreSQL still requires access to the operator-provided database endpoint.
 
 After the controller and workers are enrolled, transfer the separately produced
 workspace-image archive to an administrator machine or the controller:

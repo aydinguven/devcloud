@@ -26,6 +26,7 @@ from app.installer.models import (
     DeploymentRole,
     InstallConfig,
     RegistryMode,
+    WorkerRuntime,
 )
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import prepare_release
@@ -65,8 +66,10 @@ def test_install_plans_share_one_role_aware_engine(tmp_path):
     assert "migrations" in [step.key for step in controller.steps]
     assert "images" not in [step.key for step in controller.steps]
     assert {"migrations", "images"} <= {step.key for step in all_in_one.steps}
+    assert "worker-image" in [step.key for step in all_in_one.steps]
     assert "migrations" not in [step.key for step in worker.steps]
     assert "images" in [step.key for step in worker.steps]
+    assert "worker-image" in [step.key for step in worker.steps]
 
 
 def test_all_in_one_dry_run_installs_controller_and_worker_services(tmp_path):
@@ -260,6 +263,11 @@ def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
         for command in commands
     )
     assert any(
+        f"podman pull quay.io/aaslangoren/devcloud:controller-{engine.release_version}"
+        in command
+        for command in commands
+    )
+    assert any(
         "podman tag quay.io/sclorg/postgresql-16-c10s:latest "
         "localhost/devcloud-postgresql:16" in command
         for command in commands
@@ -302,6 +310,31 @@ def test_old_install_state_defaults_to_native_controller_runtime():
     payload.pop("controller_runtime")
     restored = InstallConfig.from_dict(payload)
     assert restored.controller_runtime == ControllerRuntime.NATIVE
+
+
+def test_old_install_state_defaults_to_native_worker_runtime():
+    payload = config(DeploymentRole.WORKER).public_dict()
+    payload.pop("worker_runtime")
+    restored = InstallConfig.from_dict(payload)
+    assert restored.worker_runtime == WorkerRuntime.NATIVE
+
+
+def test_new_answer_file_defaults_to_container_worker_runtime(tmp_path):
+    answer_file = tmp_path / "worker.json"
+    answer_file.write_text(
+        json.dumps(
+            {
+                "role": "worker",
+                "worker_id": "worker-id",
+                "worker_name": "worker-01",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    restored = InstallConfig.from_json_file(answer_file)
+
+    assert restored.worker_runtime == WorkerRuntime.CONTAINER
 
 
 def test_offline_bundle_installs_required_packages_from_configured_repositories(
@@ -395,7 +428,9 @@ def test_worker_plan_provisions_rootless_subordinate_ids(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
 
-    engine.build_install_plan(config(DeploymentRole.WORKER)).execute()
+    candidate = config(DeploymentRole.WORKER)
+    candidate.worker_runtime = WorkerRuntime.NATIVE
+    engine.build_install_plan(candidate).execute()
 
     commands = [" ".join(command) for command in runner.commands]
     assert any(
@@ -422,6 +457,7 @@ def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
     runner.run = recording_run
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
     candidate = config(DeploymentRole.WORKER)
+    candidate.worker_runtime = WorkerRuntime.NATIVE
     candidate.preload_images = True
 
     engine._prepare_images(candidate)
@@ -445,6 +481,35 @@ def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
         and cwd == tmp_path / "opt/devcloud/current"
         for command, cwd in calls
     )
+
+
+def test_container_worker_uses_rootful_store_for_preloaded_images(tmp_path):
+    image_dir = tmp_path / "opt/devcloud/current/offline/images"
+    image_dir.mkdir(parents=True)
+    image_archive = image_dir / "workspace.tar"
+    image_archive.touch()
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.WORKER)
+    candidate.preload_images = True
+
+    engine._prepare_images(candidate)
+
+    assert ["podman", "load", "-i", str(image_archive)] in runner.commands
+    assert not any(command and command[0] == "runuser" for command in runner.commands)
+
+
+def test_connected_container_worker_pulls_versioned_quay_image(tmp_path):
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.WORKER)
+
+    engine._prepare_worker_image(candidate)
+
+    source = f"quay.io/aaslangoren/devcloud:worker-{engine.release_version}"
+    target = f"localhost/devcloud-worker:{engine.release_version}"
+    assert ["podman", "pull", source] in runner.commands
+    assert ["podman", "tag", source, target] in runner.commands
 
 
 def test_ui_collects_worker_connection_details():

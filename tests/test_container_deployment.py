@@ -50,3 +50,24 @@ def test_postgresql_is_not_published_to_the_host():
     assert "PublishPort=" not in quadlet
     assert "Pull=never" in quadlet
 
+
+def test_worker_image_and_quadlet_use_rootful_host_podman_socket():
+    containerfile = (
+        ROOT / "containers" / "devcloud-worker" / "Containerfile"
+    ).read_text(encoding="utf-8")
+    entrypoint = (
+        ROOT / "deploy" / "container" / "worker-entrypoint.sh"
+    ).read_text(encoding="utf-8")
+    quadlet = (
+        ROOT / "deploy" / "container" / "quadlet" / "devcloud-worker.container"
+    ).read_text(encoding="utf-8")
+
+    assert "microdnf install -y podman" in containerfile
+    assert "USER 0" in containerfile
+    assert "podman info" in entrypoint
+    assert "Network=host" in quadlet
+    assert "Requires=podman.socket" in quadlet
+    assert "/run/podman/podman.sock:/run/podman/podman.sock" in quadlet
+    assert "SecurityLabelDisable=true" in quadlet
+    assert "Privileged=true" not in quadlet
+

@@ -29,6 +29,11 @@ class ControllerRuntime(StrEnum):
     NATIVE = "native"
 
 
+class WorkerRuntime(StrEnum):
+    CONTAINER = "container"
+    NATIVE = "native"
+
+
 @dataclass(slots=True)
 class InstallConfig:
     role: DeploymentRole
@@ -39,6 +44,7 @@ class InstallConfig:
     registry_mode: RegistryMode = RegistryMode.PRELOADED
     registry_url: str = ""
     controller_runtime: ControllerRuntime = ControllerRuntime.CONTAINER
+    worker_runtime: WorkerRuntime = WorkerRuntime.CONTAINER
     service_user: str = "devcloud"
     worker_name: str = ""
     worker_id: str = ""
@@ -73,6 +79,17 @@ class InstallConfig:
             and self.controller_runtime == ControllerRuntime.CONTAINER
         )
 
+    @property
+    def containerized_worker(self) -> bool:
+        return self.installs_worker and self.worker_runtime == WorkerRuntime.CONTAINER
+
+    @property
+    def fully_containerized(self) -> bool:
+        return (
+            (not self.installs_controller or self.containerized_controller)
+            and (not self.installs_worker or self.containerized_worker)
+        )
+
     def effective_database_url(self) -> str:
         if self.database_mode == DatabaseMode.SQLITE:
             return "sqlite+aiosqlite:////var/lib/devcloud/database/devcloud.db"
@@ -98,6 +115,7 @@ class InstallConfig:
         data["database_mode"] = self.database_mode.value
         data["registry_mode"] = self.registry_mode.value
         data["controller_runtime"] = self.controller_runtime.value
+        data["worker_runtime"] = self.worker_runtime.value
         data.pop("enrollment_token_file", None)
         data.pop("database_url", None)
         data.pop("private_key_file", None)
@@ -119,6 +137,11 @@ class InstallConfig:
         values["controller_runtime"] = ControllerRuntime(
             values.get("controller_runtime", ControllerRuntime.NATIVE)
         )
+        # State written before worker containers existed always represents the
+        # native systemd worker and must not silently migrate during an update.
+        values["worker_runtime"] = WorkerRuntime(
+            values.get("worker_runtime", WorkerRuntime.NATIVE)
+        )
         return cls(**values)
 
     @classmethod
@@ -126,4 +149,7 @@ class InstallConfig:
         loaded = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(loaded, dict):
             raise ValueError("The answer file must contain a JSON object")
+        # New answer files select the supported container worker unless the
+        # operator explicitly requests the native compatibility runtime.
+        loaded.setdefault("worker_runtime", WorkerRuntime.CONTAINER.value)
         return cls.from_dict(loaded)

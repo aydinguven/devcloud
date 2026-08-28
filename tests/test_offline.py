@@ -34,6 +34,14 @@ def add_controller_images(bundle_root: Path) -> None:
         package_offline.POSTGRESQL_IMAGE_ARCHIVE,
     ):
         (image_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+    add_worker_image(bundle_root)
+
+
+def add_worker_image(bundle_root: Path) -> None:
+    image_dir = bundle_root / "offline" / "worker-images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    name = package_offline.WORKER_IMAGE_ARCHIVE
+    (image_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
 
 
 def test_offline_source_directories_are_tracked_without_generated_artifacts():
@@ -69,7 +77,7 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     )
     manifest = package_offline.verify_staged_bundle(bundle_root)
     assert manifest["source_commit"] == "a" * 40
-    assert len(manifest["artifacts"]) == 3
+    assert len(manifest["artifacts"]) == 4
 
     (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"tampered")
     with pytest.raises(package_offline.PackageError, match="does not match"):
@@ -91,6 +99,7 @@ def test_worker_manifest_role_is_verified(tmp_path: Path):
     images_dir.mkdir(parents=True)
     (bundle_root / "requirements.txt").write_text("httpx\n", encoding="utf-8")
     (wheels_dir / "httpx-1-py3-none-any.whl").write_bytes(b"wheel")
+    add_worker_image(bundle_root)
     package_offline.write_manifest(
         bundle_root,
         git_commit="b" * 40,
@@ -171,6 +180,34 @@ def test_server_bundle_exports_controller_and_postgresql_oci_archives(
     assert any(
         "localhost/devcloud-controller:9.9.9" in command for command in commands
     )
+    assert all(
+        "--format" in command and "oci-archive" in command
+        for command in commands
+        if "save" in command
+    )
+
+
+def test_worker_bundle_exports_worker_oci_archive(tmp_path: Path, monkeypatch):
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        if "save" in command:
+            output = Path(command[command.index("-o") + 1])
+            output.write_bytes(b"oci-archive")
+
+    monkeypatch.setattr(package_offline, "run", fake_run)
+    output = tmp_path / "worker-images"
+    package_offline.export_worker_image(
+        tmp_path,
+        output,
+        podman_bin="podman",
+        skip_build=False,
+        version="9.9.9",
+    )
+
+    assert (output / "devcloud-worker.tar").is_file()
+    assert any("localhost/devcloud-worker:9.9.9" in command for command in commands)
     assert all(
         "--format" in command and "oci-archive" in command
         for command in commands

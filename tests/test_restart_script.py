@@ -74,6 +74,9 @@ def test_offline_worker_installer_requires_worker_manifest_and_enrollment():
     assert "DEVCLOUD_NODE_ID" in installer
     assert "DEVCLOUD_NODE_TOKEN" in installer
     assert "devcloud-worker.service" in installer
+    assert "offline/worker-images" in installer
+    assert "devcloud-worker.container" in installer
+    assert "podman.socket" in installer
 
 
 def test_master_and_worker_offline_installers_bootstrap_system_rpms():
