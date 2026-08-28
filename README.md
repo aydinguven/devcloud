@@ -143,9 +143,10 @@ bash deploy/deploy.sh
 
 The clean installer installs Python, Podman, Nginx, and SELinux prerequisites;
 creates persistent workspace/download/ingress directories; installs Python
-dependencies; builds the five workspace images; installs the DevCloud service;
-and configures Nginx as the port 80 entrypoint. HTTPS remains disabled until a
-valid certificate and key are uploaded from Admin.
+dependencies; installs the DevCloud service; and configures Nginx as the port
+80 entrypoint. Workspace images have a separate lifecycle: import them later
+from an OCI registry or archive under **Admin > Workspace Image'ları**. HTTPS
+remains disabled until a valid certificate and key are uploaded from Admin.
 
 Verify the clean installation:
 
@@ -212,11 +213,16 @@ sudo dnf install -y pigz  # Optional; repository availability varies
 DEVCLOUD_SERVICE_USER="$USER" bash deploy/configure_selinux.sh
 ```
 
-#### Step 3: Build Container Images
+#### Step 3: Add Workspace Images
 ```bash
+# On a connected build host, only when maintaining local image definitions:
 chmod +x containers/build_images.sh
 ./containers/build_images.sh
 ```
+
+Import the resulting OCI/Docker archives, or a Quay/internal-registry image
+reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
+enabled images from the controller; the base installation does not build them.
 
 #### Step 4: Configure Systemd Service
 Copy and edit `deploy/devcloud.service` into `/etc/systemd/system/`:
@@ -279,6 +285,17 @@ python3 deploy/package_offline.py --python-version 3.12
 This generates an ignored archive and checksum under `dist/`. Upload those two
 files to a Git release or artifact repository; do not commit the multi-gigabyte
 archive to normal Git history.
+
+Workspace images are deliberately excluded from both controller and worker
+base bundles. To transport the maintained image set separately, run:
+
+```bash
+python3 deploy/package_workspace_images.py
+```
+
+Transfer and verify that archive independently, extract it, and upload each
+archive from its `images/` directory under **Admin > Workspace Image'ları**.
+You may instead import the corresponding Quay or internal-registry references.
 
 New bundles use `.tar.gz` archives to keep transfer and storage size practical.
 The builder uses multi-core `pigz` when available and falls back to Python's

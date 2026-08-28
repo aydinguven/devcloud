@@ -51,6 +51,16 @@ def _connection_url() -> str:
     return f"{base}/api/agent/connect/{_required_env('DEVCLOUD_NODE_ID')}"
 
 
+def _controller_http_url() -> str:
+    base = (
+        os.environ.get("DEVCLOUD_CONTROLLER_URL", "").strip()
+        or os.environ.get("DEVCLOUD_MASTER_URL", "").strip()
+    ).rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        raise RuntimeError("DEVCLOUD_CONTROLLER_URL http:// veya https:// ile başlamalıdır.")
+    return base
+
+
 def _tls_context(connection_url: str) -> ssl.SSLContext | None:
     if not connection_url.startswith("wss://"):
         return None
@@ -70,10 +80,13 @@ class WorkerAgent:
         self.websocket = None
         self.send_lock = asyncio.Lock()
         self.registry_lock = asyncio.Lock()
+        self.image_sync_lock = asyncio.Lock()
         self.upgrade_task: asyncio.Task | None = None
         self.stream_targets: dict[str, object] = {}
         self.registry_path = Path(settings.STORAGE_ROOT) / ".devcloud-agent-registry.json"
         self.registry = self._load_registry()
+        self.image_state_path = Path(settings.STORAGE_ROOT) / ".devcloud-image-state.json"
+        self.image_state = self._load_image_state()
 
     def _load_registry(self) -> dict:
         try:
@@ -87,6 +100,167 @@ class WorkerAgent:
         temporary = self.registry_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self.registry, indent=2), encoding="utf-8")
         temporary.replace(self.registry_path)
+
+    def _load_image_state(self) -> dict[str, dict]:
+        try:
+            data = json.loads(self.image_state_path.read_text(encoding="utf-8"))
+            return {
+                str(key): value
+                for key, value in data.items()
+                if isinstance(key, str) and isinstance(value, dict)
+            } if isinstance(data, dict) else {}
+        except (FileNotFoundError, ValueError, OSError):
+            return {}
+
+    def _save_image_state(self) -> None:
+        self.image_state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.image_state_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(self.image_state, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        temporary.replace(self.image_state_path)
+
+    @staticmethod
+    def _http_verify_context(base_url: str):
+        if not base_url.startswith("https://"):
+            return True
+        ca_file = os.environ.get("DEVCLOUD_AGENT_CA_FILE", "").strip() or None
+        context = ssl.create_default_context(cafile=ca_file)
+        cert_file = os.environ.get("DEVCLOUD_AGENT_CERT_FILE", "").strip()
+        key_file = os.environ.get("DEVCLOUD_AGENT_KEY_FILE", "").strip()
+        if bool(cert_file) != bool(key_file):
+            raise RuntimeError(
+                "Agent client sertifikası için cert ve key birlikte ayarlanmalıdır."
+            )
+        if cert_file:
+            context.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        return context
+
+    async def sync_workspace_images(self) -> list[dict]:
+        """Reconcile enabled controller images into the worker's Podman store."""
+        async with self.image_sync_lock:
+            return await self._sync_workspace_images()
+
+    async def _sync_workspace_images(self) -> list[dict]:
+        base_url = _controller_http_url()
+        node_id = _required_env("DEVCLOUD_NODE_ID")
+        headers = {"Authorization": f"Bearer {_required_env('DEVCLOUD_NODE_TOKEN')}"}
+        timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout,
+            verify=self._http_verify_context(base_url),
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(
+                f"{base_url}/api/agent/images/catalog",
+                params={"node_id": node_id},
+            )
+            response.raise_for_status()
+            catalog = response.json().get("images", [])
+            if not isinstance(catalog, list):
+                raise RuntimeError("Controller workspace image catalog is invalid")
+
+            desired_ids: set[str] = set()
+            cache_root = Path(settings.STORAGE_ROOT) / ".devcloud-image-cache"
+            cache_root.mkdir(parents=True, exist_ok=True)
+            for item in catalog:
+                if not isinstance(item, dict):
+                    continue
+                image_id = str(item.get("id") or "")
+                image_ref = str(item.get("image_ref") or "")
+                expected_sha256 = str(item.get("sha256") or "")
+                expected_size = int(item.get("size") or 0)
+                image_url = str(item.get("url") or "")
+                if image_url.startswith("/"):
+                    download_url = f"{base_url}{image_url}"
+                elif image_url.startswith(f"{base_url}/api/agent/images/"):
+                    download_url = image_url
+                else:
+                    download_url = ""
+                try:
+                    safe_image_id = str(uuid.UUID(image_id)) == image_id
+                except ValueError:
+                    safe_image_id = False
+                if (
+                    not safe_image_id
+                    or not image_ref
+                    or len(expected_sha256) != 64
+                    or any(character not in "0123456789abcdef" for character in expected_sha256)
+                    or expected_size <= 0
+                    or not download_url
+                ):
+                    raise RuntimeError("Controller returned unsafe workspace image metadata")
+                desired_ids.add(image_id)
+                current = self.image_state.get(image_id, {})
+                exists_code, _, _ = await podman_service.run_cmd(
+                    "image", "exists", image_ref, timeout=30
+                )
+                if current.get("sha256") == expected_sha256 and exists_code == 0:
+                    continue
+
+                temporary = cache_root / f"{image_id}.partial"
+                digest = hashlib.sha256()
+                downloaded = 0
+                try:
+                    async with client.stream("GET", download_url) as download:
+                        download.raise_for_status()
+                        with temporary.open("wb") as destination:
+                            async for chunk in download.aiter_bytes(1024 * 1024):
+                                downloaded += len(chunk)
+                                if downloaded > expected_size:
+                                    raise RuntimeError(
+                                        f"Workspace image {image_ref} exceeded its catalog size"
+                                    )
+                                digest.update(chunk)
+                                destination.write(chunk)
+                    if downloaded != expected_size or digest.hexdigest() != expected_sha256:
+                        raise RuntimeError(
+                            f"Workspace image verification failed for {image_ref}"
+                        )
+                    code, stdout, stderr = await podman_service.run_cmd(
+                        "load", "-i", str(temporary), timeout=1800
+                    )
+                    if code != 0:
+                        raise RuntimeError(
+                            f"Podman could not load {image_ref}: {stderr or stdout}"
+                        )
+                    exists_code, _, _ = await podman_service.run_cmd(
+                        "image", "exists", image_ref, timeout=30
+                    )
+                    if exists_code != 0:
+                        raise RuntimeError(
+                            f"Loaded archive did not provide expected image {image_ref}"
+                        )
+                    self.image_state[image_id] = {
+                        "id": image_id,
+                        "template_id": str(item.get("template_id") or ""),
+                        "image_ref": image_ref,
+                        "digest": str(item.get("digest") or ""),
+                        "sha256": expected_sha256,
+                        "size": expected_size,
+                    }
+                    self._save_image_state()
+                    logger.info("Workspace image synchronized: %s", image_ref)
+                finally:
+                    temporary.unlink(missing_ok=True)
+
+            stale = set(self.image_state) - desired_ids
+            if stale:
+                for image_id in stale:
+                    self.image_state.pop(image_id, None)
+                self._save_image_state()
+            return [self.image_state[key] for key in sorted(self.image_state)]
+
+    async def image_sync_loop(self) -> None:
+        while True:
+            try:
+                await self.sync_workspace_images()
+            except Exception as exc:
+                logger.warning("Workspace image synchronization failed: %s", exc)
+            await asyncio.sleep(30)
 
     async def send(self, message: dict) -> None:
         async with self.send_lock:
@@ -105,6 +279,9 @@ class WorkerAgent:
 
     async def heartbeat(self) -> None:
         while True:
+            workspace_images = [
+                self.image_state[key] for key in sorted(self.image_state)
+            ]
             disk = shutil.disk_usage(settings.STORAGE_ROOT)
             memory_kb = 0
             mem_avail_kb = 0
@@ -158,7 +335,10 @@ class WorkerAgent:
                         "memory_used_mb": mem_used_mb,
                         "disk_used_mb": disk_used_mb,
                         "active_containers_count": active_cnt,
-                        "capabilities": {"runtime": "podman"},
+                        "capabilities": {
+                            "runtime": "podman",
+                            "workspace_images": workspace_images,
+                        },
                         "inventory": inventory,
                         "agent_version": __version__,
                     },
@@ -635,6 +815,7 @@ class WorkerAgent:
         ) as websocket:
             self.websocket = websocket
             heartbeat_task = asyncio.create_task(self.heartbeat())
+            image_sync_task = asyncio.create_task(self.image_sync_loop())
             tasks: set[asyncio.Task] = set()
             try:
                 async for raw in websocket:
@@ -649,6 +830,7 @@ class WorkerAgent:
                         await self.handle_stream_message(message)
             finally:
                 heartbeat_task.cancel()
+                image_sync_task.cancel()
                 for task in tasks:
                     task.cancel()
 

@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 class MigrationError(RuntimeError):
@@ -245,6 +245,9 @@ async def upgrade() -> None:
         if 3 not in applied:
             await _worker_only_constraints(conn)
             await _record_version(conn, 3, "worker-only workspace placement")
+        if 4 not in applied:
+            # init_db creates the portable workspace_images table.
+            await _record_version(conn, 4, "controller-managed workspace images")
 
 
 async def current_version() -> int:

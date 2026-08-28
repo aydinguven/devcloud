@@ -52,6 +52,10 @@
 </section>
 {% endif %}
 
+{% if admin_section == 'images' %}
+  {% include "partials/admin_images.html" %}
+{% endif %}
+
 {% if admin_section in ['system', 'workspaces'] %}
 {% if admin_section == 'system' %}
 <nav class="admin-section-jumps" aria-label="Sistem bölümleri">

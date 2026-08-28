@@ -134,3 +134,33 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     assert "JUPYTER_TOKEN=secret-workspace-token" in run_command
     assert not any("disable_check_xsrf" in arg for arg in startup_command)
     assert not any("allow_origin" in arg for arg in startup_command)
+
+
+@pytest.mark.asyncio
+async def test_workspace_creation_refuses_unsynchronized_managed_image(monkeypatch):
+    svc = PodmanService(podman_bin="podman")
+    svc._mock_mode = False
+
+    monkeypatch.setattr(
+        svc, "ensure_workspace_storage", lambda user_id, workspace_id: "/workspace"
+    )
+
+    async def missing_image(*_args, **_kwargs):
+        return False
+
+    async def fake_run_cmd(*_args, **_kwargs):
+        return 0, "", ""
+
+    monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(svc, "ensure_image_exists", missing_image)
+
+    with pytest.raises(RuntimeError, match="not synchronized"):
+        await svc.create_workspace_container(
+            workspace_id="12345678-1234-1234-1234-123456789abc",
+            user_id=1,
+            container_name="devcloud-1-12345678",
+            template_id="vscode-python",
+            flavor_id="t1.micro",
+            host_port=10100,
+            workspace_token="secret-workspace-token",
+        )

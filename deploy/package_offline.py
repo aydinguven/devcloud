@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
-BUNDLE_FORMAT = 2
+BUNDLE_FORMAT = 3
 BUNDLE_ROLES = ("server", "worker")
 BUNDLE_PREFIXES = {
     "server": "devcloud-offline",
@@ -495,7 +495,9 @@ def write_manifest(
     controller_images = sorted(
         (bundle_root / "offline" / "controller-images").glob("*.tar")
     )
-    expected_images = {f"offline/images/{name}.tar" for name, _, _ in IMAGES}
+    # Workspace images are lifecycle-managed by the controller and deliberately
+    # excluded from controller and worker base installation bundles.
+    expected_images: set[str] = set()
     actual_images = {path.relative_to(bundle_root).as_posix() for path in images}
     if actual_images != expected_images:
         missing = sorted(expected_images - actual_images)
@@ -732,9 +734,9 @@ def verify_staged_bundle(
         else:
             raise PackageError(f"Unknown artifact kind for {raw_path}")
 
-    expected_images = {f"offline/images/{name}.tar" for name, _, _ in IMAGES}
+    expected_images: set[str] = set()
     if image_paths != expected_images:
-        raise PackageError("The manifest does not contain all required container images")
+        raise PackageError("Base bundles must not contain workspace image artifacts")
     expected_controller_images = (
         {
             f"offline/controller-images/{CONTROLLER_IMAGE_ARCHIVE}.tar",
@@ -900,7 +902,6 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
         bundle_root = Path(temp_dir) / bundle_root_name
         copy_tracked_source(root_dir, bundle_root)
         wheels_dir = bundle_root / "offline" / "wheels"
-        images_dir = bundle_root / "offline" / "images"
         controller_images_dir = bundle_root / "offline" / "controller-images"
         system_rpms_dir = bundle_root / "offline" / "system-rpms"
 
@@ -913,12 +914,6 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
                 dnf_bin=args.dnf_bin,
                 createrepo_bin=args.createrepo_bin,
             )
-        export_images(
-            root_dir,
-            images_dir,
-            podman_bin=args.podman_bin,
-            skip_build=args.skip_image_build,
-        )
         if bundle_role == "server":
             export_controller_images(
                 root_dir,
@@ -1004,7 +999,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-image-build",
         action="store_true",
-        help="export existing image tags instead of rebuilding them",
+        help="export existing controller/PostgreSQL image tags instead of rebuilding them",
     )
     args = parser.parse_args(argv)
     args.python_version = args.python_version or list(DEFAULT_PYTHON_VERSIONS)

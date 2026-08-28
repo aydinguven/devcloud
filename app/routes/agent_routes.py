@@ -13,9 +13,11 @@ from app.agents.manager import agent_manager
 from app.database import get_db
 from app.models.node import Node, NodeStatus
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.workspace_image import WorkspaceImage
 from app.schemas.node import NodeHeartbeat
 from app.config import settings
 from app.release_catalog import RELEASE_PATTERN, latest_release
+from app.workspace_image_service import image_archive_path
 
 agent_router = APIRouter(prefix="/api/agent", tags=["Worker Agent"])
 
@@ -146,6 +148,66 @@ async def worker_download_release(
         media_type="application/zip",
         filename=filename,
         headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@agent_router.get("/images/catalog")
+async def worker_image_catalog(
+    request: Request,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the enabled, digest-pinned workspace image set to an enrolled worker."""
+    await _authenticated_node(request, node_id, db)
+    records = (
+        await db.execute(
+            select(WorkspaceImage)
+            .where(WorkspaceImage.enabled.is_(True))
+            .order_by(WorkspaceImage.template_id, WorkspaceImage.created_at.desc())
+        )
+    ).scalars().all()
+    return {
+        "images": [
+            {
+                "id": record.id,
+                "template_id": record.template_id,
+                "image_ref": record.image_ref,
+                "digest": record.digest,
+                "sha256": record.sha256,
+                "size": record.size,
+                "url": f"/api/agent/images/{record.id}/archive?node_id={node_id}",
+            }
+            for record in records
+        ]
+    }
+
+
+@agent_router.api_route("/images/{image_id}/archive", methods=["GET", "HEAD"])
+async def worker_download_image(
+    image_id: str,
+    request: Request,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream one enabled OCI archive only to an enrolled worker."""
+    await _authenticated_node(request, node_id, db)
+    record = await db.get(WorkspaceImage, image_id)
+    if not record or not record.enabled:
+        raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
+    try:
+        path = image_archive_path(record.filename)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Workspace image bulunamadı") from exc
+    if path.is_symlink() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
+    return FileResponse(
+        path,
+        media_type="application/vnd.oci.image.archive.v1+tar",
+        filename=f"{record.template_id}.tar",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "X-DevCloud-SHA256": record.sha256,
+        },
     )
 
 

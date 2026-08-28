@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSnapshotModal();
   initAdminPlatformUpdater();
   initAdminFilters();
+  initWorkspaceImageManager();
 });
 
 function initAdminFilters() {
@@ -33,6 +34,120 @@ function initAdminFilters() {
       });
     });
   });
+}
+
+function initWorkspaceImageManager() {
+  const table = document.getElementById("workspace-image-table");
+  if (!table) return;
+  const tbody = table.querySelector("tbody");
+  const count = document.getElementById("workspace-image-count");
+  const globalStatus = document.getElementById("workspace-image-global-status");
+  const registryForm = document.getElementById("workspace-image-registry-form");
+  const uploadForm = document.getElementById("workspace-image-upload-form");
+
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+  const humanSize = (bytes) => {
+    let value = Number(bytes || 0);
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+    return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+  };
+  const setStatus = (element, message, error = false) => {
+    if (!element) return;
+    element.textContent = message;
+    element.className = `quota-form-status ${error ? "quota-status-error" : "quota-status-success"}`;
+  };
+
+  async function loadImages() {
+    try {
+      const response = await fetch("/api/admin/workspace-images", { cache: "no-store" });
+      const images = await response.json().catch(() => []);
+      if (!response.ok) throw new Error(images.detail || `Katalog okunamadı (${response.status})`);
+      count.textContent = `${images.length} sürüm`;
+      tbody.innerHTML = images.length ? images.map((image) => `
+        <tr>
+          <td><strong>${escapeHtml(image.display_name)}</strong><br><code>${escapeHtml(image.template_id)}</code><br><small>${escapeHtml(image.image_ref)}</small></td>
+          <td><span class="badge badge-neutral">${escapeHtml(image.source_type)}</span><br><small>${escapeHtml(image.source_ref)}</small></td>
+          <td><code title="${escapeHtml(image.digest)}">${escapeHtml((image.digest || "-").slice(0, 24))}</code><br><code title="${escapeHtml(image.sha256)}">${escapeHtml(image.sha256.slice(0, 24))}…</code></td>
+          <td>${humanSize(image.size)}</td>
+          <td><strong>${image.synced_workers} / ${image.total_workers}</strong></td>
+          <td><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Pasif"}</span></td>
+          <td><div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}">${image.enabled ? "Devre Dışı" : "Etkinleştir"}</button>
+            <button class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}">Sil</button>
+          </div></td>
+        </tr>`).join("") : '<tr><td colspan="7">Henüz workspace image eklenmedi.</td></tr>';
+    } catch (error) {
+      setStatus(globalStatus, error.message, true);
+    }
+  }
+
+  async function submitForm(form, url, json = false) {
+    const button = form.querySelector('button[type="submit"]');
+    const status = form.querySelector("[data-image-form-status]");
+    button.disabled = true;
+    status.textContent = "İçe aktarılıyor; büyük image'lar birkaç dakika sürebilir...";
+    status.className = "quota-form-status";
+    try {
+      let body;
+      const options = { method: "POST" };
+      if (json) {
+        const values = Object.fromEntries(new FormData(form).entries());
+        body = JSON.stringify(values);
+        options.headers = { "Content-Type": "application/json" };
+      } else {
+        body = new FormData(form);
+      }
+      options.body = body;
+      const response = await fetch(url, options);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || `Image içe aktarılamadı (${response.status})`);
+      setStatus(status, "Image doğrulandı, etkinleştirildi ve worker kataloğuna eklendi.");
+      form.reset();
+      await loadImages();
+    } catch (error) {
+      setStatus(status, error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  registryForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitForm(registryForm, "/api/admin/workspace-images/import", true);
+  });
+  uploadForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitForm(uploadForm, "/api/admin/workspace-images/upload");
+  });
+  document.getElementById("btn-refresh-workspace-images").addEventListener("click", loadImages);
+  tbody.addEventListener("click", async (event) => {
+    const toggle = event.target.closest("[data-image-toggle]");
+    const remove = event.target.closest("[data-image-delete]");
+    if (!toggle && !remove) return;
+    const imageId = (toggle || remove).dataset.imageToggle || (toggle || remove).dataset.imageDelete;
+    if (remove && !window.confirm("Bu image arşivi controller'dan kalıcı olarak silinsin mi?")) return;
+    try {
+      const response = await fetch(`/api/admin/workspace-images/${encodeURIComponent(imageId)}`, {
+        method: remove ? "DELETE" : "PATCH",
+        headers: remove ? {} : { "Content-Type": "application/json" },
+        body: remove ? undefined : JSON.stringify({ enabled: toggle.dataset.enabled !== "true" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
+      await loadImages();
+    } catch (error) {
+      setStatus(globalStatus, error.message, true);
+    }
+  });
+  loadImages();
+  window.setInterval(loadImages, 20000);
 }
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer

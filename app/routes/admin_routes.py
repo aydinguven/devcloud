@@ -32,6 +32,8 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
+from app.models.workspace_image import WorkspaceImage
+from app.models.custom_template import CustomTemplate
 from app.agents.manager import agent_manager
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -43,6 +45,11 @@ from app.schemas.workspace import WorkspaceOut
 from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate, NodeLabelsUpdate
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
+from app.schemas.workspace_image import (
+    WorkspaceImageOut,
+    WorkspaceImageRegistryImport,
+    WorkspaceImageUpdate,
+)
 from app.config import settings
 from app.ingress_settings import (
     MAX_CERTIFICATE_BYTES,
@@ -59,6 +66,14 @@ from app.integrations.mlflow import (
     MlflowConnectionError,
     config_from_update as mlflow_config_from_update,
     validate_config as validate_mlflow_config,
+)
+from app.orchestrator.templates import BUILTIN_TEMPLATE_IDS, TEMPLATES
+from app.workspace_image_service import (
+    WorkspaceImageError,
+    image_archive_path,
+    image_storage_root,
+    import_registry_image,
+    import_uploaded_archive,
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -84,6 +99,219 @@ def _read_update_status() -> dict:
             except (OSError, json.JSONDecodeError):
                 return {"state": "unknown", "error": f"Cannot read {name}"}
     return {"state": "idle"}
+
+
+def _worker_image_state(node: Node) -> list[dict]:
+    try:
+        capabilities = json.loads(node.capabilities_json or "{}")
+    except ValueError:
+        return []
+    images = capabilities.get("workspace_images", []) if isinstance(capabilities, dict) else []
+    return images if isinstance(images, list) else []
+
+
+def _workspace_image_out(record: WorkspaceImage, nodes: list[Node]) -> WorkspaceImageOut:
+    synced = sum(
+        1
+        for node in nodes
+        if any(
+            isinstance(item, dict)
+            and item.get("image_ref") == record.image_ref
+            and item.get("sha256") == record.sha256
+            for item in _worker_image_state(node)
+        )
+    )
+    return WorkspaceImageOut.model_validate(
+        {
+            **{column.name: getattr(record, column.name) for column in record.__table__.columns},
+            "synced_workers": synced,
+            "total_workers": len(nodes),
+        }
+    )
+
+
+async def _workspace_template(db: AsyncSession, template_id: str) -> tuple[str, str]:
+    if template_id in BUILTIN_TEMPLATE_IDS:
+        template = TEMPLATES[template_id]
+        return template.name, template.image_tag
+    custom = await db.get(CustomTemplate, template_id)
+    if custom:
+        return custom.name, custom.image_tag
+    raise HTTPException(status_code=400, detail="Bilinmeyen workspace şablonu")
+
+
+async def _register_workspace_image(
+    db: AsyncSession,
+    *,
+    template_id: str,
+    display_name: str,
+    default_display_name: str,
+    source_type: str,
+    source_ref: str,
+    metadata: dict[str, object],
+) -> WorkspaceImage:
+    await db.execute(
+        update(WorkspaceImage)
+        .where(WorkspaceImage.template_id == template_id)
+        .values(enabled=False)
+    )
+    record = WorkspaceImage(
+        id=str(metadata["id"]),
+        template_id=template_id,
+        display_name=display_name.strip() or default_display_name,
+        image_ref=str(metadata["image_ref"]),
+        source_type=source_type,
+        source_ref=source_ref,
+        digest=str(metadata["digest"]),
+        sha256=str(metadata["sha256"]),
+        filename=str(metadata["filename"]),
+        size=int(metadata["size"]),
+        architecture=str(metadata["architecture"]),
+        enabled=True,
+    )
+    db.add(record)
+    try:
+        await db.commit()
+        await db.refresh(record)
+    except Exception:
+        await db.rollback()
+        image_archive_path(record.filename).unlink(missing_ok=True)
+        raise
+    return record
+
+
+@admin_router.get("/workspace-images", response_model=list[WorkspaceImageOut])
+async def list_workspace_images(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    records = (
+        await db.execute(select(WorkspaceImage).order_by(WorkspaceImage.created_at.desc()))
+    ).scalars().all()
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    return [_workspace_image_out(record, nodes) for record in records]
+
+
+@admin_router.post(
+    "/workspace-images/import", response_model=WorkspaceImageOut, status_code=status.HTTP_201_CREATED
+)
+async def import_workspace_image_from_registry(
+    payload: WorkspaceImageRegistryImport,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    template_name, image_ref = await _workspace_template(db, payload.template_id)
+    try:
+        metadata = await asyncio.to_thread(
+            import_registry_image,
+            image_ref=image_ref,
+            source_ref=payload.source_ref,
+            username=payload.username,
+            password=payload.password,
+        )
+        record = await _register_workspace_image(
+            db,
+            template_id=payload.template_id,
+            display_name=payload.display_name,
+            default_display_name=template_name,
+            source_type="registry",
+            source_ref=payload.source_ref.removeprefix("docker://"),
+            metadata=metadata,
+        )
+    except WorkspaceImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    return _workspace_image_out(record, nodes)
+
+
+@admin_router.post(
+    "/workspace-images/upload", response_model=WorkspaceImageOut, status_code=status.HTTP_201_CREATED
+)
+async def upload_workspace_image_archive(
+    template_id: Annotated[str, Form(min_length=2, max_length=64)],
+    archive: Annotated[UploadFile, File()],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    display_name: Annotated[str, Form(max_length=160)] = "",
+):
+    template_name, image_ref = await _workspace_template(db, template_id)
+    upload_root = image_storage_root() / ".uploads"
+    upload_root.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_root / f"{uuid.uuid4()}.upload"
+    size = 0
+    try:
+        with upload_path.open("xb") as destination:
+            while chunk := await archive.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.WORKSPACE_IMAGE_MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Workspace image archive is too large")
+                destination.write(chunk)
+        if not size:
+            raise HTTPException(status_code=400, detail="Workspace image archive is empty")
+        metadata = await asyncio.to_thread(
+            import_uploaded_archive,
+            image_ref=image_ref,
+            upload_path=upload_path,
+        )
+        record = await _register_workspace_image(
+            db,
+            template_id=template_id,
+            display_name=display_name,
+            default_display_name=template_name,
+            source_type="upload",
+            source_ref=Path(archive.filename or "workspace-image.tar").name,
+            metadata=metadata,
+        )
+    except WorkspaceImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        upload_path.unlink(missing_ok=True)
+        await archive.close()
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    return _workspace_image_out(record, nodes)
+
+
+@admin_router.patch("/workspace-images/{image_id}", response_model=WorkspaceImageOut)
+async def update_workspace_image(
+    image_id: str,
+    payload: WorkspaceImageUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await db.get(WorkspaceImage, image_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
+    if payload.enabled:
+        await db.execute(
+            update(WorkspaceImage)
+            .where(
+                WorkspaceImage.template_id == record.template_id,
+                WorkspaceImage.id != record.id,
+            )
+            .values(enabled=False)
+        )
+    record.enabled = payload.enabled
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
+    return _workspace_image_out(record, nodes)
+
+
+@admin_router.delete("/workspace-images/{image_id}")
+async def delete_workspace_image(
+    image_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await db.get(WorkspaceImage, image_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
+    archive_path = image_archive_path(record.filename)
+    await db.delete(record)
+    await db.commit()
+    archive_path.unlink(missing_ok=True)
+    return {"deleted": True, "image_id": image_id}
 
 
 def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:

@@ -76,23 +76,14 @@ fi
 source .venv/bin/activate
 python -m pip install --no-index --find-links="${WHEELS_DIR}" -r requirements.txt
 
-log "Loading the five verified workspace images..."
+log "Checking for legacy embedded workspace images..."
 IMAGE_COUNT=0
 for image_archive in "${IMAGES_DIR}"/*.tar; do
     [[ -f "${image_archive}" ]] || continue
     podman load -i "${image_archive}"
     IMAGE_COUNT=$((IMAGE_COUNT + 1))
 done
-[[ "${IMAGE_COUNT}" -eq 5 ]] || fail "Expected 5 images, loaded ${IMAGE_COUNT}."
-
-for required_image in \
-    localhost/devcloud-vscode-empty:latest \
-    localhost/devcloud-vscode-python:latest \
-    localhost/devcloud-vscode-react:latest \
-    localhost/devcloud-jupyter-python:latest \
-    localhost/devcloud-vscode-java:latest; do
-    podman image exists "${required_image}" || fail "Required image is missing: ${required_image}"
-done
+log "Loaded ${IMAGE_COUNT} legacy image archive(s); managed images synchronize after enrollment."
 
 log "Installing worker enrollment and systemd service..."
 install -d -m 0755 /etc/devcloud

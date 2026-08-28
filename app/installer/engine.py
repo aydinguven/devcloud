@@ -248,7 +248,7 @@ class InstallerEngine:
                     ),
                     PlanStep(
                         "images",
-                        "Load or build the selected workspace images",
+                        "Prepare controller-managed workspace image synchronization",
                         lambda: self._prepare_images(config),
                     ),
                 ]
@@ -636,7 +636,7 @@ class InstallerEngine:
             "subscription-manager",
         }
         if config.installs_controller:
-            packages.update({"nginx", "curl", "createrepo_c"})
+            packages.update({"nginx", "curl", "createrepo_c", "skopeo"})
         if config.containerized_controller:
             packages.update({"podman", "crun", "tar"})
         if config.installs_worker:
@@ -1374,7 +1374,7 @@ class InstallerEngine:
         )
 
     def _prepare_images(self, config: InstallConfig) -> None:
-        if not config.installs_worker or not config.preload_images:
+        if not config.installs_worker:
             return
         uid_result = self.runner.run(
             ["id", "-u", config.service_user],
@@ -1413,18 +1413,17 @@ class InstallerEngine:
         release = self.host_path(config.install_root) / "current"
         image_dir = release / "offline" / "images"
         archives = sorted(image_dir.glob("*.tar")) if image_dir.is_dir() else []
-        if archives:
+        if archives and config.preload_images:
             for archive in archives:
                 self.runner.run(
                     [*user_command, "podman", "load", "-i", str(archive)],
                     cwd=release,
                 )
             return
-        build_script = release / "containers" / "build_images.sh"
-        self.runner.run(
-            [*user_command, "bash", str(build_script)],
-            cwd=release,
-        )
+        # New base bundles intentionally contain no workspace images. The
+        # enrolled worker agent downloads enabled, verified archives from the
+        # controller after its service starts. Legacy bundles can still opt in
+        # to loading their embedded archives through preload_images.
 
     def _install_ingress(self, config: InstallConfig) -> None:
         if not config.installs_controller:

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.node import Node, NodeStatus
+from app.models.workspace_image import WorkspaceImage
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor
 from app.agents.manager import agent_manager
@@ -59,10 +60,40 @@ def _matches_selector(node: Node, selector: dict[str, str] | None) -> bool:
     return all(str(labels.get(k, "")) == str(v) for k, v in selector.items())
 
 
+def _has_workspace_image(
+    node: Node,
+    image_ref: str | None,
+    required_sha256: str | None = None,
+) -> bool:
+    if not image_ref:
+        return required_sha256 is None
+    try:
+        capabilities = json.loads(node.capabilities_json or "{}")
+    except ValueError:
+        return False
+    if not isinstance(capabilities, dict):
+        return False
+    if "workspace_images" not in capabilities:
+        # Upgrade compatibility for old agents is safe only until an exact
+        # controller-managed archive has been enabled for this image.
+        return required_sha256 is None
+    images = capabilities.get("workspace_images")
+    return isinstance(images, list) and any(
+        isinstance(item, dict)
+        and item.get("image_ref") == image_ref
+        and (
+            required_sha256 is None
+            or item.get("sha256") == required_sha256
+        )
+        for item in images
+    )
+
+
 async def select_worker_node(
     db: AsyncSession,
     flavor: Flavor,
     node_selector: dict[str, str] | None = None,
+    required_image: str | None = None,
 ) -> Node:
     """Pick the best connected worker using capacity-aware load balancing."""
     nodes = (
@@ -73,6 +104,17 @@ async def select_worker_node(
             "Henüz kayıtlı worker yok. Bir worker kurup controller'a bağlayın."
         )
 
+    required_sha256 = None
+    if required_image:
+        required_sha256 = (
+            await db.execute(
+                select(WorkspaceImage.sha256).where(
+                    WorkspaceImage.enabled.is_(True),
+                    WorkspaceImage.image_ref == required_image,
+                )
+            )
+        ).scalar_one_or_none()
+
     candidates = [
         node
         for node in nodes
@@ -82,6 +124,7 @@ async def select_worker_node(
         and node.cpu_total >= flavor.cpus
         and node.memory_total_mb >= flavor.memory_mb
         and _matches_selector(node, node_selector)
+        and _has_workspace_image(node, required_image, required_sha256)
     ]
     allocations = await _allocations(db)
     scored_candidates: list[tuple[float, int, int, str, Node]] = []
@@ -114,7 +157,7 @@ async def select_worker_node(
     if not scored_candidates:
         raise NoSchedulableNode(
             "Kayıtlı worker'ların hiçbiri bu kaynak profilini ve etiket kriterlerini karşılayamıyor. "
-            "Node bağlantılarını, drain durumunu ve boş CPU/RAM kapasitesini kontrol edin."
+            "Node bağlantılarını, image senkronizasyonunu, drain durumunu ve boş CPU/RAM kapasitesini kontrol edin."
         )
 
     scored_candidates.sort(key=lambda item: item[:4])

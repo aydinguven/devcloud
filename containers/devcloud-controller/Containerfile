@@ -9,6 +9,8 @@ LABEL org.opencontainers.image.title="DevCloud Controller" \
 USER 0
 WORKDIR /opt/devcloud
 
+RUN microdnf install -y skopeo && microdnf clean all
+
 COPY requirements.txt /opt/devcloud/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
         -r /opt/devcloud/requirements.txt
@@ -24,4 +26,3 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 USER 10001:10001
 ENTRYPOINT ["/opt/devcloud/deploy/container/controller-entrypoint.sh"]
-

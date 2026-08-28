@@ -8,15 +8,16 @@ in-place disconnected update, transfer a signed release or reviewed Git ZIP
 and use devcloud-setup update with the bundle path; do not extract over the
 active release.
 
-This runbook creates Linux x86_64 server or CPU-worker bundles
+This runbook creates Linux x86_64 server or CPU-worker base bundles
 from a specific Git commit. The server bundle supports both Controller and
 All-in-one installation, including SQLite, bundled PostgreSQL, and external
-PostgreSQL choices. Each bundle contains the required DevCloud source, Python
-wheels, all five workspace container images, the immutable controller image,
-the PostgreSQL 16 image, a distribution-matched
+PostgreSQL choices. Each base bundle contains the required DevCloud source,
+Python wheels, a distribution-matched
 `subscription-manager` bootstrap repository, an artifact manifest, and SHA-256
-checksums. All other operating-system packages come from an internal
-Satellite/Foreman service after registration.
+checksums. The server bundle also contains the immutable controller image and
+PostgreSQL 16 image. Workspace images use a separate optional archive and are
+added through the controller after installation. All other operating-system
+packages come from an internal Satellite/Foreman service after registration.
 
 Generated bundles are intentionally excluded from normal Git history. Commit
 and push the packaging code, then attach the generated archive and checksum to
@@ -60,7 +61,8 @@ Do not use `git add -f` on generated wheels, image archives, or `dist/`.
 
 The machine needs Rocky Linux 10.x or RHEL 10.x, Git, Python/pip, Podman, DNF's
 `download` command, `createrepo_c`, internet access to Python/package/container repositories,
-and enough free disk space for all images and RPMs twice. RHEL package builders
+and enough free disk space for staged artifacts and RPMs. Building the optional
+workspace-image pack additionally needs space for those images twice. RHEL package builders
 must have access to entitled BaseOS/AppStream repositories. Install `pigz` on
 the builder to compress with multiple CPU cores; packaging still works with a
 slower single-threaded gzip fallback when `pigz` is unavailable.
@@ -105,11 +107,10 @@ The builder:
 4. downloads the Rocky/RHEL `subscription-manager` bootstrap dependency
    closure;
 5. creates local DNF repository metadata and checksums it with the RPM payload;
-6. rebuilds and exports all five Linux/amd64 workspace images;
-7. for the server role, builds the controller image and exports it together
+6. for the server role, builds the controller image and exports it together
    with PostgreSQL 16 as OCI archives;
-8. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
-9. verifies the stage and creates these ignored files:
+7. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
+8. verifies the stage and creates these ignored files:
 
 ```text
 dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
@@ -132,9 +133,20 @@ the old RPM directory as a backup, merges repository records into the target's
 own manifest, and leaves its wheels and container images in place. This permits
 compatible earlier bundle commits while still enforcing bundle format and role.
 
-If all local image tags, including the controller and PostgreSQL images for a
-server bundle, are already known-good, add --skip-image-build; missing tags
-still make packaging fail.
+If the local controller and PostgreSQL image tags for a server bundle are
+already known-good, add --skip-image-build; missing tags still make packaging
+fail.
+
+Build the optional workspace-image transport independently:
+
+```bash
+python3 deploy/package_workspace_images.py
+```
+
+It creates `dist/devcloud-workspace-images-v<version>-<date>-<commit>.tar.gz`
+and its outer SHA-256 file. This archive is not an installer and is not tied to
+a controller or worker role. It contains one normalized Linux/amd64 image
+archive per maintained workspace template plus a checksummed manifest.
 
 ## 4. Publish the binary artifact
 
@@ -162,8 +174,9 @@ and reloads DevCloud. Then use the separate **Controller Paketini Güncelle** an
 İndirmeler**.
 
 The update operation downloads wheels and the Rocky/RHEL RPM dependency closure,
-rebuilds five Podman images, consumes substantial disk space, and requires
-access to package and container registries.
+builds the controller and PostgreSQL images for server bundles, consumes
+substantial disk space, and requires access to package and container registries.
+It does not rebuild or embed workspace images.
 Containerized controllers intentionally disable in-application bundle rebuilds
 and source updates. Build releases on a dedicated connected builder and apply
 them with the host lifecycle installer. On a truly disconnected native server,
@@ -229,12 +242,28 @@ sudo bash deploy/devcloud-setup.sh
 The second run installs all other operating-system prerequisites from the
 registered Satellite/Foreman repositories. It then verifies every artifact in
 the manifest before showing the role and database questions. Python
-dependencies are installed from bundled wheels with --no-index; worker roles
-load the five verified workspace archives. Container-controller roles also
-load the verified controller archive and, when selected, PostgreSQL archive.
-Neither installation path builds nor pulls an image inside the air gap.
-External PostgreSQL still requires access to the operator-provided database
-endpoint.
+dependencies are installed from bundled wheels with --no-index. Worker roles
+start without workspace images. Container-controller roles load the verified
+controller archive and, when selected, PostgreSQL archive. Neither installation
+path builds nor pulls an image inside the air gap. External PostgreSQL still
+requires access to the operator-provided database endpoint.
+
+After the controller and workers are enrolled, transfer the separately produced
+workspace-image archive to an administrator machine or the controller:
+
+```bash
+sha256sum -c devcloud-workspace-images-*.tar.gz.sha256
+tar -xzf devcloud-workspace-images-*.tar.gz
+```
+
+Open **Admin > Workspace Image'ları** and upload each archive in the extracted
+`images/` directory. If the air-gapped network has an internal OCI registry,
+you may instead import each registry reference from the same page. The
+controller normalizes and stores the selected version, then serves it over the
+existing authenticated controller connection. Workers verify archive size and
+SHA-256 before loading it and report the synchronized checksum. They require no
+internet or registry access, and scheduling waits until the requested image is
+present on a worker.
 
 For a disconnected in-place update, back up first and pass the transferred,
 verified server release to the active host installer. It stages the release,

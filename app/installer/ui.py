@@ -149,7 +149,7 @@ class InstallerUI:
             config.workspace_root = self.ask(
                 "Workspace storage", "/var/lib/devcloud/workspaces"
             )
-            config.preload_images = self.confirm("Load workspace images now?", True)
+            config.preload_images = False
 
         return config
 

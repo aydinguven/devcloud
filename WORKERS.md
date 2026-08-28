@@ -14,6 +14,9 @@ The short path is:
        curl -fsSL https://controller.example/download/install-worker.sh | sudo bash
 
 4. Verify devcloud-worker.service is active and the node reports online.
+5. Add workspace images under **Admin > Workspace Image'ları**. The worker
+   downloads and verifies enabled versions automatically; no image archives are
+   copied to the worker installation directory.
 
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.

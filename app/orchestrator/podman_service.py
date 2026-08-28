@@ -150,7 +150,7 @@ class PodmanService:
         image_tag: str,
         progress_callback: Any | None = None,
     ) -> bool:
-        """Check if image exists in Podman; if not, attempt to build from containers/<template_id>."""
+        """Check whether the controller-managed image exists in local Podman."""
         if self._mock_mode:
             return True
 
@@ -160,22 +160,14 @@ class PodmanService:
                 await progress_callback(f"Image [{image_tag}] yerel OCI deposunda doğrulandı", "success")
             return True
 
-        # Auto-build if Containerfile directory exists
-        containers_dir = Path(__file__).resolve().parent.parent.parent / "containers" / template_id
-        if containers_dir.exists() and (containers_dir / "Containerfile").exists():
-            if progress_callback:
-                await progress_callback(f"Image [{image_tag}] bulunamadı. Containerfile üzerinden oluşturuluyor (yalnızca ilk çalıştırma)...", "info")
-            logger.info(f"Image {image_tag} not found locally. Auto-building from {containers_dir}...")
-            build_code, stdout, stderr = await self.run_cmd("build", "-t", image_tag, str(containers_dir))
-            if build_code == 0:
-                logger.info(f"Successfully built image {image_tag}")
-                if progress_callback:
-                    await progress_callback(f"Image [{image_tag}] oluşturuldu ve cache'e alındı", "success")
-                return True
-            else:
-                logger.error(f"Failed to auto-build {image_tag}: {stderr or stdout}")
-                if progress_callback:
-                    await progress_callback(f"Build uyarısı: {stderr or stdout}", "error")
+        logger.error(
+            "Controller-managed workspace image is not synchronized: %s", image_tag
+        )
+        if progress_callback:
+            await progress_callback(
+                f"Image [{image_tag}] bu worker'a henüz senkronize edilmedi",
+                "error",
+            )
         return False
 
     async def create_workspace_container(
@@ -232,8 +224,14 @@ class PodmanService:
             await progress_callback(f"[{container_name}] için önceki örnekler temizleniyor...", "dim")
         await self.run_cmd("rm", "-f", container_name)
 
-        # 2. Check and ensure image exists or auto-build
-        await self.ensure_image_exists(template_id, template.image_tag, progress_callback)
+        # 2. Refuse implicit pulls/builds when the managed image is unavailable.
+        image_ready = await self.ensure_image_exists(
+            template_id, template.image_tag, progress_callback
+        )
+        if not image_ready:
+            raise RuntimeError(
+                f"Controller-managed workspace image is not synchronized: {template.image_tag}"
+            )
 
         # 3. Podman run flags
         if progress_callback:
@@ -579,5 +577,3 @@ class PodmanService:
 
 
 podman_service = PodmanService()
-
-

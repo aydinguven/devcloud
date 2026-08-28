@@ -92,6 +92,8 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
 }
 
+BUILTIN_TEMPLATE_IDS = tuple(TEMPLATES)
+
 
 def get_template(template_id: str) -> WorkspaceTemplate | None:
     return TEMPLATES.get(template_id)
@@ -99,6 +101,10 @@ def get_template(template_id: str) -> WorkspaceTemplate | None:
 
 def list_templates() -> list[TemplateInfo]:
     return [template.to_schema() for template in TEMPLATES.values()]
+
+
+def list_builtin_templates() -> list[TemplateInfo]:
+    return [TEMPLATES[template_id].to_schema() for template_id in BUILTIN_TEMPLATE_IDS]
 
 
 def register_custom_template(
@@ -154,4 +160,3 @@ async def resolve_template(db, template_id: str) -> WorkspaceTemplate | None:
             icon=db_tpl.icon,
         )
     return None
-

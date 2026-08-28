@@ -68,7 +68,7 @@ def _worker_config_from_environment(
             or "/var/lib/devcloud/workspaces"
         ),
         preload_images=os.environ.get(
-            "DEVCLOUD_INSTALL_PRELOAD_IMAGES", "true"
+            "DEVCLOUD_INSTALL_PRELOAD_IMAGES", "false"
         ).strip().lower()
         not in {"0", "false", "no"},
     )

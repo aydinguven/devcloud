@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     UPDATES_ENABLED: bool = True
     UPDATE_QUEUE_ROOT: str = "/var/lib/devcloud/update-queue"
     UPDATE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024 * 1024
+    WORKSPACE_IMAGES_ROOT: str = "/srv/devcloud-downloads/workspace-images"
+    WORKSPACE_IMAGE_MAX_UPLOAD_BYTES: int = 16 * 1024 * 1024 * 1024
+    WORKSPACE_IMAGE_IMPORT_TIMEOUT_SECONDS: int = 1800
+    SKOPEO_BIN: str = "skopeo"
 
     # Nginx ingress is applied by a root-owned, narrowly scoped helper.
     INGRESS_STAGING_ROOT: str = "/var/lib/devcloud/ingress"

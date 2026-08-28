@@ -19,7 +19,7 @@ from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import list_flavors
-from app.orchestrator.templates import list_templates
+from app.orchestrator.templates import list_builtin_templates, list_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
@@ -304,6 +304,10 @@ ADMIN_SECTIONS = {
         "title": "Çalışma Alanları & Şablonlar",
         "description": "Tüm çalışma alanlarını denetleyin ve özel ortam şablonları oluşturun.",
     },
+    "images": {
+        "title": "Workspace Image Yönetimi",
+        "description": "OCI image sürümlerini registry veya tar arşivinden içe aktarın ve worker senkronizasyonunu izleyin.",
+    },
     "workers": {
         "title": "Worker Node'ları",
         "description": "CPU worker kayıtlarını, bağlantı durumlarını ve planlamayı yönetin.",
@@ -380,6 +384,19 @@ async def admin_page(
         context["all_workspaces"] = (
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
+    elif section == "images":
+        image_templates = list_builtin_templates()
+        from app.models.custom_template import CustomTemplate
+
+        custom_templates = (
+            await db.execute(select(CustomTemplate).order_by(CustomTemplate.name))
+        ).scalars().all()
+        known_ids = {template.id for template in image_templates}
+        for custom in custom_templates:
+            if custom.id not in known_ids:
+                image_templates.append(custom)
+                known_ids.add(custom.id)
+        context["workspace_image_templates"] = image_templates
     elif section == "workers":
         download_settings = None
         try:

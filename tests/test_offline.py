@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import sys
 import tarfile
 from pathlib import Path
 
@@ -14,6 +16,14 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 package_offline = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_offline)
+sys.modules["package_offline"] = package_offline
+
+IMAGE_PACK_SPEC = importlib.util.spec_from_file_location(
+    "package_workspace_images", ROOT_DIR / "deploy" / "package_workspace_images.py"
+)
+assert IMAGE_PACK_SPEC and IMAGE_PACK_SPEC.loader
+package_workspace_images = importlib.util.module_from_spec(IMAGE_PACK_SPEC)
+IMAGE_PACK_SPEC.loader.exec_module(package_workspace_images)
 
 
 def add_controller_images(bundle_root: Path) -> None:
@@ -50,8 +60,6 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     images_dir.mkdir(parents=True)
     (bundle_root / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
     (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
-    for name, _, _ in package_offline.IMAGES:
-        (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
     add_controller_images(bundle_root)
 
     package_offline.write_manifest(
@@ -61,9 +69,9 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     )
     manifest = package_offline.verify_staged_bundle(bundle_root)
     assert manifest["source_commit"] == "a" * 40
-    assert len(manifest["artifacts"]) == 8
+    assert len(manifest["artifacts"]) == 3
 
-    (images_dir / "devcloud-vscode-react.tar").write_bytes(b"tampered")
+    (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"tampered")
     with pytest.raises(package_offline.PackageError, match="does not match"):
         package_offline.verify_staged_bundle(bundle_root)
 
@@ -83,9 +91,6 @@ def test_worker_manifest_role_is_verified(tmp_path: Path):
     images_dir.mkdir(parents=True)
     (bundle_root / "requirements.txt").write_text("httpx\n", encoding="utf-8")
     (wheels_dir / "httpx-1-py3-none-any.whl").write_bytes(b"wheel")
-    for name, _, _ in package_offline.IMAGES:
-        (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
-
     package_offline.write_manifest(
         bundle_root,
         git_commit="b" * 40,
@@ -105,6 +110,39 @@ def test_worker_manifest_role_is_verified(tmp_path: Path):
 def test_worker_bundle_cli_uses_explicit_role():
     args = package_offline.parse_args(["--bundle-role", "worker"])
     assert args.bundle_role == "worker"
+
+
+def test_workspace_image_pack_is_independent_and_checksummed(tmp_path, monkeypatch):
+    monkeypatch.setattr(package_workspace_images, "assert_clean_tracked_tree", lambda _root: None)
+    monkeypatch.setattr(
+        package_workspace_images,
+        "git_output",
+        lambda _root, *_arguments: "d" * 40,
+    )
+    monkeypatch.setattr(package_workspace_images, "get_app_version", lambda _root: "9.9.9")
+
+    def fake_export(_root, output, **_kwargs):
+        output.mkdir(parents=True, exist_ok=True)
+        for archive_name, _image_ref, _template_id in package_workspace_images.IMAGES:
+            (output / f"{archive_name}.tar").write_bytes(archive_name.encode())
+
+    monkeypatch.setattr(package_workspace_images, "export_images", fake_export)
+    args = package_workspace_images.parse_args(
+        ["--output-dir", str(tmp_path), "--skip-image-build"]
+    )
+
+    output, checksum = package_workspace_images.build_pack(args)
+
+    assert output.is_file()
+    assert checksum.is_file()
+    with tarfile.open(output, "r:gz") as archive:
+        manifest_file = archive.extractfile("devcloud-workspace-images/MANIFEST.json")
+        assert manifest_file is not None
+        manifest = json.load(manifest_file)
+        names = set(archive.getnames())
+    assert manifest["workspace_image_pack_format"] == 1
+    assert len(manifest["images"]) == len(package_workspace_images.IMAGES)
+    assert "devcloud-workspace-images/images/devcloud-controller.tar" not in names
 
 
 def test_server_bundle_exports_controller_and_postgresql_oci_archives(
@@ -256,8 +294,6 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
     rpm_dir.mkdir(parents=True)
     (bundle_root / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
     (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
-    for name, _, _ in package_offline.IMAGES:
-        (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
     add_controller_images(bundle_root)
     for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
         (rpm_dir / f"{package}-1-1.el10.x86_64.rpm").write_bytes(package.encode())

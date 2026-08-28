@@ -49,7 +49,7 @@ class InstallConfig:
     releases_root: str = "/var/lib/devcloud/releases"
     downloads_root: str = "/srv/devcloud-downloads"
     labels: dict[str, str] = field(default_factory=dict)
-    preload_images: bool = True
+    preload_images: bool = False
     enable_tls: bool = False
     tls_hostname: str = ""
     certificate_file: str = ""

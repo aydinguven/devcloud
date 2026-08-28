@@ -202,7 +202,7 @@ async def create_workspace(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=quota_error)
 
     try:
-        node = await select_worker_node(db, flavor)
+        node = await select_worker_node(db, flavor, required_image=template.image_tag)
         workspace = await reserve_workspace(
             db,
             data=data,
@@ -294,7 +294,9 @@ async def deploy_workspace_stream(
             await emit_log(f"Çalışma alanı kaynağı: {flavor.cpus} CPU, {flavor.memory_display} RAM ({flavor.name})", "info")
 
             try:
-                node = await select_worker_node(db, flavor)
+                node = await select_worker_node(
+                    db, flavor, required_image=template.image_tag
+                )
                 workspace = await reserve_workspace(
                     db,
                     data=data,

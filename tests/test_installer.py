@@ -421,8 +421,10 @@ def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
 
     runner.run = recording_run
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.WORKER)
+    candidate.preload_images = True
 
-    engine._prepare_images(config(DeploymentRole.WORKER))
+    engine._prepare_images(candidate)
 
     assert ["id", "-u", "devcloud"] in runner.commands
     assert [
@@ -453,7 +455,6 @@ def test_ui_collects_worker_connection_details():
             "/root/token",
             "compute-01",
             "/srv/workspaces",
-            "y",
         ]
     )
     ui = InstallerUI(input_fn=lambda _prompt: next(answers), output=io.StringIO())
@@ -462,7 +463,7 @@ def test_ui_collects_worker_connection_details():
     assert result.controller_url == "https://controller.example"
     assert result.worker_id == "worker-id"
     assert result.worker_name == "compute-01"
-    assert result.preload_images is True
+    assert result.preload_images is False
 
 
 def test_sqlite_backup_is_verified_and_restorable(tmp_path):

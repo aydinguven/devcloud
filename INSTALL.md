@@ -22,8 +22,9 @@ installer does not register a subscription or activation key.
 When an offline artifact manifest is present, the behavior is stricter: the
 installer verifies and installs the bundled RPM closure with every repository
 disabled before it starts the Python UI. It then verifies the complete artifact
-manifest, installs wheels without an index, and loads bundled workspace images.
-It never falls back to a connected repository for that installation.
+manifest and installs wheels without an index. Base controller and worker
+bundles do not contain workspace images. It never falls back to a connected
+repository for that installation.
 
 ## Controller
 
@@ -37,10 +38,11 @@ on a private network and is never published on a host port. Native Python
 systemd installation remains available for existing deployments and
 compatibility.
 
-After installation, create worker records in **Admin > Worker Nodes** and
-retain each one-time enrollment token.
-If administrator-built custom images must run on more than one worker,
-configure an external OCI registry prefix and authenticate each worker to it.
+After installation, add each workspace image under **Admin > Workspace
+Image'ları** from a Quay/internal-registry reference or an OCI/Docker tar
+archive. The controller normalizes and verifies the archive, then enrolled
+workers download it over the authenticated controller connection. Create worker
+records under **Admin > Worker'lar** and retain each one-time enrollment token.
 
 ## All-in-one
 
@@ -69,6 +71,11 @@ A JSON answer file can be applied with:
       --answers /root/worker-answers.json
 
 The token file and generated environment files must remain mode 0600.
+Worker installation does not prompt for or preload workspace images. After the
+agent connects, it reconciles the enabled controller image catalogue every 30
+seconds, verifies archive size and SHA-256, loads missing images into rootless
+Podman, and reports its exact synchronized checksums. Scheduling waits until a
+worker reports the currently enabled checksum for the requested template.
 
 ## Updates
 

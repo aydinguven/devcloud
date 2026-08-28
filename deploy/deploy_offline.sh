@@ -130,22 +130,7 @@ if [ -d "${IMAGES_DIR}" ]; then
     done
 fi
 
-if [ "$IMAGE_COUNT" -ne 5 ]; then
-    echo "ERROR: Expected 5 verified container image archives, loaded ${IMAGE_COUNT}."
-    exit 1
-fi
-
-for required_image in \
-    localhost/devcloud-vscode-empty:latest \
-    localhost/devcloud-vscode-python:latest \
-    localhost/devcloud-vscode-react:latest \
-    localhost/devcloud-jupyter-python:latest \
-    localhost/devcloud-vscode-java:latest; do
-    if ! podman image exists "${required_image}"; then
-        echo "ERROR: Required image tag was not loaded: ${required_image}"
-        exit 1
-    fi
-done
+echo "Loaded ${IMAGE_COUNT} legacy image archive(s). Managed workspace images are added in Admin after installation."
 
 echo "Available Podman images:"
 podman images | grep -E "devcloud|REPOSITORY" || true
