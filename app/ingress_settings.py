@@ -55,7 +55,7 @@ def normalize_https_hostname(value: str) -> str:
         for label in labels
     ):
         raise IngressConfigurationError(
-            "HTTPS hostname tam bir DNS adı olmalıdır (ör. aifactory.tcmb.gov.tr)."
+            "HTTPS hostname tam bir DNS adı olmalıdır (ör. devcloud.example.com)."
         )
     return hostname
 

@@ -10,7 +10,7 @@ import stat
 import tempfile
 import time
 import uuid
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -159,6 +159,15 @@ class InstallerEngine:
         if not PurePosixPath(raw.replace("\\", "/")).is_absolute():
             raise InstallerError(f"Expected an absolute installation path: {path}")
         return self.filesystem_root / raw.lstrip("/\\")
+
+    @staticmethod
+    def _public_hostname(public_url: str) -> str:
+        parsed = urlsplit(public_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise InstallerError(
+                "Public controller URL must be an http:// or https:// URL with a host"
+            )
+        return parsed.hostname
 
     def state_path(self, config: InstallConfig) -> Path:
         return self.host_path(config.state_root) / "install-state.json"
@@ -557,6 +566,8 @@ class InstallerEngine:
         }
 
     def _validate_config(self, config: InstallConfig) -> None:
+        if config.installs_controller:
+            self._public_hostname(config.public_url)
         for field_name in (
             "workspace_root",
             "install_root",
@@ -1129,6 +1140,7 @@ class InstallerEngine:
                 "DOWNLOADS_ROOT": config.downloads_root,
                 "DOWNLOAD_BUILD_ROOT": "/var/lib/devcloud/download-builds",
                 "DOWNLOAD_PUBLIC_BASE_URL": config.public_url,
+                "HTTPS_DEFAULT_HOSTNAME": self._public_hostname(config.public_url),
                 "ADMIN_USERNAME": config.admin_username,
                 "ADMIN_EMAIL": config.admin_email,
                 "ADMIN_PASSWORD": admin_password,
@@ -1503,7 +1515,10 @@ class InstallerEngine:
             return
         script = self.host_path(config.install_root) / "current" / "deploy" / "install_ingress.sh"
         owner = "10001" if config.containerized_controller else config.service_user
-        self.runner.run(["bash", str(script), owner])
+        self.runner.run(
+            ["bash", str(script), owner],
+            env={"DEVCLOUD_HTTPS_HOSTNAME": self._public_hostname(config.public_url)},
+        )
 
     def _start_services(self, config: InstallConfig) -> None:
         if not config.containerized_controller or config.installs_worker:
@@ -1514,19 +1529,22 @@ class InstallerEngine:
             config.containerized_controller
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
         ):
-            self.runner.run(
-                ["systemctl", "enable", "--now", "devcloud-postgresql.service"]
-            )
+            self.runner.run(["systemctl", "start", "devcloud-postgresql.service"])
         if config.installs_controller:
-            self.runner.run(
-                ["systemctl", "enable", "--now", "devcloud-controller.service"]
-            )
+            if config.containerized_controller:
+                self.runner.run(["systemctl", "start", "devcloud-controller.service"])
+            else:
+                self.runner.run(
+                    ["systemctl", "enable", "--now", "devcloud-controller.service"]
+                )
         if config.installs_worker:
             if config.containerized_worker:
                 self.runner.run(["systemctl", "enable", "--now", "podman.socket"])
-            self.runner.run(
-                ["systemctl", "enable", "--now", "devcloud-worker.service"]
-            )
+                self.runner.run(["systemctl", "start", "devcloud-worker.service"])
+            else:
+                self.runner.run(
+                    ["systemctl", "enable", "--now", "devcloud-worker.service"]
+                )
         self._verify_services(config)
 
     def _restart_services(self, config: InstallConfig) -> None:
@@ -1539,18 +1557,17 @@ class InstallerEngine:
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
         ):
             self.runner.run(
-                ["systemctl", "enable", "devcloud-postgresql.service"]
-            )
-            self.runner.run(
                 ["systemctl", "restart", "devcloud-postgresql.service"]
             )
         if config.installs_controller:
-            self.runner.run(["systemctl", "enable", "devcloud-controller.service"])
+            if not config.containerized_controller:
+                self.runner.run(["systemctl", "enable", "devcloud-controller.service"])
             self.runner.run(["systemctl", "restart", "devcloud-controller.service"])
         if config.installs_worker:
             if config.containerized_worker:
                 self.runner.run(["systemctl", "enable", "--now", "podman.socket"])
-            self.runner.run(["systemctl", "enable", "devcloud-worker.service"])
+            else:
+                self.runner.run(["systemctl", "enable", "devcloud-worker.service"])
             self.runner.run(["systemctl", "restart", "devcloud-worker.service"])
         self._verify_services(config)
 

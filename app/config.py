@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # Nginx ingress is applied by a root-owned, narrowly scoped helper.
     INGRESS_STAGING_ROOT: str = "/var/lib/devcloud/ingress"
     INGRESS_APPLY_COMMAND: str = "/usr/local/libexec/devcloud-apply-ingress"
-    HTTPS_DEFAULT_HOSTNAME: str = "aifactory.tcmb.gov.tr"
+    HTTPS_DEFAULT_HOSTNAME: str = "127.0.0.1"
 
     # Podman Configuration
     PODMAN_BIN: str = "podman"

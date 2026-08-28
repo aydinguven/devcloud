@@ -282,6 +282,53 @@ def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
     assert not any("app.migrations upgrade" in command for command in commands)
 
 
+def test_generated_quadlet_services_are_started_without_enable(tmp_path):
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.ALL_IN_ONE)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine._start_services(candidate)
+
+    assert ["systemctl", "start", "devcloud-postgresql.service"] in runner.commands
+    assert ["systemctl", "start", "devcloud-controller.service"] in runner.commands
+    assert ["systemctl", "start", "devcloud-worker.service"] in runner.commands
+    generated = {
+        "devcloud-postgresql.service",
+        "devcloud-controller.service",
+        "devcloud-worker.service",
+    }
+    assert not any(
+        command[:2] == ["systemctl", "enable"]
+        and any(unit in command for unit in generated)
+        for command in runner.commands
+    )
+
+
+def test_controller_public_url_drives_ingress_and_https_default(tmp_path):
+    runner = CommandRunner()
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.public_url = "http://10.253.6.174"
+
+    engine._write_configuration(candidate)
+    controller = engine._read_env(tmp_path / "etc/devcloud/controller.env")
+    assert controller["HTTPS_DEFAULT_HOSTNAME"] == "10.253.6.174"
+
+    calls = []
+
+    def capture(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    runner.run = capture
+    engine._install_ingress(candidate)
+
+    assert calls[0][1]["env"] == {
+        "DEVCLOUD_HTTPS_HOSTNAME": "10.253.6.174"
+    }
+
+
 def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
     runner = CommandRunner()
     runner.run = lambda command, **_kwargs: subprocess.CompletedProcess(

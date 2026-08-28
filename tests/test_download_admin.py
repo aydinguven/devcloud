@@ -2,6 +2,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
+from app.config import settings
 from app.download_updates import download_update_manager
 from app.ingress_settings import CertificateInfo, ingress_manager
 from app.models.user import User, UserRole
@@ -94,7 +95,7 @@ async def test_download_update_controls_are_admin_only(
             "https://master.internal.example/download/install-worker.sh"
         ),
         "https_enabled": False,
-        "https_hostname": "aifactory.tcmb.gov.tr",
+        "https_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
         "http_fallback_enabled": True,
         "certificate_uploaded": False,
         "certificate_subject": None,

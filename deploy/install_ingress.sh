@@ -14,7 +14,7 @@ if [[ "${SERVICE_USER}" =~ ^[0-9]+$ ]] && ! id "${SERVICE_USER}" >/dev/null 2>&1
 else
     SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
 fi
-HTTPS_HOSTNAME="${DEVCLOUD_HTTPS_HOSTNAME:-aifactory.tcmb.gov.tr}"
+HTTPS_HOSTNAME="${DEVCLOUD_HTTPS_HOSTNAME:-127.0.0.1}"
 APPLY_INITIAL="${DEVCLOUD_INGRESS_APPLY_INITIAL:-1}"
 HELPER="/usr/local/libexec/devcloud-apply-ingress"
 STAGING_ROOT="/var/lib/devcloud/ingress"

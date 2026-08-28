@@ -358,7 +358,7 @@ the Nginx configuration. The private key is stored only in the restricted
 ingress directory and is never returned by the API.
 
 For the planned deployment, the certificate SAN must contain
-aifactory.tcmb.gov.tr, DNS must resolve that name to the controller, and clients
+devcloud.example.com, DNS must resolve that name to the controller, and clients
 and workers must trust TCMB-CA. Keep **Port 80 HTTP fallback** enabled while
 that trust is being rolled out. The fallback deliberately does not enable HSTS.
 Disabling fallback changes port 80 to a permanent redirect to HTTPS.
