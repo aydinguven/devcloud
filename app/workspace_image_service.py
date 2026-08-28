@@ -121,6 +121,7 @@ def _normalize(
         _run_skopeo(
             [
                 "copy",
+                "--remove-signatures",
                 "--override-os",
                 "linux",
                 "--override-arch",

@@ -23,8 +23,10 @@ from tests.conftest import TEST_WORKER_ID
 def test_registry_import_normalizes_to_managed_oci_archive(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "WORKSPACE_IMAGES_ROOT", str(tmp_path))
     auth_files = []
+    skopeo_calls = []
 
     def fake_skopeo(arguments, *, environment=None):
+        skopeo_calls.append(arguments)
         if arguments[0] == "copy":
             destination = arguments[-1].removeprefix("oci-archive:").split(
                 ":localhost/", 1
@@ -56,6 +58,9 @@ def test_registry_import_normalizes_to_managed_oci_archive(tmp_path, monkeypatch
     assert metadata["image_ref"] == "localhost/devcloud-vscode-python:latest"
     assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
     assert auth_files and all(not path.exists() for path in auth_files)
+    assert "--remove-signatures" in next(
+        arguments for arguments in skopeo_calls if arguments[0] == "copy"
+    )
 
 
 def test_scheduler_requires_managed_image_from_new_agents():
