@@ -28,6 +28,12 @@ install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 "${PROJECT_DIR}/deploy/apply_ingress.py" "${HELPER}"
 install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${STAGING_ROOT}"
 
+if command -v getenforce >/dev/null 2>&1 \
+    && [[ "$(getenforce)" != "Disabled" ]] \
+    && command -v setsebool >/dev/null 2>&1; then
+    setsebool -P httpd_can_network_connect on
+fi
+
 if [[ ! -f "${STAGING_ROOT}/desired.json" ]]; then
     printf '{"hostname":"%s","http_fallback_enabled":true,"https_enabled":false,"request_id":"%s"}\n' "${HTTPS_HOSTNAME}" "${REQUEST_ID}" > "${STAGING_ROOT}/desired.json"
 fi

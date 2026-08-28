@@ -1078,7 +1078,16 @@ class InstallerEngine:
             self.host_path("/etc/devcloud/controller.env")
         )
         self.runner.run(
-            [str(python), "-m", "app.migrations", "upgrade"],
+            [
+                "runuser",
+                "-u",
+                config.service_user,
+                "--",
+                str(python),
+                "-m",
+                "app.migrations",
+                "upgrade",
+            ],
             cwd=release,
             env=controller_env,
         )
@@ -1177,11 +1186,15 @@ class InstallerEngine:
         if archives:
             for archive in archives:
                 self.runner.run(
-                    [*user_command, "podman", "load", "-i", str(archive)]
+                    [*user_command, "podman", "load", "-i", str(archive)],
+                    cwd=release,
                 )
             return
         build_script = release / "containers" / "build_images.sh"
-        self.runner.run([*user_command, "bash", str(build_script)])
+        self.runner.run(
+            [*user_command, "bash", str(build_script)],
+            cwd=release,
+        )
 
     def _install_ingress(self, config: InstallConfig) -> None:
         if not config.installs_controller:

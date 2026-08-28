@@ -32,6 +32,8 @@ def test_service_supports_standard_systemd_reload():
     service = (PROJECT_ROOT / "deploy" / "devcloud.service").read_text(encoding="utf-8")
 
     assert "ExecReload=/bin/kill -HUP $MAINPID" in service
+    assert ".venv/bin/python -m uvicorn" in service
+    assert ".venv/bin/uvicorn" not in service
 
 
 def test_only_worker_service_prepares_rootless_runtime_directory():
@@ -121,6 +123,7 @@ def test_unified_setup_prefers_and_verifies_offline_artifacts_before_ui():
     assert "--check-runtime" in setup
     assert "Register this VM with Satellite/Foreman now" in setup
     assert "subscription-manager identity" in setup
+    assert "\ncd /\nexec python3 -m app.installer" in setup
 
 
 def test_installers_use_bounded_restart_helper():
@@ -150,6 +153,7 @@ def test_clean_installers_configure_nginx_ingress_on_port_80():
         PROJECT_ROOT / "deploy" / "apply_ingress.py"
     ).read_text(encoding="utf-8")
     assert "devcloud-ingress.path" in ingress_installer
+    assert "setsebool -P httpd_can_network_connect on" in ingress_installer
     assert "PathChanged=/var/lib/devcloud/ingress/apply.request" in path_unit
     assert "NOPASSWD" not in ingress_installer
 

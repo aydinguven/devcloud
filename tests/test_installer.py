@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 import subprocess
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -37,6 +38,16 @@ def config(role: DeploymentRole) -> InstallConfig:
         worker_id="worker-id",
         enrollment_token_file="/root/enrollment-token",
     )
+
+
+def test_lifecycle_installer_imports_before_application_wheels_are_installed():
+    result = subprocess.run(
+        [sys.executable, "-S", "-c", "import app.installer.cli"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_install_plans_share_one_role_aware_engine(tmp_path):
@@ -208,6 +219,11 @@ def test_bundled_postgresql_plan_is_role_scoped(tmp_path):
     commands = [" ".join(command) for command in runner.commands]
     assert any("postgresql-server" in command for command in commands)
     assert any("postgresql-setup --initdb" in command for command in commands)
+    assert any(
+        "runuser -u devcloud --" in command
+        and "app.migrations upgrade" in command
+        for command in commands
+    )
     assert not any(" podman" in f" {command}" for command in commands)
 
 
@@ -319,6 +335,14 @@ def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
     image_archive = image_dir / "workspace.tar"
     image_archive.touch()
     runner = CommandRunner(dry_run=True)
+    calls = []
+    original_run = runner.run
+
+    def recording_run(command, **kwargs):
+        calls.append((command, kwargs.get("cwd")))
+        return original_run(command, **kwargs)
+
+    runner.run = recording_run
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
 
     engine._prepare_images(config(DeploymentRole.WORKER))
@@ -337,6 +361,11 @@ def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
         "-i",
         str(image_archive),
     ] in runner.commands
+    assert any(
+        command[-3:] == ["load", "-i", str(image_archive)]
+        and cwd == tmp_path / "opt/devcloud/current"
+        for command, cwd in calls
+    )
 
 
 def test_ui_collects_worker_connection_details():

@@ -12,8 +12,6 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from sqlalchemy.engine import URL, make_url
-
 from app.installer.models import DatabaseMode, InstallConfig
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import _extract_tar
@@ -54,6 +52,10 @@ def _sqlite_path(database_url: str) -> Path:
 
 
 def _postgres_cli_connection(database_url: str) -> tuple[str, dict[str, str]]:
+    # Keep the lifecycle installer importable before application wheels exist.
+    # SQLAlchemy is available in every installed release when backup/restore runs.
+    from sqlalchemy.engine import URL, make_url
+
     try:
         parsed = make_url(database_url)
     except Exception as exc:

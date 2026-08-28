@@ -112,4 +112,7 @@ if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
 fi
 
 export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+# Subprocesses that switch to the service user must not inherit an inaccessible
+# working directory such as /root/devcloud-worker.
+cd /
 exec python3 -m app.installer "$@"
