@@ -97,6 +97,8 @@ def test_system_rpm_installer_is_offline_and_distribution_scoped():
     assert '"--disable-repo=*"' in installer
     assert '"--enablerepo=devcloud-offline"' in installer
     assert '"--enable-repo=devcloud-offline"' in installer
+    assert '"--nogpgcheck"' in installer
+    assert '"--no-gpgchecks"' in installer
     assert "--repofrompath=devcloud-offline,file://" in installer
     assert "REQUESTED_PACKAGES" in installer
     assert "repodata/repomd.xml" in installer

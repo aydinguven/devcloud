@@ -601,6 +601,16 @@ class InstallerEngine:
             "The installed DNF command has no supported repository-enable option."
         )
 
+    @staticmethod
+    def _dnf_no_gpg_checks_option(help_text: str) -> str:
+        if "--no-gpgchecks" in help_text:
+            return "--no-gpgchecks"
+        if "--nogpgcheck" in help_text:
+            return "--nogpgcheck"
+        raise InstallerError(
+            "The installed DNF command has no supported GPG-check disable option."
+        )
+
     def _install_offline_packages(
         self,
         repository_root: Path,
@@ -610,6 +620,7 @@ class InstallerEngine:
         if self.runner.dry_run:
             disable_option = "--disablerepo=*"
             enable_option = f"--enablerepo={repository_id}"
+            no_gpg_checks_option = "--nogpgcheck"
         else:
             help_result = self.runner.run(
                 ["dnf", "--help"],
@@ -623,12 +634,16 @@ class InstallerEngine:
                 f"{help_result.stdout}\n{help_result.stderr}",
                 repository_id,
             )
+            no_gpg_checks_option = self._dnf_no_gpg_checks_option(
+                f"{help_result.stdout}\n{help_result.stderr}"
+            )
         self.runner.run(
             [
                 "dnf",
                 disable_option,
                 f"--repofrompath={repository_id},{repository_root.resolve().as_uri()}",
                 enable_option,
+                no_gpg_checks_option,
                 "install",
                 "-y",
                 *sorted(packages),

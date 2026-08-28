@@ -259,7 +259,12 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
     assert command[2] == (
         f"--repofrompath=devcloud-offline,{rpm_dir.resolve().as_uri()}"
     )
-    assert command[3:6] == ["--enablerepo=devcloud-offline", "install", "-y"]
+    assert command[3:7] == [
+        "--enablerepo=devcloud-offline",
+        "--nogpgcheck",
+        "install",
+        "-y",
+    ]
     assert "podman" in command
     assert "subscription-manager" in command
     assert str(rpm) not in command
@@ -293,6 +298,14 @@ def test_installer_supports_dnf4_and_dnf5_repository_disable_options():
             "offline",
         )
         == "--enable-repo=offline"
+    )
+    assert (
+        InstallerEngine._dnf_no_gpg_checks_option("--nogpgcheck disable GPG")
+        == "--nogpgcheck"
+    )
+    assert (
+        InstallerEngine._dnf_no_gpg_checks_option("--no-gpgchecks disable GPG")
+        == "--no-gpgchecks"
     )
 
 

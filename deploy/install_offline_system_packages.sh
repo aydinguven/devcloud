@@ -23,6 +23,13 @@ configure_dnf_repository_options() {
     else
         fail "The installed DNF command has no supported repository-disable option."
     fi
+    if [[ "${help_text}" == *"--no-gpgchecks"* ]]; then
+        DNF_NO_GPG_CHECKS="--no-gpgchecks"
+    elif [[ "${help_text}" == *"--nogpgcheck"* ]]; then
+        DNF_NO_GPG_CHECKS="--nogpgcheck"
+    else
+        fail "The installed DNF command has no supported GPG-check disable option."
+    fi
 }
 
 [[ "$(id -u)" -eq 0 ]] || fail "Run this installer as root."
@@ -81,6 +88,7 @@ dnf \
     "${DNF_DISABLE_REPOSITORIES}" \
     "--repofrompath=devcloud-offline,file://${RPM_DIR}" \
     "${DNF_ENABLE_REPOSITORY}" \
+    "${DNF_NO_GPG_CHECKS}" \
     install -y "${REQUESTED_PACKAGES[@]}"
 
 command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide python3."
