@@ -1,31 +1,24 @@
 [Unit]
-Description=DevCloud Self-Hosted Workspace Platform
-After=network.target
+Description=DevCloud Controller
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User={{USER}}
 WorkingDirectory={{PROJECT_DIR}}
-# Agent tunnels live in-process; keep a single async master process until the
+EnvironmentFile=-/etc/devcloud/controller.env
+# Agent tunnels live in-process; keep one controller process until the
 # tunnel registry is moved to an external broker.
 ExecStart={{PROJECT_DIR}}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 10
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
-Environment=STORAGE_ROOT=/var/lib/devcloud/workspaces
-Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# System services do not always receive a logind-created runtime directory.
-# The leading "+" runs only this preparation command with full privileges so
-# rootless Podman gets a private directory owned by the configured service user.
-ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U
-
-# Security & Decoupled Podman Process Management
 LimitNOFILE=65535
-TimeoutStopSec=3
-KillMode=process
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 """Outbound-only DevCloud worker agent.
 
-Run with DEVCLOUD_MASTER_URL, DEVCLOUD_NODE_ID and DEVCLOUD_NODE_TOKEN set.
-The master URL must use https:// in production; the agent converts it to WSS.
+Run with DEVCLOUD_CONTROLLER_URL, DEVCLOUD_NODE_ID and DEVCLOUD_NODE_TOKEN set.
+The legacy DEVCLOUD_MASTER_URL name remains an upgrade compatibility fallback.
 """
 
 import asyncio
@@ -12,6 +12,10 @@ import os
 import shutil
 import socket
 import ssl
+import tempfile
+import hashlib
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -32,13 +36,18 @@ def _required_env(name: str) -> str:
 
 
 def _connection_url() -> str:
-    base = _required_env("DEVCLOUD_MASTER_URL").rstrip("/")
+    base = (
+        os.environ.get("DEVCLOUD_CONTROLLER_URL", "").strip()
+        or os.environ.get("DEVCLOUD_MASTER_URL", "").strip()
+    ).rstrip("/")
+    if not base:
+        raise RuntimeError("DEVCLOUD_CONTROLLER_URL ayarlanmalıdır.")
     if base.startswith("https://"):
         base = "wss://" + base[len("https://"):]
     elif base.startswith("http://"):
         base = "ws://" + base[len("http://"):]
     if not base.startswith(("ws://", "wss://")):
-        raise RuntimeError("DEVCLOUD_MASTER_URL http:// veya https:// ile başlamalıdır.")
+        raise RuntimeError("DEVCLOUD_CONTROLLER_URL http:// veya https:// ile başlamalıdır.")
     return f"{base}/api/agent/connect/{_required_env('DEVCLOUD_NODE_ID')}"
 
 
@@ -60,6 +69,8 @@ class WorkerAgent:
     def __init__(self):
         self.websocket = None
         self.send_lock = asyncio.Lock()
+        self.registry_lock = asyncio.Lock()
+        self.upgrade_task: asyncio.Task | None = None
         self.stream_targets: dict[str, object] = {}
         self.registry_path = Path(settings.STORAGE_ROOT) / ".devcloud-agent-registry.json"
         self.registry = self._load_registry()
@@ -118,7 +129,22 @@ class WorkerAgent:
             mem_used_mb = max(0, mem_total_mb - (mem_avail_kb // 1024))
             disk_total_mb = disk.total // (1024 * 1024)
             disk_used_mb = max(0, (disk.total - disk.free) // (1024 * 1024))
-            active_cnt = len(self.registry)
+            inventory = []
+            for container_name, entry in self.registry.items():
+                if not isinstance(entry, dict):
+                    continue
+                inventory.append(
+                    {
+                        "workspace_id": str(entry.get("workspace_id") or ""),
+                        "container_name": container_name,
+                        "host_port": int(entry.get("host_port") or 0),
+                        "storage_path": str(entry.get("storage_path") or ""),
+                        "status": await podman_service.get_container_status(
+                            container_name
+                        ),
+                    }
+                )
+            active_cnt = len(inventory)
 
             await self.send(
                 {
@@ -133,6 +159,7 @@ class WorkerAgent:
                         "disk_used_mb": disk_used_mb,
                         "active_containers_count": active_cnt,
                         "capabilities": {"runtime": "podman"},
+                        "inventory": inventory,
                         "agent_version": __version__,
                     },
                 }
@@ -169,14 +196,32 @@ class WorkerAgent:
                 "flavor_id", "host_port", "workspace_token",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
-            container_id, storage_path = await podman_service.create_workspace_container(**args)
-            self.registry[args["container_name"]] = {
-                "workspace_id": args["workspace_id"],
-                "storage_path": storage_path,
-                "host_port": args["host_port"],
-            }
-            self._save_registry()
-            return {"container_id": container_id, "storage_path": storage_path}
+            async with self.registry_lock:
+                existing = self.registry.get(args["container_name"])
+                if isinstance(existing, dict):
+                    if str(existing.get("workspace_id") or "") != str(args["workspace_id"]):
+                        raise PermissionError(
+                            "Container adı başka bir workspace için kayıtlı."
+                        )
+                    if int(existing.get("host_port") or -1) != int(args["host_port"]):
+                        raise PermissionError(
+                            "Tekrarlanan create isteğinin host portu kayıtla eşleşmiyor."
+                        )
+                    if await podman_service.container_exists(args["container_name"]):
+                        return {
+                            "container_id": str(existing.get("container_id") or ""),
+                            "storage_path": str(existing.get("storage_path") or ""),
+                            "reused": True,
+                        }
+                container_id, storage_path = await podman_service.create_workspace_container(**args)
+                self.registry[args["container_name"]] = {
+                    "workspace_id": args["workspace_id"],
+                    "container_id": container_id,
+                    "storage_path": storage_path,
+                    "host_port": args["host_port"],
+                }
+                self._save_registry()
+                return {"container_id": container_id, "storage_path": storage_path}
         if not name:
             raise ValueError("container_name gereklidir.")
         registered = self._registered_entry(name)
@@ -215,6 +260,16 @@ class WorkerAgent:
                 return {"bytes": 0}
             from app.orchestrator.metrics_service import get_dir_size_bytes
             return {"bytes": get_dir_size_bytes(storage_path)}
+        if action == "container.snapshot":
+            workspace_id = str(payload.get("workspace_id") or "")
+            self._registered_entry(name, workspace_id)
+            image_tag = str(payload.get("image_tag") or "").strip()
+            if not image_tag:
+                raise ValueError("image_tag gereklidir.")
+            success = await podman_service.commit_container(name, image_tag)
+            if not success:
+                raise RuntimeError("Container image snapshot oluşturulamadı.")
+            return {"success": True, "image_tag": image_tag}
         if action == "container.delete":
             success = await podman_service.delete_container(name)
             storage_path = self._registered_storage(name)
@@ -227,6 +282,51 @@ class WorkerAgent:
             self._save_registry()
             return {"success": success}
         raise ValueError(f"Desteklenmeyen container komutu: {action}")
+
+    async def handle_backup_open(self, request_id: str, payload: dict) -> None:
+        """Create a ZIP on the worker and stream it over the existing tunnel."""
+        from app.orchestrator.backup_service import create_workspace_zip_backup
+
+        stream_id = str(payload["stream_id"])
+        container_name = str(payload.get("container_name") or "")
+        workspace_id = str(payload.get("workspace_id") or "")
+        entry = self._registered_entry(container_name, workspace_id)
+        storage_path = str(entry.get("storage_path") or "")
+        if not storage_path or not Path(storage_path).is_dir():
+            await self.result(request_id, error="Workspace storage bulunamadı.")
+            return
+        descriptor, archive_name = tempfile.mkstemp(
+            prefix=f"devcloud-{workspace_id[:8]}-", suffix=".zip"
+        )
+        os.close(descriptor)
+        archive = Path(archive_name)
+        try:
+            create_workspace_zip_backup(storage_path, archive)
+            await self.result(
+                request_id,
+                {
+                    "filename": f"{workspace_id}.zip",
+                    "size": archive.stat().st_size,
+                },
+            )
+            with archive.open("rb") as handle:
+                while chunk := handle.read(256 * 1024):
+                    await self.send(
+                        {
+                            "type": "stream_data",
+                            "stream_id": stream_id,
+                            "encoding": "base64",
+                            "data": base64.b64encode(chunk).decode("ascii"),
+                        }
+                    )
+            await self.send({"type": "stream_end", "stream_id": stream_id})
+        except Exception as exc:
+            await self.result(request_id, error=str(exc))
+            await self.send(
+                {"type": "stream_error", "stream_id": stream_id, "error": str(exc)}
+            )
+        finally:
+            archive.unlink(missing_ok=True)
 
     async def handle_file_command(self, action: str, payload: dict) -> dict:
         name = str(payload.get("container_name") or "")
@@ -277,6 +377,28 @@ class WorkerAgent:
                 raise FileNotFoundError("Dosya veya dizin bulunamadı.")
             return {"name": target.name}
         raise ValueError(f"Desteklenmeyen dosya komutu: {action}")
+
+    async def handle_image_command(self, action: str, payload: dict) -> dict:
+        if action != "image.build":
+            raise ValueError(f"Desteklenmeyen image komutu: {action}")
+        image_tag = str(payload.get("image_tag") or "").strip()
+        containerfile = str(payload.get("containerfile") or "")
+        if not image_tag or not containerfile:
+            raise ValueError("image_tag ve containerfile gereklidir.")
+        success, logs = await podman_service.build_image_from_content(
+            containerfile_content=containerfile,
+            image_tag=image_tag,
+        )
+        if success and payload.get("push") and not podman_service.is_mock:
+            code, stdout, stderr = await podman_service.run_cmd(
+                "push", image_tag, timeout=600
+            )
+            if code != 0:
+                return {
+                    "success": False,
+                    "logs": logs + "\n" + (stderr or stdout),
+                }
+        return {"success": success, "logs": logs, "image_tag": image_tag}
 
     async def handle_http_open(self, request_id: str, payload: dict) -> None:
         stream_id = str(payload["stream_id"])
@@ -391,27 +513,87 @@ class WorkerAgent:
 
     async def handle_system_command(self, action: str, payload: dict) -> dict:
         if action == "system.upgrade":
-            master_url = _required_env("DEVCLOUD_MASTER_URL")
-            asyncio.create_task(self._execute_upgrade(master_url))
+            controller_url = (
+                os.environ.get("DEVCLOUD_CONTROLLER_URL", "").strip()
+                or _required_env("DEVCLOUD_MASTER_URL")
+            )
+            if self.upgrade_task is not None and not self.upgrade_task.done():
+                return {
+                    "status": "upgrade_in_progress",
+                    "message": "Worker güncellemesi zaten çalışıyor.",
+                }
+            self.upgrade_task = asyncio.create_task(
+                self._execute_upgrade(controller_url)
+            )
             return {"status": "upgrade_started", "message": "Worker güncellemesi başlatıldı."}
         raise ValueError(f"Desteklenmeyen sistem komutu: {action}")
 
-    async def _execute_upgrade(self, master_url: str) -> None:
+    async def _execute_upgrade(self, controller_url: str) -> None:
         await asyncio.sleep(1)
+        temporary: Path | None = None
+        destination: Path | None = None
         try:
-            env = os.environ.copy()
-            env["DEVCLOUD_MASTER_URL"] = master_url
-            env["DEVCLOUD_NODE_ID"] = _required_env("DEVCLOUD_NODE_ID")
-            env["DEVCLOUD_NODE_TOKEN"] = _required_env("DEVCLOUD_NODE_TOKEN")
-            proc = await asyncio.create_subprocess_shell(
-                f"curl -fsSL '{master_url.rstrip('/')}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='{env['DEVCLOUD_NODE_ID']}' DEVCLOUD_NODE_TOKEN='{env['DEVCLOUD_NODE_TOKEN']}' bash",
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
+            node_id = _required_env("DEVCLOUD_NODE_ID")
+            token = _required_env("DEVCLOUD_NODE_TOKEN")
+            headers = {"Authorization": f"Bearer {token}"}
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                metadata_response = await client.get(
+                    f"{controller_url.rstrip('/')}/api/agent/releases/latest",
+                    params={"node_id": node_id},
+                    headers=headers,
+                )
+                metadata_response.raise_for_status()
+                metadata = metadata_response.json()
+                queue_root = Path(settings.UPDATE_QUEUE_ROOT).resolve()
+                uploads = queue_root / "uploads"
+                uploads.mkdir(parents=True, exist_ok=True)
+                if (queue_root / "pending.json").exists() or (
+                    queue_root / "running.json"
+                ).exists():
+                    raise RuntimeError("Başka bir worker güncellemesi zaten bekliyor.")
+                destination = uploads / f"{uuid.uuid4().hex}.zip"
+                temporary = destination.with_suffix(".part")
+                digest = hashlib.sha256()
+                size = 0
+                async with client.stream(
+                    "GET", metadata["url"], headers=headers
+                ) as response:
+                    response.raise_for_status()
+                    with temporary.open("xb") as handle:
+                        async for chunk in response.aiter_bytes():
+                            size += len(chunk)
+                            if size > settings.UPDATE_MAX_UPLOAD_BYTES:
+                                raise RuntimeError("Worker release boyut sınırını aşıyor.")
+                            digest.update(chunk)
+                            handle.write(chunk)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                if digest.hexdigest() != metadata["sha256"]:
+                    raise RuntimeError("Worker release checksum doğrulaması başarısız.")
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, destination)
+                marker = {
+                    "state": "queued",
+                    "queued_at": datetime.now(timezone.utc).isoformat(),
+                    "filename": metadata["filename"],
+                    "bundle": str(destination),
+                    "size": size,
+                    "sha256": digest.hexdigest(),
+                    "allow_unsigned": False,
+                }
+                marker_tmp = queue_root / "pending.tmp"
+                marker_tmp.write_text(
+                    json.dumps(marker, indent=2) + "\n", encoding="utf-8"
+                )
+                os.chmod(marker_tmp, 0o600)
+                os.replace(marker_tmp, queue_root / "pending.json")
         except Exception as exc:
+            if destination is not None:
+                destination.unlink(missing_ok=True)
             logger.exception("Upgrade execution error: %s", exc)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     async def handle_command(self, message: dict) -> None:
         request_id = str(message.get("request_id") or "")
@@ -423,9 +605,14 @@ class WorkerAgent:
         if action == "proxy.websocket.open":
             await self.handle_ws_open(request_id, payload)
             return
+        if action == "workspace.backup.open":
+            await self.handle_backup_open(request_id, payload)
+            return
         try:
             if action.startswith("system."):
                 result = await self.handle_system_command(action, payload)
+            elif action.startswith("image."):
+                result = await self.handle_image_command(action, payload)
             elif action.startswith("files."):
                 result = await self.handle_file_command(action, payload)
             else:
@@ -474,7 +661,7 @@ class WorkerAgent:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("Master bağlantısı kesildi: %s; %s sn sonra tekrar denenecek", exc, delay)
+                logger.warning("Controller bağlantısı kesildi: %s; %s sn sonra tekrar denenecek", exc, delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30)
 

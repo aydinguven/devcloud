@@ -5,6 +5,7 @@ import tempfile
 import pytest
 from httpx import AsyncClient
 from app.models.workspace import Workspace, WorkspaceStatus
+from tests.conftest import TEST_WORKER_ID
 
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "file_user") -> tuple[dict[str, str], int]:
@@ -38,6 +39,7 @@ async def test_file_manager_operations(client: AsyncClient, db_session):
             name="Files WS",
             description="File manager test",
             user_id=user_id,
+            node_id=TEST_WORKER_ID,
             template_id="vscode-python",
             flavor_id="t1.micro",
             container_name="devcloud-1-test-ws-files-1",

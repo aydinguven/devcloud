@@ -6,6 +6,7 @@ import io
 import pytest
 from httpx import AsyncClient
 from app.models.workspace import Workspace, WorkspaceStatus
+from tests.conftest import TEST_WORKER_ID
 
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "backup_user") -> tuple[dict[str, str], int]:
@@ -38,6 +39,7 @@ async def test_download_backup_zip(client: AsyncClient, db_session):
             name="Backup WS",
             description="Backup download test",
             user_id=user_id,
+            node_id=TEST_WORKER_ID,
             template_id="vscode-python",
             flavor_id="t1.micro",
             container_name="devcloud-1-test-ws-backup-1",
@@ -69,6 +71,7 @@ async def test_snapshot_workspace_to_template(client: AsyncClient, db_session):
         name="Snapshot WS",
         description="Snapshot test",
         user_id=user_id,
+        node_id=TEST_WORKER_ID,
         template_id="vscode-python",
         flavor_id="t1.micro",
         container_name="devcloud-1-test-ws-snap-1",

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text
+from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -25,6 +25,9 @@ class WorkspaceStatus(str, enum.Enum):
 class Workspace(Base):
     """Workspace instance deployed as a container."""
     __tablename__ = "workspaces"
+    __table_args__ = (
+        UniqueConstraint("node_id", "host_port", name="uq_workspaces_node_host_port"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -36,11 +39,12 @@ class Workspace(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     owner: Mapped["User"] = relationship("User", back_populates="workspaces")
 
-    # Placement. Null preserves legacy single-host workspaces.
-    node_id: Mapped[str | None] = mapped_column(
-        ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True
+    # Every workspace belongs to a worker. The controller has no local
+    # container runtime, including in an all-in-one deployment.
+    node_id: Mapped[str] = mapped_column(
+        ForeignKey("nodes.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    node: Mapped["Node | None"] = relationship("Node", back_populates="workspaces")
+    node: Mapped["Node"] = relationship("Node", back_populates="workspaces")
 
     # Specifications
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-empty, vscode-python, etc.
@@ -49,7 +53,7 @@ class Workspace(Base):
     # Container details
     container_id: Mapped[str] = mapped_column(String(128), nullable=True)
     container_name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
-    host_port: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    host_port: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     container_port: Mapped[int] = mapped_column(Integer, default=8080, nullable=False)
     workspace_token: Mapped[str] = mapped_column(String(128), default=lambda: uuid.uuid4().hex, nullable=False)
     

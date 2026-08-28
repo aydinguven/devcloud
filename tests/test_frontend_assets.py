@@ -94,7 +94,8 @@ def test_public_download_page_exposes_worker_bootstrap_command():
 
     assert "worker_bootstrap_url" in template
     assert "curl -fsSL" in template
-    assert "/opt/devcloud-worker" in bootstrap
+    assert "devcloud-setup.sh" in bootstrap
+    assert "--yes install worker" in bootstrap
     assert "sha256sum -c" in bootstrap
     assert "tar -xf" in bootstrap
     assert "tar -xzf" not in bootstrap

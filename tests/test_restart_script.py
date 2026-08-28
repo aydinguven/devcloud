@@ -34,12 +34,22 @@ def test_service_supports_standard_systemd_reload():
     assert "ExecReload=/bin/kill -HUP $MAINPID" in service
 
 
-def test_service_uses_runtime_directory_for_configured_user():
-    service = (PROJECT_ROOT / "deploy" / "devcloud.service").read_text(encoding="utf-8")
+def test_only_worker_service_prepares_rootless_runtime_directory():
+    controller = (PROJECT_ROOT / "deploy" / "devcloud.service").read_text(
+        encoding="utf-8"
+    )
+    worker = (PROJECT_ROOT / "deploy" / "devcloud-worker.service").read_text(
+        encoding="utf-8"
+    )
 
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in service
-    assert "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U" in service
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in service
+    assert "XDG_RUNTIME_DIR" not in controller
+    assert "ExecStartPre" not in controller
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in worker
+    assert (
+        "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U"
+        in worker
+    )
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in worker
 
 
 def test_worker_service_uses_runtime_directory_for_configured_user():

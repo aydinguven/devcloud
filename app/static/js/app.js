@@ -19,7 +19,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initSnapshotModal();
   initAdminPlatformUpdater();
   initAdminFilters();
-  initWorkspaceMigration();
 });
 
 function initAdminFilters() {
@@ -473,8 +472,8 @@ function initNodeManagement() {
 
   function renderWorkerTokenBox(data) {
     if (!tokenBox) return;
-    const masterUrl = window.location.origin;
-    const singleLineCmd = `curl -fsSL '${masterUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' DEVCLOUD_NODE_TOKEN='${data.enrollment_token}' bash`;
+    const controllerUrl = window.location.origin;
+    const singleLineCmd = `curl -fsSL '${controllerUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' bash`;
 
     tokenBox.style.display = "block";
     tokenBox.innerHTML = `
@@ -494,7 +493,7 @@ function initNodeManagement() {
         <div><strong>Token:</strong> <code style="color:#e2e8f0;">${data.enrollment_token}</code></div>
         <div style="margin-top:0.5rem;font-size:0.75rem;">
           <strong>Manuel Yapılandırma (/etc/devcloud/worker.env):</strong>
-          <pre style="background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:4px;margin-top:0.25rem;font-size:0.75rem;color:#e2e8f0;white-space:pre;">DEVCLOUD_MASTER_URL=${masterUrl}
+          <pre style="background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:4px;margin-top:0.25rem;font-size:0.75rem;color:#e2e8f0;white-space:pre;">DEVCLOUD_CONTROLLER_URL=${controllerUrl}
 DEVCLOUD_NODE_ID=${data.id}
 DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         </div>
@@ -777,78 +776,6 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
   }
 }
 
-function initWorkspaceMigration() {
-  const modal = document.getElementById("ws-migrate-modal");
-  const form = document.getElementById("ws-migrate-form");
-  const wsIdInput = document.getElementById("migrate-modal-ws-id");
-  const wsInfo = document.getElementById("migrate-modal-ws-info");
-  const nodeSelect = document.getElementById("migrate-target-node");
-  const closeBtn = document.getElementById("btn-close-migrate-modal");
-
-  if (!modal) return;
-  if (closeBtn) {
-    closeBtn.addEventListener("click", () => modal.classList.remove("open"));
-  }
-
-  document.querySelectorAll(".btn-migrate-ws").forEach(button => {
-    button.addEventListener("click", async () => {
-      const wsId = button.dataset.workspaceId;
-      const wsName = button.dataset.workspaceName || "Workspace";
-      const currNode = button.dataset.currentNode || "local";
-      wsIdInput.value = wsId;
-      wsInfo.textContent = `"${wsName}" çalışma alanı taşınacak. (Mevcut worker: ${currNode})`;
-
-      try {
-        const res = await fetch("/api/admin/nodes");
-        if (res.ok) {
-          const nodes = await res.json();
-          nodeSelect.innerHTML = '<option value="">-- Load Balancer Otomatik Yerleştirsin (Önerilen) --</option>';
-          nodes.forEach(n => {
-            const isOnline = n.status === "online";
-            const opt = document.createElement("option");
-            opt.value = n.id;
-            opt.textContent = `${n.name} (${n.status}${isOnline ? " - " + n.cpu_percent + "% CPU" : ""})`;
-            if (!isOnline || !n.schedulable) opt.disabled = true;
-            nodeSelect.appendChild(opt);
-          });
-        }
-      } catch (_) {}
-
-      modal.classList.add("open");
-    });
-  });
-
-  if (form) {
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const wsId = wsIdInput.value;
-      const targetNodeId = nodeSelect.value;
-      const submitBtn = document.getElementById("btn-submit-migrate");
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Taşınıyor...";
-      try {
-        const url = targetNodeId
-          ? `/api/admin/workspaces/${wsId}/migrate?target_node_id=${encodeURIComponent(targetNodeId)}`
-          : `/api/admin/workspaces/${wsId}/migrate`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || "Taşıma işlemi başarısız.");
-        alert(`✓ ${data.message}`);
-        modal.classList.remove("open");
-        window.location.reload();
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = "📦 Taşı";
-      }
-    });
-  }
-}
-
 function initMlflowSettings() {
   const form = document.getElementById("mlflow-settings-form");
   if (!form) return;
@@ -933,7 +860,7 @@ function initDownloadSettings() {
       .trim()
       .replace(/\/+$/, "");
     saveButton.disabled = true;
-    status.textContent = "Master URL kaydediliyor...";
+    status.textContent = "Controller URL kaydediliyor...";
     status.className = "quota-form-status";
     try {
       const response = await fetch("/api/admin/download-settings", {
@@ -943,13 +870,13 @@ function initDownloadSettings() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail || `Master URL kaydedilemedi (${response.status})`);
+        throw new Error(data.detail || `Controller URL kaydedilemedi (${response.status})`);
       }
       form.elements.public_base_url.value = data.public_base_url;
       if (command) {
-        command.textContent = `# Önerilen: Master'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
+        command.textContent = `# Önerilen: Controller'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
       }
-      status.textContent = "Master URL kaydedildi; yeni bootstrap scriptleri bu adresi kullanacak.";
+      status.textContent = "Controller URL kaydedildi; yeni bootstrap scriptleri bu adresi kullanacak.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;
@@ -1018,7 +945,7 @@ function initHttpsSettings() {
       }
       if (masterForm) masterForm.elements.public_base_url.value = data.public_base_url;
       if (command) {
-        command.textContent = `# Önerilen: Master'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
+        command.textContent = `# Önerilen: Controller'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
       }
       status.textContent = data.https_enabled
         ? "HTTPS etkinleştirildi. DNS ve istemci TCMB-CA güvenini ayrıca doğrulayın."
@@ -1138,7 +1065,7 @@ function initDownloadUpdater() {
 
   const controllers = [
     createBundleController({
-      label: "Master",
+      label: "Controller",
       buttonId: "btn-update-downloads",
       badgeId: "download-update-badge",
       messageId: "download-update-message",

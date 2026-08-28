@@ -105,6 +105,29 @@ def get_system_usage() -> dict[str, dict[str, Any]]:
     }
 
 
+def get_cluster_usage(nodes: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    """Aggregate current capacity from connected worker telemetry."""
+    active = []
+    for node in nodes:
+        status = getattr(getattr(node, "status", None), "value", node.status)
+        if getattr(node, "enabled", False) and status in {"online", "draining"}:
+            active.append(node)
+    cpu_total = sum(float(node.cpu_total or 0) for node in active)
+    cpu_used = sum(
+        float(node.cpu_total or 0) * float(node.cpu_percent or 0) / 100.0
+        for node in active
+    )
+    memory_total = sum(int(node.memory_total_mb or 0) for node in active) * BYTES_PER_MB
+    memory_used = sum(int(node.memory_used_mb or 0) for node in active) * BYTES_PER_MB
+    disk_total = sum(int(node.disk_total_mb or 0) for node in active) * BYTES_PER_MB
+    disk_used = sum(int(node.disk_used_mb or 0) for node in active) * BYTES_PER_MB
+    return {
+        "cpu": _metric(cpu_used, cpu_total, format_cpu),
+        "memory": _metric(memory_used, memory_total, format_bytes),
+        "disk": _metric(disk_used, disk_total, format_bytes),
+    }
+
+
 def directory_size(path: Path) -> int:
     """Return regular-file bytes below path without following symlinks."""
     total = 0
@@ -134,10 +157,19 @@ def workspace_allocations(workspaces: Iterable[Workspace]) -> tuple[float, int, 
     return cpu_used, memory_mb_used, count
 
 
-def get_user_usage(user: User, workspaces: Iterable[Workspace]) -> dict[str, Any]:
+def get_user_usage(
+    user: User,
+    workspaces: Iterable[Workspace],
+    *,
+    disk_used_bytes: int | None = None,
+) -> dict[str, Any]:
     """Return a user's allocations, actual disk use, and remaining quota."""
     cpu_used, memory_mb_used, workspace_count = workspace_allocations(workspaces)
-    disk_used = directory_size(Path(settings.STORAGE_ROOT) / str(user.id))
+    disk_used = (
+        directory_size(Path(settings.STORAGE_ROOT) / str(user.id))
+        if disk_used_bytes is None
+        else max(int(disk_used_bytes), 0)
+    )
     return {
         "cpu": _metric(cpu_used, user.cpu_quota, format_cpu),
         "memory": _metric(
@@ -157,13 +189,23 @@ def get_user_usage(user: User, workspaces: Iterable[Workspace]) -> dict[str, Any
 def get_all_user_usage(
     users: Iterable[User],
     workspaces: Iterable[Workspace],
+    *,
+    disk_usage_by_user: dict[int, int] | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Build per-user summaries while grouping workspace allocations once."""
     grouped: dict[int, list[Workspace]] = {}
     for workspace in workspaces:
         grouped.setdefault(workspace.user_id, []).append(workspace)
     return {
-        user.id: get_user_usage(user, grouped.get(user.id, []))
+        user.id: get_user_usage(
+            user,
+            grouped.get(user.id, []),
+            disk_used_bytes=(
+                disk_usage_by_user.get(user.id, 0)
+                if disk_usage_by_user is not None
+                else None
+            ),
+        )
         for user in users
     }
 
@@ -172,9 +214,13 @@ def quota_violations(
     user: User,
     workspaces: Iterable[Workspace],
     requested_flavor: Flavor,
+    *,
+    disk_used_bytes: int | None = None,
 ) -> list[str]:
     """Describe quota limits a new workspace allocation would exceed."""
-    usage = get_user_usage(user, workspaces)
+    usage = get_user_usage(
+        user, workspaces, disk_used_bytes=disk_used_bytes
+    )
     violations = []
     requested_cpu = usage["cpu"]["used"] + requested_flavor.cpus
     requested_memory_mb = usage["memory"]["used"] / BYTES_PER_MB + requested_flavor.memory_mb

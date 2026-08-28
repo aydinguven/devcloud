@@ -15,7 +15,7 @@ def normalize_public_base_url(value: str) -> str:
     try:
         parsed.port
     except ValueError as exc:
-        raise ValueError("Master URL geçerli bir port içermelidir") from exc
+        raise ValueError("Controller URL geçerli bir port içermelidir") from exc
     try:
         ipaddress.ip_address(hostname)
         valid_hostname = True
@@ -33,6 +33,6 @@ def normalize_public_base_url(value: str) -> str:
         or any(character.isspace() for character in normalized)
     ):
         raise ValueError(
-            "Master URL yalnızca http:// veya https:// ile başlayan host ve isteğe bağlı port içermelidir"
+            "Controller URL yalnızca http:// veya https:// ile başlayan host ve isteğe bağlı port içermelidir"
         )
     return normalized

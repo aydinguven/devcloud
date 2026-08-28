@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for uploaded DevCloud releases
+
+[Path]
+PathExists=/var/lib/devcloud/update-queue/pending.json
+PathExists=/var/lib/devcloud/update-queue/running.json
+Unit=devcloud-update.service
+
+[Install]
+WantedBy=multi-user.target

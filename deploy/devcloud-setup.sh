@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Bootstrap the interactive DevCloud lifecycle installer on Rocky/RHEL 10.
+set -Eeuo pipefail
+
+log() {
+    printf '[devcloud-setup] %s\n' "$*"
+}
+
+fail() {
+    printf '[devcloud-setup] ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+[[ "$(id -u)" -eq 0 ]] || fail "Run devcloud-setup as root."
+[[ -r /etc/os-release ]] || fail "/etc/os-release is required."
+# shellcheck disable=SC1091
+source /etc/os-release
+
+DISTRIBUTION_ID="${ID,,}"
+MAJOR_VERSION="${VERSION_ID%%.*}"
+ARCHITECTURE="$(uname -m)"
+case "${DISTRIBUTION_ID}" in
+    rocky|rhel) ;;
+    *) fail "Only Rocky Linux 10 and RHEL 10 are supported; detected ${ID:-unknown}." ;;
+esac
+[[ "${MAJOR_VERSION}" == "10" ]] || fail \
+    "Only Rocky/RHEL major version 10 is supported; detected ${VERSION_ID:-unknown}."
+[[ "${ARCHITECTURE}" == "x86_64" ]] || fail \
+    "Only x86_64 is supported; detected ${ARCHITECTURE}."
+command -v dnf >/dev/null 2>&1 || fail "DNF is required."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROFILE="${DISTRIBUTION_ID}-${MAJOR_VERSION}-x86_64"
+BOOTSTRAP_RPMS="${PROJECT_DIR}/offline/bootstrap-rpms/${PROFILE}"
+SYSTEM_RPMS="${PROJECT_DIR}/offline/system-rpms/${PROFILE}"
+
+install_subscription_manager() {
+    command -v subscription-manager >/dev/null 2>&1 && return 0
+    log "Installing subscription-manager..."
+    if dnf install -y subscription-manager; then
+        return 0
+    fi
+    if [[ ! -d "${BOOTSTRAP_RPMS}" && -d "${SYSTEM_RPMS}" ]]; then
+        BOOTSTRAP_RPMS="${SYSTEM_RPMS}"
+    fi
+    [[ -d "${BOOTSTRAP_RPMS}" ]] || fail \
+        "subscription-manager is missing, configured repositories could not install it, and no ${PROFILE} bootstrap RPM closure is bundled."
+    mapfile -d '' rpms < <(find "${BOOTSTRAP_RPMS}" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z)
+    [[ "${#rpms[@]}" -gt 0 ]] || fail "The subscription-manager bootstrap RPM directory is empty."
+    dnf --disable-repo='*' install -y "${rpms[@]}"
+}
+
+install_subscription_manager
+
+if ! command -v python3 >/dev/null 2>&1; then
+    log "Installing Python 3 from configured repositories..."
+    dnf install -y python3
+fi
+
+export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m app.installer "$@"

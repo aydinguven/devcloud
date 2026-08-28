@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.podman_service import podman_service
+from tests.conftest import TEST_WORKER_ID
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "dev_user") -> dict[str, str]:
     """Helper to register and return authorization headers."""
@@ -214,6 +215,7 @@ async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, d
         name="Still Deploying",
         description="",
         user_id=user.id,
+        node_id=TEST_WORKER_ID,
         template_id="vscode-python",
         flavor_id="t1.micro",
         container_name="devcloud-creating-test",

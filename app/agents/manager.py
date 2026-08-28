@@ -170,11 +170,14 @@ class AgentManager:
         await self.broadcast_event("node.connected", {"node_id": node_id, "status": "online"})
         return connection
 
-    async def unregister(self, node_id: str, connection: AgentConnection) -> None:
-        if self._connections.get(node_id) is connection:
-            self._connections.pop(node_id, None)
+    async def unregister(self, node_id: str, connection: AgentConnection) -> bool:
+        if self._connections.get(node_id) is not connection:
+            await connection.disconnect()
+            return False
+        self._connections.pop(node_id, None)
         await connection.disconnect()
         await self.broadcast_event("node.disconnected", {"node_id": node_id, "status": "offline"})
+        return True
 
     def get(self, node_id: str) -> AgentConnection:
         connection = self._connections.get(node_id)

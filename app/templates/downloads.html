@@ -7,7 +7,7 @@
   <div>
     <span class="page-kicker">Hava Boşluklu (Air-Gap) Dağıtım</span>
     <h1>Kurulum Paketleri & Kılavuz</h1>
-    <p>Master veya CPU worker paketini indirin; Rocky Linux 10.x/RHEL 10.x hedefte eksik Podman ve Python dahil internet bağlantısı olmadan kurun.</p>
+    <p>Controller veya CPU worker paketini indirin; Rocky Linux 10.x/RHEL 10.x hedefte eksik bağımlılıkları internet bağlantısı olmadan kurun.</p>
   </div>
 </div>
 
@@ -19,7 +19,7 @@
     {% for bundle in bundles %}
       <div class="download-item" style="padding: 1rem; background: var(--bg-card-hover); border-radius: var(--radius-md); margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <span class="badge {% if bundle.bundle_role == 'worker' %}badge-flavor{% else %}badge-running{% endif %}" style="margin-bottom:.4rem;">{% if bundle.bundle_role == 'worker' %}CPU Worker{% else %}Master Sunucu{% endif %}</span>
+          <span class="badge {% if bundle.bundle_role == 'worker' %}badge-flavor{% else %}badge-running{% endif %}" style="margin-bottom:.4rem;">{% if bundle.bundle_role == 'worker' %}CPU Worker{% else %}Controller Sunucu{% endif %}</span>
           <div class="download-filename" style="font-weight: 600; font-family: var(--font-mono); color: #fff; font-size: 1rem;">{{ bundle.filename }}</div>
           <div class="download-meta" style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
             Boyut: <strong style="color: var(--text-main);">{{ bundle.size_display }}</strong> &bull; Son Güncelleme: {{ bundle.modified_at[:10] if bundle.modified_at else 'Bilinmiyor' }}
@@ -42,7 +42,7 @@
 <div class="card" style="border-top: 3px solid var(--primary);">
   <div class="card-header" style="margin-bottom: 1.25rem;">
     <div>
-      <h2 class="card-title">📖 Master Sunucu Kurulum Kılavuzu</h2>
+      <h2 class="card-title">📖 Controller Sunucu Kurulum Kılavuzu</h2>
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem;">
         İndirilen paketi aynı dağıtım ailesindeki Rocky Linux 10.x veya RHEL 10.x x86_64 hedefe aktardıktan sonra aşağıdaki adımları uygulayın.
       </p>
@@ -120,7 +120,7 @@ echo "$ID $VERSION_ID $(uname -m)"</pre>
     <div>
       <h2 class="card-title">🧭 CPU Worker Kurulum Kılavuzu</h2>
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem;">
-        Önce master yönetim panelinden worker node oluşturun ve yalnızca bir kez gösterilen node token'ını güvenli şekilde kaydedin.
+        Önce controller yönetim panelinden worker node oluşturun ve yalnızca bir kez gösterilen node token'ını güvenli şekilde kaydedin.
       </p>
     </div>
   </div>
@@ -129,7 +129,7 @@ echo "$ID $VERSION_ID $(uname -m)"</pre>
     <div style="background:rgba(41,121,255,.08);border:1px solid rgba(41,121,255,.35);border-radius:var(--radius-md);padding:1.25rem;">
       <h3 style="font-size:1.05rem;color:#fff;margin:0 0 .75rem;">Hızlı kurulum — tek komut</h3>
       <pre class="terminal-window" style="font-size:.85rem;padding:.85rem 1rem;">curl -fsSL '{{ worker_bootstrap_url }}' | sudo bash</pre>
-      <small style="color:var(--text-muted);">Script güncel Worker arşivini ve checksum dosyasını bu Master'dan indirir. Node ID ile token'ı komut satırına yazmadan terminalden ister.</small>
+      <small style="color:var(--text-muted);">Script güncel Worker arşivini ve checksum dosyasını bu Controller'dan indirir. Node ID ile token'ı komut satırına yazmadan terminalden ister.</small>
     </div>
     {% endif %}
     <div style="background:rgba(255,255,255,.02);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:1.25rem;">
@@ -143,13 +143,13 @@ cd devcloud-worker</pre>
       <pre class="terminal-window" style="font-size:.85rem;padding:.85rem 1rem;">sudo install -d -m 0755 /etc/devcloud
 sudo install -m 0600 deploy/worker.env.example /etc/devcloud/worker.env
 sudo vi /etc/devcloud/worker.env</pre>
-      <small style="color:var(--text-muted);">Master URL, node ID ve node token alanlarını yönetim panelindeki değerlerle doldurun.</small>
+      <small style="color:var(--text-muted);">Controller URL, node ID ve node token alanlarını yönetim panelindeki değerlerle doldurun.</small>
     </div>
     <div style="background:rgba(255,255,255,.02);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:1.25rem;">
       <h3 style="font-size:1.05rem;color:#fff;margin:0 0 .75rem;">3. Worker'ı kurun</h3>
       <pre class="terminal-window" style="font-size:.85rem;padding:.85rem 1rem;">sudo bash deploy/deploy_worker_offline.sh
 sudo journalctl -u devcloud-worker -f</pre>
-      <small style="color:var(--color-success);">Kurucu eksik Podman, Python ve subscription-manager RPM'lerini yerel paketten yükler. Worker yalnızca master'a doğru HTTPS/WSS bağlantısı açar; inbound yönetim portu gerekmez.</small>
+      <small style="color:var(--color-success);">Kurucu eksik Podman, Python ve subscription-manager RPM'lerini yerel paketten yükler. Worker yalnızca controller'a doğru HTTPS/WSS bağlantısı açar; inbound yönetim portu gerekmez.</small>
     </div>
   </div>
 </div>

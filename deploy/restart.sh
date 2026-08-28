@@ -154,7 +154,7 @@ if [[ "${STATE}" == "active" ]] && pid_is_alive "${OLD_MAIN_PID}"; then
         show_diagnostics
         exit 1
     else
-        log "Single-process master detected in ${SERVICE_NAME} (PID: ${OLD_MAIN_PID}); restarting main process..."
+        log "Single-process controller detected in ${SERVICE_NAME} (PID: ${OLD_MAIN_PID}); restarting main process..."
         systemctl_cmd kill --kill-who=main --signal=SIGTERM "${SERVICE_NAME}" || true
         if wait_for_start; then
             exit 0

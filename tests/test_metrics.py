@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient
 from app.models.workspace import Workspace, WorkspaceStatus
+from tests.conftest import TEST_WORKER_ID
 
 
 async def get_authenticated_headers(client: AsyncClient, username: str = "metric_user") -> tuple[dict[str, str], int]:
@@ -29,6 +30,7 @@ async def test_get_workspace_stats_summary(client: AsyncClient, db_session):
         name="Metrics WS",
         description="Stats test",
         user_id=user_id,
+        node_id=TEST_WORKER_ID,
         template_id="jupyter-python",
         flavor_id="t1.micro",
         container_name="devcloud-1-test-ws-metrics-1",
@@ -63,6 +65,7 @@ async def test_get_single_workspace_stats(client: AsyncClient, db_session):
         name="Metrics WS 2",
         description="Single stats test",
         user_id=user_id,
+        node_id=TEST_WORKER_ID,
         template_id="jupyter-python",
         flavor_id="t1.micro",
         container_name="devcloud-1-test-ws-metrics-2",

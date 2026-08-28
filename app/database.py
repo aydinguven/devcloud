@@ -183,6 +183,9 @@ async def ensure_node_columns(conn) -> None:
         "active_containers_count": "INTEGER DEFAULT 0",
         "labels_json": "TEXT DEFAULT '{}'",
         "capabilities_json": "TEXT DEFAULT '{}'",
+        "inventory_json": "TEXT DEFAULT '[]'",
+        "reconciliation_json": "TEXT DEFAULT '{}'",
+        "last_reconciled_at": "TIMESTAMP",
         "agent_version": "VARCHAR(64) DEFAULT ''",
         "agent_token_hash": "VARCHAR(64) DEFAULT ''",
     }

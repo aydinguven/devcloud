@@ -44,10 +44,15 @@ class Node(Base):
     active_containers_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
     labels_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
     capabilities_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
+    inventory_json: Mapped[str] = mapped_column(Text, default="[]", nullable=True)
+    reconciliation_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
     agent_version: Mapped[str] = mapped_column(String(64), default="", nullable=True)
     agent_token_hash: Mapped[str] = mapped_column(String(64), default="", nullable=True)
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

@@ -56,29 +56,13 @@ if [[ "${SELINUX_MODE}" == "Disabled" ]]; then
     exit 0
 fi
 
-RUNNING_CONTAINERS=""
-if command -v podman >/dev/null 2>&1; then
-    RUNNING_CONTAINERS="$(podman ps --format '{{.Names}}' 2>/dev/null | grep -E '^devcloud-' || true)"
-fi
-
 if (( PERSISTENT_CONTEXT == 1 )); then
     command -v restorecon >/dev/null 2>&1 || fail "restorecon is required but was not found."
-    if [[ -n "${RUNNING_CONTAINERS}" ]]; then
-        # Recursive restorecon would replace active containers' private MCS
-        # categories. Label only the storage root; Podman's :Z handles each
-        # workspace directory privately when its container is created.
-        run_root restorecon -Fv "${WORKSPACES_DIR}"
-        log "Running DevCloud containers detected; preserved their private workspace labels."
-    else
-        run_root restorecon -RFv "${WORKSPACES_DIR}"
-    fi
+    # Never recursively relabel workspace children during repair: rootless
+    # Podman's :Z mount owns their private MCS categories.
+    run_root restorecon -Fv "${WORKSPACES_DIR}"
 elif command -v chcon >/dev/null 2>&1; then
-    if [[ -n "${RUNNING_CONTAINERS}" ]]; then
-        run_root chcon -t container_file_t "${WORKSPACES_DIR}"
-        log "Running DevCloud containers detected; skipped recursive temporary relabeling."
-    else
-        run_root chcon -Rt container_file_t "${WORKSPACES_DIR}"
-    fi
+    run_root chcon -t container_file_t "${WORKSPACES_DIR}"
 else
     [[ "${SELINUX_MODE}" == "Disabled" ]] || fail "Neither semanage/restorecon nor chcon is available to label workspace storage."
 fi

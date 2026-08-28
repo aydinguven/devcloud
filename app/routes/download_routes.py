@@ -73,7 +73,7 @@ def _public_base_url(
     except ValueError as exc:
         raise HTTPException(
             status_code=500,
-            detail="Geçerli public Master URL ayarlanmamış.",
+            detail="Geçerli public Controller URL ayarlanmamış.",
         ) from exc
 
 

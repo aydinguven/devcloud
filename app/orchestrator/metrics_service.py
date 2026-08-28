@@ -1,4 +1,6 @@
+import asyncio
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from datetime import datetime, timezone
 from app.orchestrator.runtime_backend import runtime_for_node
@@ -34,6 +36,35 @@ def format_bytes_human(num_bytes: int) -> str:
         return f"{num_bytes / (1024 * 1024):.1f} MB"
     else:
         return f"{num_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+async def get_workspace_disk_usage_by_user(
+    workspaces: Iterable[Workspace],
+) -> dict[int, int]:
+    """Read workspace storage sizes from owning workers with bounded fan-out."""
+    semaphore = asyncio.Semaphore(8)
+
+    async def measure(workspace: Workspace) -> tuple[int, int]:
+        if not workspace.storage_path:
+            return workspace.user_id, 0
+        try:
+            async with semaphore:
+                size = await asyncio.wait_for(
+                    runtime_for_node(workspace.node_id).get_storage_size(
+                        workspace.container_name,
+                        workspace.storage_path,
+                    ),
+                    timeout=10,
+                )
+            return workspace.user_id, max(int(size), 0)
+        except Exception:
+            return workspace.user_id, 0
+
+    results = await asyncio.gather(*(measure(item) for item in workspaces))
+    totals: dict[int, int] = {}
+    for user_id, size in results:
+        totals[user_id] = totals.get(user_id, 0) + size
+    return totals
 
 
 async def get_workspace_live_metrics(workspace: Workspace) -> dict:

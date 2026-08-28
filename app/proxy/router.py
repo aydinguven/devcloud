@@ -17,7 +17,6 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.podman_service import podman_service
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentCommandError, AgentUnavailable, agent_manager
 
@@ -281,6 +280,19 @@ async def proxy_remote_http(
     try:
         metadata, stream = await connection.open_stream("proxy.http.open", payload)
     except (AgentUnavailable, AgentCommandError, TimeoutError) as exc:
+        if request.method == "GET" and "text/html" in request.headers.get(
+            "accept", ""
+        ):
+            logger.info(
+                "Workspace %s worker proxy is not ready: %s",
+                workspace.id,
+                exc,
+            )
+            return HTMLResponse(
+                content=render_starting_page(workspace),
+                status_code=200,
+                headers={"Cache-Control": "no-store", "Retry-After": "2"},
+            )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     header_pairs = metadata.get("headers") or []
@@ -434,108 +446,7 @@ async def proxy_http_request(
             path=custom_parts[2] if len(custom_parts) == 3 else "",
         )
     upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
-    if workspace.node_id:
-        return await proxy_remote_http(workspace, request, upstream_path)
-    target_url = f"http://127.0.0.1:{workspace.host_port}{upstream_path}"
-    
-    if request.url.query:
-        target_url = f"{target_url}?{request.url.query}"
-
-    # Filter headers to pass through
-    headers = _forward_headers(request, workspace)
-    if "jupyter" in workspace.template_id:
-        # Keep Jupyter's same-origin check intact. The TCP hop is loopback, but
-        # Origin must be compared with the browser-facing Host rather than the
-        # container port or Jupyter masks unsafe requests as a 404.
-        public_host = request.headers.get("host")
-        if public_host:
-            headers["Host"] = public_host
-            headers["X-Forwarded-Host"] = public_host
-        else:
-            headers["Host"] = f"127.0.0.1:{workspace.host_port}"
-        headers["X-Forwarded-Proto"] = request.url.scheme
-    else:
-        headers["Host"] = f"127.0.0.1:{workspace.host_port}"
-
-    body = await request.body()
-    client = httpx.AsyncClient(timeout=30.0)
-
-    # Retry loop to gracefully handle initial container service boot time (2-5s)
-    max_retries = 6
-    resp = None
-
-    for attempt in range(max_retries):
-        try:
-            req = client.build_request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                content=body,
-            )
-            resp = await client.send(req, stream=True)
-            break
-        except (httpx.ConnectError, httpx.ConnectTimeout):
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1.0)
-            else:
-                await client.aclose()
-                # Return a live diagnostics screen for browser navigation requests.
-                if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
-                    logger.info(
-                        "Workspace %s is not accepting HTTP connections on port %s after %s attempts",
-                        workspace.id,
-                        workspace.host_port,
-                        max_retries,
-                    )
-                    return HTMLResponse(
-                        content=render_starting_page(workspace),
-                        status_code=200,
-                        headers={"Cache-Control": "no-store", "Retry-After": "2"},
-                    )
-
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Çalışma alanı Container servisine bağlanılamadı. Servis hâlâ başlatılıyor olabilir.",
-                )
-        except Exception as e:
-            await client.aclose()
-            logger.error(f"Proxy error for workspace {workspace_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Proxy hatası: {str(e)}")
-
-    # Build response streaming
-    async def response_stream():
-        try:
-            async for chunk in resp.aiter_raw():
-                yield chunk
-        finally:
-            await resp.aclose()
-            await client.aclose()
-
-    # Header dictionaries collapse repeated Set-Cookie fields into one invalid
-    # comma-separated value. Preserve each cookie independently so Jupyter's
-    # login and _xsrf cookies both reach the browser.
-    if hasattr(resp.headers, "get_list"):
-        set_cookie_headers = resp.headers.get_list("set-cookie")
-    else:
-        set_cookie_value = resp.headers.get("set-cookie")
-        set_cookie_headers = [set_cookie_value] if set_cookie_value else []
-
-    response_headers = dict(resp.headers)
-    # Remove hop-by-hop headers and cookies handled through raw_headers below.
-    for h in ["transfer-encoding", "content-length", "set-cookie"]:
-        response_headers.pop(h, None)
-
-    proxy_response = StreamingResponse(
-        response_stream(),
-        status_code=resp.status_code,
-        headers=response_headers,
-        media_type=resp.headers.get("content-type"),
-    )
-    for cookie_header in set_cookie_headers:
-        proxy_response.raw_headers.append(
-            (b"set-cookie", cookie_header.encode("latin-1"))
-        )
-    return proxy_response
+    return await proxy_remote_http(workspace, request, upstream_path)
 
 
 @proxy_router.websocket("/{workspace_id}/{path:path}")
@@ -575,74 +486,15 @@ async def proxy_websocket(
     else:
         upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
 
-    if workspace.node_id:
-        try:
-            await proxy_remote_websocket(
-                websocket,
-                workspace,
-                upstream_path,
-                custom_port=custom_port,
-            )
-        except Exception as exc:
-            logger.warning("Remote WebSocket proxy closed: %s", exc)
-        finally:
-            try:
-                await websocket.close()
-            except Exception:
-                pass
-        return
-
-    target_host = "127.0.0.1"
-    target_port = workspace.host_port
-    if custom_port is not None:
-        container_ip = await podman_service.get_container_ip(workspace.container_name)
-        if not container_ip:
-            await websocket.close(code=1011, reason="Container IP adresi bulunamadı")
-            return
-        target_host = container_ip
-        target_port = custom_port
-    target_ws_url = f"ws://{target_host}:{target_port}{upstream_path}"
-    forwarded_query = _workspace_websocket_query(websocket)
-    if forwarded_query:
-        target_ws_url += f"?{forwarded_query}"
-
-    additional_headers = None
-    if custom_port is None and "jupyter" in workspace.template_id:
-        additional_headers = {"Authorization": f"token {workspace.workspace_token}"}
-
     try:
-        async with websockets.connect(
-            target_ws_url, additional_headers=additional_headers
-        ) as target_ws:
-            async def forward_to_target():
-                try:
-                    while True:
-                        msg = await websocket.receive()
-                        if "text" in msg:
-                            await target_ws.send(msg["text"])
-                        elif "bytes" in msg:
-                            await target_ws.send(msg["bytes"])
-                except (WebSocketDisconnect, asyncio.CancelledError):
-                    pass
-
-            async def forward_to_client():
-                try:
-                    while True:
-                        msg = await target_ws.recv()
-                        if isinstance(msg, str):
-                            await websocket.send_text(msg)
-                        else:
-                            await websocket.send_bytes(msg)
-                except (websockets.ConnectionClosed, asyncio.CancelledError):
-                    pass
-
-            await asyncio.gather(
-                forward_to_target(),
-                forward_to_client(),
-                return_exceptions=True,
-            )
+        await proxy_remote_websocket(
+            websocket,
+            workspace,
+            upstream_path,
+            custom_port=custom_port,
+        )
     except Exception as exc:
-        logger.warning(f"WebSocket proxy closed: {exc}")
+        logger.warning("Worker WebSocket proxy closed: %s", exc)
     finally:
         try:
             await websocket.close()
@@ -670,62 +522,9 @@ async def proxy_custom_port_http(
     workspace = await get_authorized_workspace(workspace_id, db, current_user)
 
     subpath = f"/{path.lstrip('/')}"
-    if workspace.node_id:
-        return await proxy_remote_http(
-            workspace,
-            request,
-            subpath,
-            custom_port=port,
-        )
-
-    container_ip = await podman_service.get_container_ip(workspace.container_name)
-    target_host = container_ip if container_ip else "127.0.0.1"
-
-    target_url = f"http://{target_host}:{port}{subpath}"
-    if request.url.query:
-        target_url += f"?{request.url.query}"
-
-    headers = {
-        k: v for k, v in request.headers.items() if k.lower() not in {"host", "connection"}
-    }
-    headers["Host"] = f"{target_host}:{port}"
-    body = await request.body()
-
-    client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
-    try:
-        req = client.build_request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            content=body,
-        )
-        upstream_resp = await client.send(req, stream=True)
-        resp_headers = {
-            k: v
-            for k, v in upstream_resp.headers.items()
-            if k.lower() not in {"transfer-encoding", "connection", "content-length"}
-        }
-
-        async def stream_body():
-            try:
-                async for chunk in upstream_resp.aiter_raw():
-                    yield chunk
-            finally:
-                await upstream_resp.aclose()
-                await client.aclose()
-
-        return StreamingResponse(
-            stream_body(),
-            status_code=upstream_resp.status_code,
-            headers=resp_headers,
-            media_type=upstream_resp.headers.get("content-type"),
-        )
-    except httpx.ConnectError:
-        await client.aclose()
-        raise HTTPException(
-            status_code=502,
-            detail=f"Could not connect to port {port} inside container '{workspace.name}'. Ensure your app is listening on 0.0.0.0:{port}.",
-        )
-    except Exception as exc:
-        await client.aclose()
-        raise HTTPException(status_code=500, detail=f"Custom port proxy error: {str(exc)}")
+    return await proxy_remote_http(
+        workspace,
+        request,
+        subpath,
+        custom_port=port,
+    )

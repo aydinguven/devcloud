@@ -10,6 +10,7 @@ from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
+from tests.conftest import TEST_WORKER_ID
 from app.routes.agent_routes import connect_agent
 from tests.conftest import TestingSessionLocal
 
@@ -196,12 +197,12 @@ async def test_admin_cannot_delete_worker_with_active_workspaces(client: AsyncCl
     await db_session.commit()
 
     delete_resp = await client.delete(f"/api/admin/nodes/{node_id}", headers=headers)
-    assert delete_resp.status_code == 400
-    assert "aktif çalışma alanı" in delete_resp.json()["detail"]
+    assert delete_resp.status_code == 409
+    assert "atanmış" in delete_resp.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_admin_can_delete_worker_with_stopped_workspaces_and_nulls_node_id(client: AsyncClient, db_session):
+async def test_admin_cannot_delete_worker_with_stopped_workspaces(client: AsyncClient, db_session):
     headers = await _admin_headers(client)
     created = await client.post(
         "/api/admin/nodes",
@@ -226,10 +227,8 @@ async def test_admin_can_delete_worker_with_stopped_workspaces_and_nulls_node_id
     await db_session.commit()
 
     delete_resp = await client.delete(f"/api/admin/nodes/{node_id}", headers=headers)
-    assert delete_resp.status_code == 200
-
-    await db_session.refresh(ws)
-    assert ws.node_id is None
+    assert delete_resp.status_code == 409
+    assert "atanmış" in delete_resp.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -322,7 +321,7 @@ async def test_scheduler_load_balancing_and_affinity(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admin_can_migrate_workspace(client: AsyncClient, db_session):
+async def test_admin_cannot_metadata_only_migrate_workspace(client: AsyncClient, db_session):
     headers = await _admin_headers(client)
     n1 = Node(
         name="worker-mig-1",
@@ -361,17 +360,15 @@ async def test_admin_can_migrate_workspace(client: AsyncClient, db_session):
     db_session.add(ws)
     await db_session.commit()
 
-    # Migrate to n2
+    # Reassigning only node_id would strand the data on n1, so the API refuses.
     res = await client.post(
         f"/api/admin/workspaces/{ws.id}/migrate?target_node_id={n2.id}",
         headers=headers,
     )
-    assert res.status_code == 200
-    assert res.json()["new_node_id"] == n2.id
-    assert res.json()["old_node_id"] == n1.id
+    assert res.status_code == 501
 
     await db_session.refresh(ws)
-    assert ws.node_id == n2.id
+    assert ws.node_id == n1.id
 
 
 @pytest.mark.asyncio
@@ -380,6 +377,7 @@ async def test_admin_cannot_migrate_running_workspace(client: AsyncClient, db_se
     ws = Workspace(
         name="active-mig-ws",
         user_id=1,
+        node_id=TEST_WORKER_ID,
         template_id="vscode-python",
         flavor_id="t1.small",
         container_name="cnt-active-mig",
@@ -394,8 +392,8 @@ async def test_admin_cannot_migrate_running_workspace(client: AsyncClient, db_se
         f"/api/admin/workspaces/{ws.id}/migrate",
         headers=headers,
     )
-    assert res.status_code == 400
-    assert "durdurulmuş" in res.json()["detail"]
+    assert res.status_code == 501
+    assert "taşıma" in res.json()["detail"]
 
 
 @pytest.mark.asyncio

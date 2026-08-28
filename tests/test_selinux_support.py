@@ -16,12 +16,12 @@ def test_selinux_helper_uses_persistent_container_labels():
     assert "label=disable" not in script
 
 
-def test_selinux_helper_preserves_running_private_labels():
+def test_selinux_helper_never_recursively_overwrites_private_labels():
     script = SELINUX_SCRIPT.read_text(encoding="utf-8")
 
-    assert "RUNNING_CONTAINERS" in script
     assert 'restorecon -Fv "${WORKSPACES_DIR}"' in script
-    assert 'restorecon -RFv "${WORKSPACES_DIR}"' in script
+    assert 'restorecon -RFv "${WORKSPACES_DIR}"' not in script
+    assert 'chcon -Rt container_file_t "${WORKSPACES_DIR}"' not in script
     assert "Podman's :Z" in script
 
 

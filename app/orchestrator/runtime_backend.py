@@ -1,7 +1,6 @@
 from typing import Awaitable, Callable, Protocol
 
 from app.agents.manager import agent_manager
-from app.orchestrator.podman_service import podman_service
 
 ProgressCallback = Callable[[str, str], Awaitable[None]]
 
@@ -17,51 +16,6 @@ class RuntimeBackend(Protocol):
     async def port_ready(self, container_name: str, host_port: int) -> bool: ...
     async def get_container_stats(self, container_name: str) -> dict: ...
     async def get_storage_size(self, container_name: str, storage_path: str) -> int: ...
-
-
-class LocalRuntimeBackend:
-    async def create_workspace_container(self, **kwargs) -> tuple[str, str]:
-        return await podman_service.create_workspace_container(**kwargs)
-
-    async def container_exists(self, container_name: str) -> bool:
-        return await podman_service.container_exists(container_name)
-
-    async def start_container(self, container_name: str) -> bool:
-        return await podman_service.start_container(container_name)
-
-    async def stop_container(self, container_name: str) -> bool:
-        return await podman_service.stop_container(container_name)
-
-    async def delete_container(self, container_name: str, storage_path: str = "") -> bool:
-        return await podman_service.delete_container(container_name)
-
-    async def get_container_status(self, container_name: str) -> str:
-        return await podman_service.get_container_status(container_name)
-
-    async def get_logs(self, container_name: str, tail: int = 100) -> str:
-        return await podman_service.get_logs(container_name, tail=tail)
-
-    async def port_ready(self, container_name: str, host_port: int) -> bool:
-        import asyncio
-        try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", host_port), timeout=0.6
-            )
-        except (OSError, TimeoutError):
-            return False
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except OSError:
-            pass
-        return True
-
-    async def get_container_stats(self, container_name: str) -> dict:
-        return await podman_service.get_container_stats(container_name)
-
-    async def get_storage_size(self, container_name: str, storage_path: str) -> int:
-        from app.orchestrator.metrics_service import get_dir_size_bytes
-        return get_dir_size_bytes(storage_path)
 
 
 class AgentRuntimeBackend:
@@ -124,10 +78,9 @@ class AgentRuntimeBackend:
         return int(result.get("bytes", 0))
 
 
-local_runtime = LocalRuntimeBackend()
-
-
 def runtime_for_node(node_id: str | None) -> RuntimeBackend:
     if not node_id:
-        return local_runtime
+        raise RuntimeError(
+            "Workspace worker ataması eksik; controller üzerinde yerel runtime yok."
+        )
     return AgentRuntimeBackend(node_id)

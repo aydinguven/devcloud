@@ -114,7 +114,7 @@
     <div>
       <h2 class="card-title">Çevrim Dışı İndirmeler & Disk Yönetimi</h2>
       <p class="download-update-description">
-        Master ve CPU worker kurulum paketlerini ayrı ayrı derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlayın. Her paket türünün yalnızca en güncel sürümü korunur.
+        Controller ve CPU worker kurulum paketlerini ayrı ayrı derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlayın. Her paket türünün yalnızca en güncel sürümü korunur.
       </p>
     </div>
     <div class="download-update-actions" style="display: flex; gap: 0.5rem; align-items: center;">
@@ -124,9 +124,9 @@
 
   <form id="download-settings-form" style="display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:.75rem;align-items:end;margin-bottom:1rem;padding:1rem;border:1px solid var(--border-color);border-radius:var(--radius-md);background:rgba(255,255,255,.02);">
     <label class="form-group" style="margin:0;">
-      <span class="form-label">Worker kurulumunda kullanılacak Master URL</span>
+      <span class="form-label">Worker kurulumunda kullanılacak Controller URL</span>
       <input class="form-input" type="url" name="public_base_url" value="{{ download_public_base_url }}" placeholder="http://10.253.6.189" required>
-      <small style="color:var(--text-muted);">Worker bootstrap scripti, arşiv indirme adresi ve DEVCLOUD_MASTER_URL varsayılanı bu değeri kullanır.</small>
+      <small style="color:var(--text-muted);">Worker bootstrap scripti, arşiv indirme adresi ve DEVCLOUD_CONTROLLER_URL varsayılanı bu değeri kullanır.</small>
     </label>
     <button id="btn-save-download-settings" class="btn btn-primary btn-sm" type="submit">URL'yi Kaydet</button>
     <div id="download-settings-status" class="quota-form-status" style="grid-column:1/-1;" role="status" aria-live="polite"></div>
@@ -181,8 +181,8 @@
     <section style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
       <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:center;margin-bottom:.75rem;">
         <div>
-          <h3 style="margin:0;color:var(--heading);font-size:1rem;">Master Sunucu Paketi</h3>
-          <small style="color:var(--text-muted);">Web uygulaması, veritabanı ve yerel Podman çalışma alanları</small>
+          <h3 style="margin:0;color:var(--heading);font-size:1rem;">Controller Sunucu Paketi</h3>
+          <small style="color:var(--text-muted);">Yönetim uygulaması, proxy, migration ve çevrim dışı bağımlılıklar</small>
         </div>
         <span id="download-update-badge" class="badge badge-stopped">Kontrol ediliyor</span>
       </div>
@@ -190,8 +190,8 @@
         <span id="download-update-message" role="status" aria-live="polite">Durum yükleniyor...</span>
         <a id="download-current-link" href="/download/" target="_blank" style="display: none;"></a>
       </div>
-      <button id="btn-update-downloads" class="btn btn-warning btn-sm" type="button" disabled style="margin:.75rem 0;">Master Paketini Güncelle</button>
-      <pre id="download-update-logs" class="terminal-window download-update-logs">Henüz master paket logu yok.</pre>
+      <button id="btn-update-downloads" class="btn btn-warning btn-sm" type="button" disabled style="margin:.75rem 0;">Controller Paketini Güncelle</button>
+      <pre id="download-update-logs" class="terminal-window download-update-logs">Henüz controller paket logu yok.</pre>
     </section>
 
     <section style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
@@ -220,14 +220,14 @@
       📖 Hızlı Çevrim Dışı Kurulum Adımları
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-      <p style="margin-bottom: 0.5rem;"><strong>Master:</strong></p>
+      <p style="margin-bottom: 0.5rem;"><strong>Controller:</strong></p>
       <pre class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># Checksum doğrula, aç ve kur
 sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
   sudo bash deploy/deploy_offline.sh</pre>
-      <p style="margin:.75rem 0 .5rem;"><strong>Worker:</strong> Önce master panelinden node ID ve token üretin.</p>
-      <pre id="worker-bootstrap-command" class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># Önerilen: Master'dan tek satırda kurun
+      <p style="margin:.75rem 0 .5rem;"><strong>Worker:</strong> Önce controller panelinden node ID ve token üretin.</p>
+      <pre id="worker-bootstrap-command" class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># Önerilen: Controller'dan tek satırda kurun
 curl -fsSL '{{ download_public_base_url }}/download/install-worker.sh' | sudo bash
 
 # Alternatif: arşivi elle taşıyın
@@ -255,15 +255,15 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
 
   <details style="margin-bottom: 1.25rem; background: var(--bg-card); border-radius: 6px; padding: 0.75rem 1rem; border: 1px solid var(--border-color); color: var(--text-main);">
     <summary style="cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--heading);">
-      🚀 Tek Satır Komut ile Worker Kurulumu ve Master'a Bağlama
+      🚀 Tek Satır Komut ile Worker Kurulumu ve Controller'a Bağlama
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem; color: var(--text-main);">
-        Worker makinesinde aşağıdaki tek satırlık komutu çalıştırarak paketin Master'dan indirilmesini ve otomatik kurulmasını sağlayabilirsiniz:
+        Worker makinesinde aşağıdaki tek satırlık komutu çalıştırarak paketin Controller'dan indirilmesini ve otomatik kurulmasını sağlayabilirsiniz:
       </p>
       <pre class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem; margin-bottom: 0.5rem; background: #0f172a; color: #f8fafc;">curl -fsSL '{{ download_public_base_url }}/download/install-worker.sh' | sudo bash</pre>
       <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
-        <em>İpucu:</em> Yeni bir worker kaydettiğinizde, doğrudan o worker'a ait Node ID ve Token ile hazırlanmış tek satırlık hazır komut oluşturulacaktır.
+        <em>İpucu:</em> Yeni bir worker kaydettiğinizde Node ID hazır komuta eklenir; gizli token terminalden istenir ve shell geçmişine yazılmaz.
       </p>
     </div>
   </details>
@@ -337,13 +337,13 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
           <div style="display: inline-flex; gap: 0.25rem; align-items: center; justify-content: flex-end;">
             <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}" style="white-space: nowrap; padding: 0.2rem 0.45rem; font-size: 0.72rem;">{{ 'Drain' if node.schedulable else 'Aç' }}</button>
             <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token Yenile" style="padding: 0.2rem 0.4rem; font-size: 0.72rem;">🔑</button>
-            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Master'dan OTA Güncelle" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">⚡ Güncelle</button>
+            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Controller'dan OTA Güncelle" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">⚡ Güncelle</button>
             <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">Sil</button>
           </div>
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Henüz worker eklenmedi; geriye uyumluluk için workspace'ler master üzerindeki yerel runtime'da çalışır.</td></tr>
+      <tr><td colspan="7" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Henüz worker eklenmedi. Workspace oluşturabilmek için en az bir worker kaydedip çevrimiçi duruma getirin.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -355,7 +355,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
   <div class="card-header">
     <div>
       <h2 class="card-title">MLflow Model Registry</h2>
-      <p class="admin-section-description">Model bilgilerini kullanıcıya açmadan master üzerinden MLflow API'ına bağlanın.</p>
+      <p class="admin-section-description">Model bilgilerini kullanıcıya açmadan controller üzerinden MLflow API'ına bağlanın.</p>
     </div>
     <span id="mlflow-status-badge" class="badge {% if mlflow_settings and mlflow_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if mlflow_settings and mlflow_settings.enabled else 'Devre Dışı' }}</span>
   </div>
@@ -370,7 +370,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       <label class="form-group" style="margin:0;"><span class="form-label">Kullanıcı adı</span><input class="form-input" name="username" value="{{ mlflow_settings.username if mlflow_settings else '' }}"></label>
       <label class="form-group" style="margin:0;"><span class="form-label">Parola / token</span><input class="form-input" type="password" name="secret" placeholder="{% if mlflow_settings and mlflow_settings.encrypted_secret %}Kayıtlı değeri korumak için boş bırakın{% endif %}" autocomplete="new-password"></label>
       <label class="form-group" style="margin:0;"><span class="form-label">Timeout (sn)</span><input class="form-input" type="number" name="timeout_seconds" min="1" max="120" value="{{ mlflow_settings.timeout_seconds if mlflow_settings else 10 }}"></label>
-      <label class="form-group" style="margin:0;grid-column:1/-1;"><span class="form-label">Özel CA sertifika dosyası (master yolu)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_settings.ca_cert_file if mlflow_settings else '' }}"></label>
+      <label class="form-group" style="margin:0;grid-column:1/-1;"><span class="form-label">Özel CA sertifika dosyası (controller yolu)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_settings.ca_cert_file if mlflow_settings else '' }}"></label>
     </div>
     <div style="display:flex;gap:.75rem;align-items:center;">
       <button id="btn-test-mlflow" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
@@ -604,15 +604,12 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
           <td>Kullanıcı #{{ ws.user_id }}</td>
           <td>{{ ws.template_id }}</td>
           <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
-          <td><code>{{ ws.node_id or 'local' }}</code></td>
+          <td><code>{{ ws.node_id or 'unassigned' }}</code></td>
           <td><code>{{ ws.host_port }}</code></td>
           <td><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
           <td>
             <div style="display: flex; gap: 0.5rem;">
               <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Görüntüle</a>
-              {% if ws_st in ['stopped', 'error'] %}
-                <button type="button" class="btn btn-secondary btn-sm btn-migrate-ws" data-workspace-id="{{ ws.id }}" data-workspace-name="{{ ws.name }}" data-current-node="{{ ws.node_id or 'local' }}">Taşı</button>
-              {% endif %}
               <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Sil</button>
             </div>
           </td>
@@ -712,29 +709,6 @@ USER coder" required></textarea>
   </div>
 </div>
 
-<!-- Workspace Migration Modal -->
-<div id="ws-migrate-modal" class="modal-backdrop">
-  <div class="modal" role="dialog" aria-modal="true" style="max-width: 500px;">
-    <div class="card-header" style="margin-bottom: 1.25rem;">
-      <h2 class="card-title">Çalışma Alanını Başka Worker'a Taşı</h2>
-      <button id="btn-close-migrate-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
-    </div>
-    <form id="ws-migrate-form">
-      <input type="hidden" id="migrate-modal-ws-id">
-      <p id="migrate-modal-ws-info" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;"></p>
-      <div class="form-group">
-        <label class="form-label" for="migrate-target-node">Hedef Worker</label>
-        <select id="migrate-target-node" class="form-input" style="background: var(--bg-input); color: #fff;">
-          <option value="">-- Load Balancer Otomatik Yerleştirsin (Önerilen) --</option>
-        </select>
-      </div>
-      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('ws-migrate-modal').classList.remove('open');">İptal</button>
-        <button type="submit" id="btn-submit-migrate" class="btn btn-primary">📦 Taşı</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endif %}
   </section>
 </div>

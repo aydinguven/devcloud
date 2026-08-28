@@ -25,12 +25,14 @@ WORKER_ENV_SOURCE="${DEVCLOUD_WORKER_ENV_FILE:-${WORKER_ENV_FILE}}"
 [[ -f "${WORKER_ENV_SOURCE}" ]] || fail \
     "Create ${WORKER_ENV_FILE} from deploy/worker.env.example before installation, or set DEVCLOUD_WORKER_ENV_FILE."
 
-for required_key in DEVCLOUD_MASTER_URL DEVCLOUD_NODE_ID DEVCLOUD_NODE_TOKEN; do
+for required_key in DEVCLOUD_NODE_ID DEVCLOUD_NODE_TOKEN; do
     grep -Eq "^${required_key}=[^[:space:]]+$" "${WORKER_ENV_SOURCE}" || fail \
         "${required_key} is missing from ${WORKER_ENV_SOURCE}."
 done
-grep -Eq '^DEVCLOUD_MASTER_URL=https?://[^[:space:]]+$' "${WORKER_ENV_SOURCE}" || fail \
-    "DEVCLOUD_MASTER_URL must start with http:// or https://."
+if ! grep -Eq '^DEVCLOUD_CONTROLLER_URL=https?://[^[:space:]]+$' "${WORKER_ENV_SOURCE}"; then
+    grep -Eq '^DEVCLOUD_MASTER_URL=https?://[^[:space:]]+$' "${WORKER_ENV_SOURCE}" || fail \
+        "DEVCLOUD_CONTROLLER_URL must start with http:// or https://."
+fi
 grep -Eq '^DEVCLOUD_NODE_ID=(replace-with-node-id)?$' "${WORKER_ENV_SOURCE}" && fail \
     "Replace the placeholder DEVCLOUD_NODE_ID in ${WORKER_ENV_SOURCE}."
 grep -Eq '^DEVCLOUD_NODE_TOKEN=(replace-with-node-token)?$' "${WORKER_ENV_SOURCE}" && fail \
@@ -104,5 +106,5 @@ systemctl daemon-reload
 systemctl enable devcloud-worker
 systemctl restart devcloud-worker
 
-log "Worker installed. It will connect outbound to the configured master."
+log "Worker installed. It will connect outbound to the configured controller."
 log "Follow logs with: sudo journalctl -u devcloud-worker -f"

@@ -1,6 +1,14 @@
 # Air-Gapped Deployment
 
-This runbook creates self-contained Linux x86_64 master or CPU-worker bundles
+The unified lifecycle entry point for newly produced bundles is
+sudo bash deploy/devcloud-setup.sh; it prompts for controller, all-in-one, or
+worker role. The older deploy_offline.sh commands later in this document
+describe pre-unified bundles and remain for migration compatibility. For an
+in-place disconnected update, transfer a signed release or reviewed Git ZIP
+and use devcloud-setup update with the bundle path; do not extract over the
+active release.
+
+This runbook creates self-contained Linux x86_64 controller or CPU-worker bundles
 from a specific Git commit. Each bundle contains the required DevCloud source,
 Python wheels, all five workspace container images, distribution-matched
 operating-system RPMs, a role-marked artifact manifest, and SHA-256 checksums.
@@ -124,7 +132,7 @@ sudo bash deploy/enable_downloads.sh
 
 The helper prepares writable build/publication directories, updates the
 project-root `.env`, restores standard SELinux file contexts when available,
-and reloads DevCloud. Then use the separate **Master Paketini Güncelle** and
+and reloads DevCloud. Then use the separate **Controller Paketini Güncelle** and
 **Worker Paketini Güncelle** controls under **Yönetim > Çevrim Dışı
 İndirmeler**.
 
@@ -138,22 +146,22 @@ Each background job requires a clean tracked Git working tree. It builds into a
 temporary directory, verifies both the internal artifact manifest and outer
 SHA-256 checksum, copies the new version into the download directory, and only
 then deletes older recognized bundle/checksum pairs of the same role. The latest
-master and worker packages are retained together. Status and the last 120 build
+controller and worker packages are retained together. Status and the last 120 build
 log lines are shared across Uvicorn workers and shown separately on the Admin
 page.
 
 The public listing is `https://dev.aydin.cloud/download/`. Keep the entire
 hostname behind Cloudflare Access if downloads should be restricted.
 
-When workers can reach the master, the listing also exposes a one-command
+When workers can reach the controller, the listing also exposes a one-command
 bootstrapper:
 
 ```bash
 curl -fsSL https://dev.aydin.cloud/download/install-worker.sh | sudo bash
 ```
 
-The initial Master URL is `http://10.253.6.189`. Change it at any time under
-**Admin > Çevrim Dışı İndirmeler > Worker kurulumunda kullanılacak Master URL**.
+The initial Controller URL is `http://10.253.6.189`. Change it at any time under
+**Admin > Çevrim Dışı İndirmeler > Worker kurulumunda kullanılacak Controller URL**.
 `DOWNLOAD_PUBLIC_BASE_URL` in `.env` remains the first-run fallback, including
 when DevCloud runs behind a reverse proxy. The bootstrapper still uses the separately verified worker archive;
 it does not duplicate installation logic. It prompts for node ID and token via
@@ -185,7 +193,7 @@ installed but registration is intentionally left to the administrator because
 Foreman/Katello or Red Hat registration needs organization credentials and an
 activation key.
 
-For an existing master that can reach the Git remote, use the Git update flow
+For an existing controller that can reach the Git remote, use the Git update flow
 in README.md instead of rerunning the clean offline installer. A fully
 disconnected in-place application upgrade requires an explicit backup and
 migration procedure for the existing project-root data and is not performed by
@@ -193,7 +201,7 @@ deploy_offline.sh.
 
 ## 6. Enable HTTPS from Admin
 
-The master remains usable over HTTP when no certificate exists. To enable TLS,
+The controller remains usable over HTTP when no certificate exists. To enable TLS,
 open **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**:
 
 1. set the hostname to aifactory.tcmb.gov.tr;

@@ -63,13 +63,15 @@ async def select_worker_node(
     db: AsyncSession,
     flavor: Flavor,
     node_selector: dict[str, str] | None = None,
-) -> Node | None:
-    """Pick the best online worker using least-loaded load balancing with affinity support, or preserve legacy local mode if none are registered."""
+) -> Node:
+    """Pick the best connected worker using capacity-aware load balancing."""
     nodes = (
         await db.execute(select(Node).where(Node.enabled.is_(True)))
     ).scalars().all()
     if not nodes:
-        return None
+        raise NoSchedulableNode(
+            "Henüz kayıtlı worker yok. Bir worker kurup controller'a bağlayın."
+        )
 
     candidates = [
         node

@@ -3,25 +3,29 @@ from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
 from app.orchestrator.templates import get_template, list_templates, resolve_template
-from app.orchestrator.podman_service import podman_service, PodmanExecutionError
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
-from app.resource_usage import get_system_usage, get_user_usage, quota_violations
+from app.resource_usage import get_cluster_usage, get_user_usage, quota_violations
+from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import (
     FlavorInfo,
     TemplateInfo,
@@ -34,16 +38,66 @@ logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 
 
-async def allocate_workspace_port(db: AsyncSession, remote: bool) -> int:
-    """Allocate a globally unique port; remote workers validate it again locally."""
-    stmt = select(Workspace.host_port).where(Workspace.status != WorkspaceStatus.DELETED)
+async def allocate_workspace_port(db: AsyncSession, node_id: str) -> int:
+    """Allocate a port unique on one worker.
+
+    The database constraint closes races between controller requests; the
+    worker remains the final authority because unmanaged host processes may
+    also occupy a port.
+    """
+    stmt = select(Workspace.host_port).where(
+        Workspace.node_id == node_id,
+        Workspace.status != WorkspaceStatus.DELETED,
+    )
     used_ports = set((await db.execute(stmt)).scalars().all())
-    if not remote:
-        return await podman_service.find_available_port(used_ports)
     for port in range(settings.PORT_RANGE_START, settings.PORT_RANGE_END + 1):
         if port not in used_ports:
             return port
     raise RuntimeError("Workspace port aralığında boş port kalmadı.")
+
+
+async def reserve_workspace(
+    db: AsyncSession,
+    *,
+    data: WorkspaceCreate,
+    current_user: User,
+    node: Node,
+    template,
+    flavor: Flavor,
+) -> Workspace:
+    """Atomically reserve one worker-scoped port, retrying allocation races."""
+    workspace_id = str(uuid.uuid4())
+    for attempt in range(5):
+        host_port = await allocate_workspace_port(db, node.id)
+        workspace = Workspace(
+            id=workspace_id,
+            name=data.name.strip(),
+            description=data.description.strip(),
+            user_id=current_user.id,
+            node_id=node.id,
+            template_id=data.template_id,
+            flavor_id=data.flavor_id,
+            container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
+            host_port=host_port,
+            container_port=template.default_port,
+            storage_path="",
+            status=WorkspaceStatus.CREATING,
+            auto_stop_minutes=data.auto_stop_minutes,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(workspace)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 4:
+                raise RuntimeError(
+                    "Worker port reservation remained contended after retries."
+                )
+            continue
+        await db.refresh(workspace)
+        return workspace
+    raise RuntimeError("Workspace port reservation failed.")
 
 
 async def get_quota_error(
@@ -56,8 +110,13 @@ async def get_quota_error(
         select(Workspace).where(Workspace.user_id == user.id)
     )
     workspaces = result.scalars().all()
+    disk_usage = await get_workspace_disk_usage_by_user(workspaces)
     violations = await asyncio.to_thread(
-        quota_violations, user, workspaces, flavor
+        quota_violations,
+        user,
+        workspaces,
+        flavor,
+        disk_used_bytes=disk_usage.get(user.id, 0),
     )
     if not violations:
         return None
@@ -86,12 +145,16 @@ async def get_resource_usage(
         select(Workspace).where(Workspace.user_id == current_user.id)
     )
     workspaces = result.scalars().all()
-    system_usage, user_usage = await asyncio.gather(
-        asyncio.to_thread(get_system_usage),
-        asyncio.to_thread(get_user_usage, current_user, workspaces),
+    nodes = (await db.execute(select(Node))).scalars().all()
+    disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+    user_usage = await asyncio.to_thread(
+        get_user_usage,
+        current_user,
+        workspaces,
+        disk_used_bytes=disk_usage.get(current_user.id, 0),
     )
     return {
-        "system": system_usage,
+        "system": get_cluster_usage(nodes),
         "user": user_usage,
     }
 
@@ -140,32 +203,16 @@ async def create_workspace(
 
     try:
         node = await select_worker_node(db, flavor)
-        host_port = await allocate_workspace_port(db, remote=node is not None)
+        workspace = await reserve_workspace(
+            db,
+            data=data,
+            current_user=current_user,
+            node=node,
+            template=template,
+            flavor=flavor,
+        )
     except (NoSchedulableNode, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
-
-    # Generate the final identity before the first commit so concurrent
-    # lifecycle requests always see the real Podman container name.
-    workspace_id = str(uuid.uuid4())
-    workspace = Workspace(
-        id=workspace_id,
-        name=data.name.strip(),
-        description=data.description.strip(),
-        user_id=current_user.id,
-        node_id=node.id if node else None,
-        template_id=data.template_id,
-        flavor_id=data.flavor_id,
-        container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
-        host_port=host_port,
-        container_port=template.default_port,
-        storage_path="",  # will be set by orchestrator
-        status=WorkspaceStatus.CREATING,
-        auto_stop_minutes=data.auto_stop_minutes,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(workspace)
-    await db.commit()
-    await db.refresh(workspace)
 
 
     # Launch container via Podman
@@ -177,7 +224,7 @@ async def create_workspace(
             container_name=workspace.container_name,
             template_id=template.id,
             flavor_id=flavor.id,
-            host_port=host_port,
+            host_port=workspace.host_port,
             workspace_token=workspace.workspace_token,
         )
         workspace.container_id = container_id
@@ -248,35 +295,22 @@ async def deploy_workspace_stream(
 
             try:
                 node = await select_worker_node(db, flavor)
-                host_port = await allocate_workspace_port(db, remote=node is not None)
-                placement = node.name if node else "yerel runtime"
-                await emit_log(f"Worker seçildi: {placement}; host portu ayrıldı: {host_port}", "info")
+                workspace = await reserve_workspace(
+                    db,
+                    data=data,
+                    current_user=current_user,
+                    node=node,
+                    template=template,
+                    flavor=flavor,
+                )
+                await emit_log(
+                    f"Worker seçildi: {node.name}; host portu ayrıldı: "
+                    f"{workspace.host_port}",
+                    "info",
+                )
             except (NoSchedulableNode, RuntimeError) as e:
                 await emit_error(f"Port ayrılamadı: {str(e)}")
                 return
-
-            # Generate the final identity before the first commit so delete,
-            # logs, and deployment all address the same container.
-            workspace_id = str(uuid.uuid4())
-            workspace = Workspace(
-                id=workspace_id,
-                name=data.name.strip(),
-                description=data.description.strip(),
-                user_id=current_user.id,
-                node_id=node.id if node else None,
-                template_id=data.template_id,
-                flavor_id=data.flavor_id,
-                container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
-                host_port=host_port,
-                container_port=template.default_port,
-                storage_path="",
-                status=WorkspaceStatus.CREATING,
-                auto_stop_minutes=data.auto_stop_minutes,
-                created_at=datetime.now(timezone.utc),
-            )
-            db.add(workspace)
-            await db.commit()
-            await db.refresh(workspace)
 
             await emit_log(f"Kullanıcı #{current_user.id} için kalıcı volume hazırlandı", "info")
 
@@ -288,7 +322,7 @@ async def deploy_workspace_stream(
                 container_name=workspace.container_name,
                 template_id=template.id,
                 flavor_id=flavor.id,
-                host_port=host_port,
+                host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 progress_callback=emit_log,
             )
@@ -395,7 +429,7 @@ async def start_workspace_endpoint(
             workspace.container_id = container_id
             workspace.storage_path = storage_path
             success = True
-    except (PodmanExecutionError, ValueError, RuntimeError) as exc:
+    except (ValueError, RuntimeError) as exc:
         logger.exception("Failed to start workspace %s", workspace.id)
         workspace.error_message = str(exc)
         success = False
@@ -473,15 +507,7 @@ async def delete_workspace_endpoint(
     runtime = runtime_for_node(workspace.node_id)
     await runtime.delete_container(workspace.container_name, workspace.storage_path)
 
-    # 2. Permanently remove persistent storage directory on disk
-    if not workspace.node_id and workspace.storage_path and os.path.exists(workspace.storage_path):
-        try:
-            shutil.rmtree(workspace.storage_path, ignore_errors=True)
-            logger.info(f"Deleted persistent storage folder at: {workspace.storage_path}")
-        except Exception as err:
-            logger.warning(f"Error removing storage folder {workspace.storage_path}: {err}")
-
-    # 3. Remove record from database
+    # 2. Remove record from database. The worker owns and removes storage.
     await db.delete(workspace)
     await db.commit()
     return {"message": f"Çalışma alanı {workspace_id} ve kalıcı depolaması silindi."}
@@ -549,7 +575,6 @@ async def get_single_workspace_stats(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
-
     return await get_workspace_live_metrics(workspace)
 
 
@@ -559,10 +584,8 @@ async def download_workspace_backup(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Download a full .zip backup archive of the workspace persistent directory."""
-    import tempfile
-    from fastapi.responses import FileResponse
-    from app.orchestrator.backup_service import create_workspace_zip_backup
+    """Stream a ZIP backup from the worker that owns the workspace."""
+    from app.agents.manager import AgentCommandError, AgentUnavailable, agent_manager
 
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     res = await db.execute(stmt)
@@ -572,21 +595,42 @@ async def download_workspace_backup(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
-    if workspace.node_id:
-        raise HTTPException(
-            status_code=501,
-            detail="Remote worker backup streaming henüz etkin değil.",
+    try:
+        metadata, stream = await agent_manager.get(workspace.node_id).open_stream(
+            "workspace.backup.open",
+            {
+                "workspace_id": workspace.id,
+                "container_name": workspace.container_name,
+            },
+            timeout=120,
         )
-    if not workspace.storage_path or not os.path.exists(workspace.storage_path):
-        raise HTTPException(status_code=404, detail="Storage path does not exist.")
+    except (AgentUnavailable, AgentCommandError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    tmp_zip = Path(tempfile.gettempdir()) / f"devcloud_backup_{workspace.name}_{workspace.id[:8]}.zip"
-    create_workspace_zip_backup(workspace.storage_path, tmp_zip)
+    async def body():
+        while True:
+            item = await stream.queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item.data
 
-    return FileResponse(
-        path=str(tmp_zip),
-        filename=f"{workspace.name}-backup.zip",
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", workspace.name).strip(".-")
+    filename = f"{(safe_name[:80] or workspace.id)}-backup.zip"
+    headers = {
+        "Content-Disposition": (
+            'attachment; filename="workspace-backup.zip"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        ),
+    }
+    size = metadata.get("size")
+    if isinstance(size, int) and size >= 0:
+        headers["Content-Length"] = str(size)
+    return StreamingResponse(
+        body(),
         media_type="application/zip",
+        headers=headers,
     )
 
 
@@ -600,8 +644,8 @@ async def snapshot_workspace_endpoint(
 ):
     """Snapshot a running/stopped container into a reusable custom template."""
     import re
+    from app.agents.manager import agent_manager
     from app.models.custom_template import CustomTemplate
-    from app.orchestrator.backup_service import snapshot_workspace_to_image
 
     stmt = select(Workspace).where(Workspace.id == workspace_id)
     res = await db.execute(stmt)
@@ -611,18 +655,34 @@ async def snapshot_workspace_endpoint(
         raise HTTPException(status_code=404, detail="Workspace not found.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
-    if workspace.node_id:
+    if (
+        settings.DEVCLOUD_DEPLOYMENT_ROLE != "all-in-one"
+        and not settings.USE_MOCK_PODMAN
+    ):
         raise HTTPException(
-            status_code=501,
-            detail="Worker snapshot'ları merkezi image registry tamamlandıktan sonra etkinleştirilecek.",
+            status_code=409,
+            detail=(
+                "Workspace snapshots are currently all-in-one only. "
+                "Distributed export requires a separately authorized registry "
+                "publication workflow."
+            ),
         )
-
     slug = re.sub(r"[^a-zA-Z0-9_\-]", "", template_name.lower().replace(" ", "-"))[:30]
     template_id = f"custom-{slug}"
-
-    success, image_tag_or_err = await snapshot_workspace_to_image(workspace, slug)
-    if not success:
-        raise HTTPException(status_code=500, detail=image_tag_or_err)
+    image_tag = f"localhost/devcloud-{template_id}:latest"
+    try:
+        result = await agent_manager.get(workspace.node_id).request(
+            "container.snapshot",
+            {
+                "workspace_id": workspace.id,
+                "container_name": workspace.container_name,
+                "image_tag": image_tag,
+            },
+            timeout=180,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    image_tag_or_err = str(result["image_tag"])
 
     custom_tpl = CustomTemplate(
         id=template_id,

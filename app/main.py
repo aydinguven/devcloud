@@ -8,10 +8,9 @@ from sqlalchemy import select, update
 
 from app.auth.internal import hash_password
 from app.config import settings
-from app.database import init_db, AsyncSessionLocal
+from app.database import AsyncSessionLocal
 from app.models.user import User, UserRole
 from app.models.node import Node, NodeStatus
-from app.orchestrator.podman_service import podman_service
 from app.proxy.router import proxy_router
 from app.routes.admin_routes import admin_router
 from app.routes.agent_routes import agent_router
@@ -58,19 +57,46 @@ async def mark_workers_offline_on_startup():
         await db.commit()
 
 
+async def seed_bootstrap_worker() -> None:
+    """Idempotently maintain the all-in-one host as an ordinary worker."""
+    worker_id = settings.DEVCLOUD_BOOTSTRAP_WORKER_ID.strip()
+    if not worker_id:
+        return
+    token_hash = settings.DEVCLOUD_BOOTSTRAP_WORKER_TOKEN_HASH.strip()
+    async with AsyncSessionLocal() as db:
+        node = await db.get(Node, worker_id)
+        if node is None:
+            node = Node(
+                id=worker_id,
+                name=(
+                    settings.DEVCLOUD_BOOTSTRAP_WORKER_NAME.strip()
+                    or "all-in-one-worker"
+                ),
+                status=NodeStatus.PENDING,
+            )
+        node.agent_token_hash = token_hash
+        node.enabled = True
+        node.schedulable = True
+        db.add(node)
+        await db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
     import asyncio
     from app.orchestrator.idle_reaper import idle_reaper_background_worker
+    from app.migrations import require_current, upgrade
 
     logger.info("Initializing DevCloud Database...")
-    await init_db()
+    if settings.AUTO_MIGRATE:
+        await upgrade()
+    else:
+        await require_current()
+    await seed_bootstrap_worker()
     await mark_workers_offline_on_startup()
     await seed_initial_admin()
-    logger.info(
-        f"DevCloud ready. Podman mode: {'MOCK' if podman_service.is_mock else 'NATIVE'}"
-    )
+    logger.info("DevCloud controller ready; workspace execution is worker-only.")
 
     # Start idle inactivity auto-stop worker
     reaper_task = asyncio.create_task(idle_reaper_background_worker(check_interval_seconds=60))

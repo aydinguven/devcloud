@@ -2,22 +2,151 @@ import hashlib
 import json
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.manager import agent_manager
 from app.database import get_db
 from app.models.node import Node, NodeStatus
+from app.models.workspace import Workspace, WorkspaceStatus
 from app.schemas.node import NodeHeartbeat
+from app.config import settings
+from app.release_catalog import RELEASE_PATTERN, latest_release
 
 agent_router = APIRouter(prefix="/api/agent", tags=["Worker Agent"])
 
 
-def _bearer_token(websocket: WebSocket) -> str:
-    value = websocket.headers.get("authorization", "")
+async def reconcile_worker_inventory(
+    db: AsyncSession,
+    node: Node,
+    inventory: list[dict],
+) -> dict:
+    """Compare worker truth with controller assignments without deleting data."""
+    assigned = (
+        await db.execute(select(Workspace).where(Workspace.node_id == node.id))
+    ).scalars().all()
+    expected = {workspace.container_name: workspace for workspace in assigned}
+    actual = {
+        str(item.get("container_name") or ""): item
+        for item in inventory
+        if item.get("container_name")
+    }
+    missing = sorted(set(expected) - set(actual))
+    orphaned = sorted(set(actual) - set(expected))
+    mismatched = sorted(
+        name
+        for name in set(expected) & set(actual)
+        if str(actual[name].get("workspace_id") or "") != expected[name].id
+        or int(actual[name].get("host_port") or -1) != expected[name].host_port
+    )
+    # A missing container is recoverable by the normal start action. Surface
+    # the drift immediately, but do not delete worker data or rewrite placement.
+    for name in missing:
+        workspace = expected[name]
+        if workspace.status == WorkspaceStatus.RUNNING:
+            workspace.status = WorkspaceStatus.ERROR
+            workspace.error_message = (
+                "Worker reconciliation did not find the assigned container; "
+                "start the workspace to recreate it from persistent storage."
+            )
+            db.add(workspace)
+    return {
+        "expected": len(expected),
+        "actual": len(actual),
+        "missing": missing,
+        "orphaned": orphaned,
+        "mismatched": mismatched,
+        "healthy": not (missing or orphaned or mismatched),
+    }
+
+
+def _bearer_token(connection: Request | WebSocket) -> str:
+    value = connection.headers.get("authorization", "")
     scheme, _, token = value.partition(" ")
     return token if scheme.lower() == "bearer" else ""
+
+
+async def _authenticated_node(
+    request: Request,
+    node_id: str,
+    db: AsyncSession,
+) -> Node:
+    node = await db.get(Node, node_id)
+    token_hash = hashlib.sha256(_bearer_token(request).encode("utf-8")).hexdigest()
+    if (
+        not node
+        or not node.enabled
+        or not secrets.compare_digest(node.agent_token_hash, token_hash)
+    ):
+        raise HTTPException(status_code=403, detail="Geçersiz worker kimliği")
+    return node
+
+
+@agent_router.get("/check")
+async def worker_enrollment_check(
+    request: Request,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm both enrollment credentials and the live worker tunnel."""
+    node = await _authenticated_node(request, node_id, db)
+    return {
+        "node_id": node.id,
+        "accepted": True,
+        "connected": agent_manager.is_connected(node.id),
+    }
+
+
+@agent_router.get("/releases/latest")
+async def worker_latest_release(
+    request: Request,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return release metadata only to an enrolled worker."""
+    await _authenticated_node(request, node_id, db)
+    release = latest_release(Path(settings.DOWNLOADS_ROOT))
+    if release is None:
+        raise HTTPException(status_code=404, detail="Yayımlanmış release bulunamadı")
+    base = str(request.base_url).rstrip("/")
+    return {
+        "version": release.version,
+        "filename": release.path.name,
+        "url": (
+            f"{base}/api/agent/releases/{release.path.name}"
+            f"?node_id={node_id}"
+        ),
+        "sha256": release.sha256,
+        "size": release.size,
+    }
+
+
+@agent_router.api_route("/releases/{filename}", methods=["GET", "HEAD"])
+async def worker_download_release(
+    filename: str,
+    request: Request,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream an allow-listed release only to an enrolled worker."""
+    await _authenticated_node(request, node_id, db)
+    if not RELEASE_PATTERN.fullmatch(filename):
+        raise HTTPException(status_code=404, detail="Release bulunamadı")
+    root = (Path(settings.DOWNLOADS_ROOT) / "releases").resolve()
+    candidate = root / filename
+    path = candidate.resolve()
+    if candidate.is_symlink() or path.parent != root or not path.is_file():
+        raise HTTPException(status_code=404, detail="Release bulunamadı")
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=filename,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @agent_router.websocket("/connect/{node_id}")
@@ -63,6 +192,15 @@ async def connect_agent(
                 node.disk_used_mb = heartbeat.disk_used_mb
                 node.active_containers_count = heartbeat.active_containers_count
                 node.capabilities_json = json.dumps(heartbeat.capabilities, ensure_ascii=False)
+                inventory = [
+                    item.model_dump() for item in heartbeat.inventory
+                ]
+                node.inventory_json = json.dumps(inventory, ensure_ascii=False)
+                reconciliation = await reconcile_worker_inventory(db, node, inventory)
+                node.reconciliation_json = json.dumps(
+                    reconciliation, ensure_ascii=False
+                )
+                node.last_reconciled_at = datetime.now(timezone.utc)
                 node.agent_version = heartbeat.agent_version
                 node.status = NodeStatus.DRAINING if not node.schedulable else NodeStatus.ONLINE
                 node.last_seen_at = datetime.now(timezone.utc)
@@ -88,9 +226,10 @@ async def connect_agent(
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
-        await agent_manager.unregister(node.id, connection)
-        fresh_node = await db.get(Node, node.id)
-        if fresh_node:
-            fresh_node.status = NodeStatus.OFFLINE
-            db.add(fresh_node)
-            await db.commit()
+        disconnected = await agent_manager.unregister(node.id, connection)
+        if disconnected:
+            fresh_node = await db.get(Node, node.id)
+            if fresh_node:
+                fresh_node.status = NodeStatus.OFFLINE
+                db.add(fresh_node)
+                await db.commit()

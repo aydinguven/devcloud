@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import ClassVar
 
@@ -25,6 +24,16 @@ class Settings(BaseSettings):
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/devcloud.db"
     STORAGE_ROOT: str = str(Path(__file__).resolve().parent.parent / "data" / "workspaces")
+    AUTO_MIGRATE: bool = True
+
+    # Deployment topology. All-in-one is a controller plus an ordinary worker
+    # agent on the same host; the controller never runs workspace containers.
+    DEVCLOUD_DEPLOYMENT_ROLE: str = "controller"
+    DEVCLOUD_BOOTSTRAP_WORKER_ID: str = ""
+    DEVCLOUD_BOOTSTRAP_WORKER_NAME: str = ""
+    DEVCLOUD_BOOTSTRAP_WORKER_TOKEN_HASH: str = ""
+    DEVCLOUD_REGISTRY_MODE: str = "preloaded"
+    DEVCLOUD_REGISTRY_URL: str = ""
     
     # Quotas assigned to newly registered users (admins can override each user).
     DEFAULT_USER_CPU_QUOTA: float = 1.0
@@ -38,6 +47,9 @@ class Settings(BaseSettings):
     DOWNLOAD_BUILD_ROOT: str = str(BASE_DIR / "data" / "download-builds")
     DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
     DOWNLOAD_PUBLIC_BASE_URL: str = "http://10.253.6.189"
+    UPDATES_ENABLED: bool = True
+    UPDATE_QUEUE_ROOT: str = "/var/lib/devcloud/update-queue"
+    UPDATE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024 * 1024
 
     # Nginx ingress is applied by a root-owned, narrowly scoped helper.
     INGRESS_STAGING_ROOT: str = "/var/lib/devcloud/ingress"
@@ -67,7 +79,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-# Ensure required directories exist
-os.makedirs(Path(settings.STORAGE_ROOT), exist_ok=True)
-os.makedirs(Path(settings.BASE_DIR) / "data", exist_ok=True)

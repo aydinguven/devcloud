@@ -11,7 +11,6 @@ ExecStart={{PROJECT_DIR}}/.venv/bin/python -m app.worker_agent
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
-Environment=STORAGE_ROOT=/var/lib/devcloud/workspaces
 EnvironmentFile=/etc/devcloud/worker.env
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

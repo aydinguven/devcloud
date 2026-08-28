@@ -22,7 +22,8 @@ from app.orchestrator.flavors import list_flavors
 from app.orchestrator.templates import list_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
-from app.resource_usage import get_all_user_usage, get_system_usage, get_user_usage
+from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
+from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
 from app.static_assets import STATIC_ASSET_VERSION
 
@@ -139,9 +140,14 @@ async def dashboard_page(
     for ws_out in ws_list:
         ws_out.web_url = f"/proxy/{ws_out.id}/"
 
-    system_usage, user_usage = await asyncio.gather(
-        asyncio.to_thread(get_system_usage),
-        asyncio.to_thread(get_user_usage, current_user, workspaces),
+    nodes = (await db.execute(select(Node))).scalars().all()
+    disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+    system_usage = get_cluster_usage(nodes)
+    user_usage = await asyncio.to_thread(
+        get_user_usage,
+        current_user,
+        workspaces,
+        disk_used_bytes=disk_usage.get(current_user.id, 0),
     )
 
     from app.models.custom_template import CustomTemplate
@@ -357,11 +363,15 @@ async def admin_page(
         workspaces = (
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
+        disk_usage = await get_workspace_disk_usage_by_user(workspaces)
         context.update(
             {
                 "all_users": users,
                 "usage_by_user": await asyncio.to_thread(
-                    get_all_user_usage, users, workspaces
+                    get_all_user_usage,
+                    users,
+                    workspaces,
+                    disk_usage_by_user=disk_usage,
                 ),
                 "directory_settings": await db.get(DirectorySettings, 1),
             }

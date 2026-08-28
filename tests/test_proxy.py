@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 import app.proxy.router as proxy_module
+import app.worker_agent as worker_module
 from app.agents.manager import AgentStream, StreamChunk
 from app.models.workspace import Workspace
 from sqlalchemy import update
@@ -338,7 +339,7 @@ async def test_custom_port_path_is_dispatched_before_catch_all_proxy(client: Asy
         return "10.88.0.42"
 
     monkeypatch.setattr(proxy_module.httpx, "AsyncClient", Client)
-    monkeypatch.setattr(proxy_module.podman_service, "get_container_ip", container_ip)
+    monkeypatch.setattr(worker_module.podman_service, "get_container_ip", container_ip)
     response = await client.get(
         f"/proxy/{workspace_id}/port/5173/api/health?verbose=1",
         headers={"Authorization": f"Bearer {token}"},

@@ -37,6 +37,8 @@ class NodeOut(BaseModel):
     active_containers_count: int = 0
     labels: dict[str, str]
     capabilities: dict
+    inventory: list[dict] = Field(default_factory=list)
+    reconciliation: dict = Field(default_factory=dict)
     agent_version: str
     last_seen_at: datetime | None
     created_at: datetime
@@ -45,6 +47,14 @@ class NodeOut(BaseModel):
 
 class NodeCreated(NodeOut):
     enrollment_token: str
+
+
+class WorkerContainerInventory(BaseModel):
+    workspace_id: str = Field(min_length=1, max_length=64)
+    container_name: str = Field(min_length=1, max_length=128)
+    host_port: int = Field(ge=1, le=65535)
+    storage_path: str = Field(default="", max_length=512)
+    status: str = Field(default="unknown", max_length=32)
 
 
 class NodeHeartbeat(BaseModel):
@@ -57,6 +67,7 @@ class NodeHeartbeat(BaseModel):
     disk_used_mb: int = Field(default=0, ge=0)
     active_containers_count: int = Field(default=0, ge=0)
     capabilities: dict = Field(default_factory=dict)
+    inventory: list[WorkerContainerInventory] = Field(default_factory=list)
     agent_version: str = Field(default="", max_length=64)
 
     @field_validator("capabilities")

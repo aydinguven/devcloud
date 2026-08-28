@@ -1,7 +1,11 @@
 import asyncio
 import hashlib
 import json
+import os
 import secrets
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select, func, update
@@ -29,7 +33,6 @@ from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.agents.manager import agent_manager
-from app.orchestrator.podman_service import podman_service
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
     DirectorySettingsOut,
@@ -59,6 +62,28 @@ from app.integrations.mlflow import (
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def _update_queue_root() -> Path:
+    return Path(settings.UPDATE_QUEUE_ROOT).resolve()
+
+
+def _read_update_status() -> dict:
+    root = _update_queue_root()
+    for name in ("running.json", "pending.json", "status.json"):
+        path = root / name
+        if path.is_file() and not path.is_symlink():
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(value, dict):
+                    if name == "pending.json":
+                        value.setdefault("state", "queued")
+                    elif name == "running.json":
+                        value.setdefault("state", "running")
+                    return value
+            except (OSError, json.JSONDecodeError):
+                return {"state": "unknown", "error": f"Cannot read {name}"}
+    return {"state": "idle"}
 
 
 def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:
@@ -277,6 +302,8 @@ def _node_out(node: Node, enrollment_token: str | None = None):
         active_containers_count=node.active_containers_count,
         labels=json.loads(node.labels_json or "{}"),
         capabilities=json.loads(node.capabilities_json or "{}"),
+        inventory=json.loads(node.inventory_json or "[]"),
+        reconciliation=json.loads(node.reconciliation_json or "{}"),
         agent_version=node.agent_version,
         last_seen_at=node.last_seen_at,
         created_at=node.created_at,
@@ -376,29 +403,23 @@ async def delete_node(
     if not node:
         raise HTTPException(status_code=404, detail="Worker bulunamadı.")
 
-    active_workspaces = (
+    assigned_workspaces = (
         await db.execute(
             select(func.count(Workspace.id)).where(
                 Workspace.node_id == node_id,
-                Workspace.status.in_([
-                    WorkspaceStatus.RUNNING,
-                    WorkspaceStatus.STARTING,
-                    WorkspaceStatus.STOPPING,
-                    WorkspaceStatus.CREATING,
-                ]),
             )
         )
     ).scalar_one()
-    if active_workspaces > 0:
+    if assigned_workspaces > 0:
         raise HTTPException(
-            status_code=400,
-            detail=f"Bu worker üzerinde {active_workspaces} adet aktif çalışma alanı bulunuyor. Lütfen önce çalışma alanlarını durdurun veya silin.",
+            status_code=409,
+            detail=(
+                f"Bu worker'a atanmış {assigned_workspaces} çalışma alanı var. "
+                "Worker'ı silmeden önce çalışma alanlarını başka bir worker'a taşıyın veya silin."
+            ),
         )
 
     await agent_manager.disconnect(node.id, "Worker sistemden silindi")
-    await db.execute(
-        update(Workspace).where(Workspace.node_id == node_id).values(node_id=None)
-    )
     await db.delete(node)
     await db.commit()
     return {"message": f"Worker '{node.name}' başarıyla silindi."}
@@ -629,59 +650,15 @@ async def migrate_workspace(
     db: Annotated[AsyncSession, Depends(get_db)],
     target_node_id: str | None = None,
 ):
-    """Admin: Migrate a stopped or failed workspace to another worker node."""
-    from app.orchestrator.scheduler import select_worker_node
-    from app.orchestrator.flavors import get_flavor
-
-    workspace = await db.get(Workspace, workspace_id)
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
-    if workspace.status in {
-        WorkspaceStatus.RUNNING,
-        WorkspaceStatus.STARTING,
-        WorkspaceStatus.CREATING,
-    }:
-        raise HTTPException(
-            status_code=400,
-            detail="Yalnızca durdurulmuş veya hata durumundaki çalışma alanları taşınabilir. Lütfen önce çalışma alanını durdurun.",
-        )
-
-    old_node_id = workspace.node_id
-    if target_node_id:
-        target_node = await db.get(Node, target_node_id)
-        if (
-            not target_node
-            or not target_node.enabled
-            or not target_node.schedulable
-            or target_node.status != NodeStatus.ONLINE
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Seçilen hedef worker uygun veya çevrimiçi değil.",
-            )
-        chosen_node = target_node
-    else:
-        flavor = get_flavor(workspace.flavor_id)
-        if not flavor:
-            raise HTTPException(status_code=400, detail="Geçersiz donanım profili.")
-        chosen_node = await select_worker_node(db, flavor)
-
-    new_node_id = chosen_node.id if chosen_node else None
-    if new_node_id == old_node_id:
-        raise HTTPException(
-            status_code=400, detail="Çalışma alanı zaten bu worker üzerindedir."
-        )
-
-    workspace.node_id = new_node_id
-    db.add(workspace)
-    await db.commit()
-    await db.refresh(workspace)
-    return {
-        "message": f"Çalışma alanı '{workspace.name}' başarıyla {chosen_node.name if chosen_node else 'Master (Yerel)'} node'una taşındı.",
-        "workspace_id": workspace.id,
-        "old_node_id": old_node_id,
-        "new_node_id": new_node_id,
-    }
+    """Reject unsafe metadata-only migration until data transfer is implemented."""
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Workerlar arası workspace taşıma henüz desteklenmiyor. node_id "
+            "değiştirmek kalıcı veriyi taşımaz; worker'ı drain durumunda tutun "
+            "ve operator kontrollü yedek/geri yükleme süreci kullanın."
+        ),
+    )
 
 
 @admin_router.get("/stats")
@@ -702,7 +679,7 @@ async def get_system_stats(
         "total_users": total_users,
         "total_workspaces": total_workspaces,
         "running_workspaces": running_workspaces,
-        "podman_mode": "mock" if podman_service.is_mock else "native",
+        "runtime_mode": "worker-only",
     }
 
 
@@ -762,17 +739,37 @@ async def build_custom_template_stream(
 
     async def run_builder():
         try:
-            image_tag = f"localhost/devcloud-{template_id}:latest"
-            await emit(f"🔨 Starting build for [{image_tag}]...", "info")
+            from app.orchestrator.flavors import get_flavor
+            from app.orchestrator.scheduler import select_worker_node
 
-            success, logs = await podman_service.build_image_from_content(
-                containerfile_content=containerfile,
-                image_tag=image_tag,
-                progress_callback=emit,
+            if not settings.DEVCLOUD_REGISTRY_URL and not settings.USE_MOCK_PODMAN:
+                raise RuntimeError(
+                    "Custom image builds require DEVCLOUD_REGISTRY_URL so every "
+                    "worker can pull the result."
+                )
+            prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
+            image_tag = (
+                f"{prefix}/devcloud-{template_id}:latest"
+                if prefix
+                else f"localhost/devcloud-{template_id}:latest"
             )
-
-            if not success:
-                err_payload = json.dumps({"type": "error", "text": f"Build failed:\n{logs}"})
+            await emit(f"🔨 Starting build for [{image_tag}]...", "info")
+            flavor = get_flavor("t1.nano")
+            if flavor is None:
+                raise RuntimeError("Build worker resource profile is missing.")
+            node = await select_worker_node(db, flavor)
+            await emit(f"Build worker selected: {node.name}", "info")
+            result = await agent_manager.get(node.id).request(
+                "image.build",
+                {
+                    "containerfile": containerfile,
+                    "image_tag": image_tag,
+                    "push": bool(prefix),
+                },
+                timeout=900,
+            )
+            if not result.get("success"):
+                err_payload = json.dumps({"type": "error", "text": f"Build failed:\n{result.get('logs', '')}"})
                 await queue.put(f"data: {err_payload}\n\n")
                 return
 
@@ -846,6 +843,93 @@ async def get_system_update_info(
             "status": str(exc),
             "version": settings.APP_VERSION,
         }
+
+
+@admin_router.get("/system/release-upload/status")
+async def get_release_upload_status(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Return the root-owned queued updater's durable status."""
+    if not settings.UPDATES_ENABLED:
+        raise HTTPException(status_code=503, detail="Release updates are disabled.")
+    return _read_update_status()
+
+
+@admin_router.post(
+    "/system/release-upload",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def upload_release_update(
+    release: Annotated[UploadFile, File()],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    allow_unsigned: Annotated[bool, Form()] = False,
+):
+    """Stage a signed release or explicitly approved source ZIP for systemd."""
+    if not settings.UPDATES_ENABLED:
+        raise HTTPException(status_code=503, detail="Release updates are disabled.")
+    filename = Path(release.filename or "").name
+    if not filename.lower().endswith((".zip", ".tar", ".tar.gz", ".tgz")):
+        raise HTTPException(
+            status_code=422,
+            detail="Release must be a ZIP, tar, tar.gz, or tgz archive.",
+        )
+    root = _update_queue_root()
+    uploads = root / "uploads"
+    root.mkdir(parents=True, exist_ok=True)
+    uploads.mkdir(parents=True, exist_ok=True)
+    if (root / "pending.json").exists() or (root / "running.json").exists():
+        raise HTTPException(
+            status_code=409,
+            detail="Another release update is already queued or running.",
+        )
+    suffix = "".join(Path(filename).suffixes[-2:]) or ".release"
+    destination = uploads / f"{uuid.uuid4().hex}{suffix}"
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with temporary.open("xb") as handle:
+            while chunk := await release.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.UPDATE_MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Release upload exceeds the configured size limit.",
+                    )
+                digest.update(chunk)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if not size:
+            raise HTTPException(status_code=422, detail="Release archive is empty.")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, destination)
+        request = {
+            "state": "queued",
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "filename": filename,
+            "bundle": str(destination),
+            "size": size,
+            "sha256": digest.hexdigest(),
+            "allow_unsigned": allow_unsigned,
+        }
+        marker_tmp = root / "pending.tmp"
+        marker_tmp.write_text(
+            json.dumps(request, indent=2) + "\n", encoding="utf-8"
+        )
+        os.chmod(marker_tmp, 0o600)
+        os.replace(marker_tmp, root / "pending.json")
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        destination.unlink(missing_ok=True)
+        raise
+    return {
+        "state": "queued",
+        "filename": filename,
+        "size": size,
+        "sha256": digest.hexdigest(),
+        "allow_unsigned": allow_unsigned,
+    }
 
 
 @admin_router.post("/system/update-stream")

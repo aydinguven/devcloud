@@ -39,7 +39,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 ## Architecture Overview
 
 ```
-User Browser ── HTTPS/WSS :443 ──> DevCloud Master
+User Browser ── HTTPS/WSS :443 ──> DevCloud Controller
                                       ├── UI / API / LDAP
                                       ├── Scheduler / Database
                                       ├── Workspace Port Proxy
@@ -54,10 +54,11 @@ User Browser ── HTTPS/WSS :443 ──> DevCloud Master
                     └── Local workspace storage              └── Local workspace storage
 ```
 
-Worker hosts expose no workspace ports. The master keeps the public proxy URL,
+Worker hosts expose no workspace ports. The controller keeps the public proxy URL,
 authenticates each request, resolves the assigned node, and carries HTTP and
-WebSocket streams over the worker-initiated tunnel. A legacy single-host mode
-remains available when no workers have been registered.
+WebSocket streams over the worker-initiated tunnel. Every workspace is assigned
+to a real worker. All-in-one installs that same worker beside the controller;
+there is no controller-local runtime fallback. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -115,13 +116,22 @@ bind and user search before enabling directory login.
 
 ## Production Deployment on Linux VM
 
+New managed installations use the root-run interactive lifecycle installer:
+
+    sudo bash deploy/devcloud-setup.sh
+
+It supports controller, all-in-one, and worker roles plus update, repair,
+status, backup, restore, and uninstall. See [INSTALL.md](INSTALL.md). The
+older role-specific scripts below remain only as migration references for
+installations created before the unified installer.
+
 For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CLOUDFLARE.md).
 For Rocky/RHEL enforcing mode, follow [the SELinux deployment guide](SELINUX.md).
-For the master plus CPU-worker topology, follow [the worker deployment guide](WORKERS.md).
+For the controller plus CPU-worker topology, follow [the worker deployment guide](WORKERS.md).
 
 ### 1. Clean install from Git
 
-Use this flow on a new connected master. Run it as the Linux account that
+Use this legacy flow on a pre-unified connected controller. Run it as the Linux account that
 should own the DevCloud service; the script requests sudo only for operating
 system changes:
 
@@ -290,24 +300,24 @@ Installing `subscription-manager` does not register the host automatically;
 Rocky nodes can subsequently be registered to Foreman/Katello using your normal
 organization and activation-key workflow.
 
-A connected deployment can also publish separate master and CPU-worker bundles
+A connected deployment can also publish separate controller and CPU-worker bundles
 at `/download/`. Administrators can trigger either verified background rebuild
 from the Admin page after enabling the download settings documented in
 [AIRGAP.md](AIRGAP.md).
 
 After publishing a Worker bundle, a connected worker can bootstrap directly
-from the Master without placing its enrollment token on the command line:
+from the controller without placing its enrollment token on the command line:
 
 ```bash
-curl -fsSL https://master.example.com/download/install-worker.sh | sudo bash
+curl -fsSL https://controller.example.com/download/install-worker.sh | sudo bash
 ```
 
-The initial bootstrap/Master address is `http://10.253.6.189` and can be
+The initial bootstrap/controller address is `http://10.253.6.189` and can be
 changed without restarting DevCloud from the Offline Downloads card in Admin.
 
 ### In-app HTTPS and certificate upload
 
-A clean connected or offline master installation configures Nginx on port 80.
+A clean connected or offline controller installation configures Nginx on port 80.
 In **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**, set the
 hostname, upload the PEM certificate chain and its unencrypted PEM private key,
 then enable HTTPS. DevCloud verifies the certificate validity period, server
@@ -316,7 +326,7 @@ the Nginx configuration. The private key is stored only in the restricted
 ingress directory and is never returned by the API.
 
 For the planned deployment, the certificate SAN must contain
-aifactory.tcmb.gov.tr, DNS must resolve that name to the master, and clients
+aifactory.tcmb.gov.tr, DNS must resolve that name to the controller, and clients
 and workers must trust TCMB-CA. Keep **Port 80 HTTP fallback** enabled while
 that trust is being rolled out. The fallback deliberately does not enable HSTS.
 Disabling fallback changes port 80 to a permanent redirect to HTTPS.
