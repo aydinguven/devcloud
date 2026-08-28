@@ -170,6 +170,62 @@ def write_patch_checksums(patch_root: Path) -> Path:
     return checksum_path
 
 
+def manifest_merge_script() -> str:
+    return """#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+if len(sys.argv) != 5:
+    raise SystemExit("usage: merge-manifest.py CURRENT PATCH OUTPUT ROLE")
+current_path, patch_path, output_path = map(Path, sys.argv[1:4])
+expected_role = sys.argv[4]
+current = json.loads(current_path.read_text(encoding="utf-8"))
+patch = json.loads(patch_path.read_text(encoding="utf-8"))
+for label, manifest in (("target", current), ("patch", patch)):
+    if not isinstance(manifest, dict) or manifest.get("bundle_format") != 1:
+        raise SystemExit(f"{label} manifest has an unsupported bundle format")
+    if manifest.get("bundle_role", "server") != expected_role:
+        raise SystemExit(f"{label} manifest role does not match {expected_role}")
+    if not isinstance(manifest.get("target"), dict):
+        raise SystemExit(f"{label} manifest has no target definition")
+    if not isinstance(manifest.get("artifacts"), list):
+        raise SystemExit(f"{label} manifest has no artifact list")
+
+preserved = [
+    record
+    for record in current["artifacts"]
+    if not (
+        isinstance(record, dict)
+        and str(record.get("kind", "")).startswith("system-rpm")
+    )
+]
+replacement = [
+    record
+    for record in patch["artifacts"]
+    if isinstance(record, dict)
+    and str(record.get("kind", "")).startswith("system-rpm")
+]
+if not preserved or not replacement:
+    raise SystemExit("cannot merge incomplete artifact manifests")
+if not any(
+    isinstance(record, dict) and record.get("kind") == "container-image"
+    for record in preserved
+):
+    raise SystemExit("target manifest contains no preserved container images")
+
+patch_target = patch["target"]
+system_packages = patch_target.get("system_packages")
+if not isinstance(system_packages, dict):
+    raise SystemExit("patch manifest has no system package profile")
+current["source_commit"] = patch["source_commit"]
+current["created_at"] = patch["created_at"]
+current["target"]["system_packages"] = system_packages
+current["artifacts"] = [*preserved, *replacement]
+output_path.write_text(json.dumps(current, indent=2) + "\\n", encoding="utf-8")
+"""
+
+
 def apply_script(
     *,
     bundle_root_name: str,
@@ -195,6 +251,7 @@ TARGET_DIR="$(cd "${{TARGET_INPUT}}" && pwd -P)"
 [[ -f "${{TARGET_DIR}}/deploy/devcloud-setup.sh" ]] || fail \
     "The target is not an extracted DevCloud bundle."
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required."
+command -v python3 >/dev/null 2>&1 || fail "python3 is required to merge bundle manifests."
 
 cd "${{PATCH_DIR}}"
 log "Verifying patch payload..."
@@ -202,13 +259,20 @@ sha256sum -c PATCH_SHA256SUMS
 
 if grep -Fq '\"source_commit\": \"{target_commit}\"' \
     "${{TARGET_DIR}}/offline/MANIFEST.json"; then
-    log "Patch is already applied; re-verifying the installed RPM repository."
+    log "Patch is already applied; re-verifying the installed bundle."
     (cd "${{TARGET_DIR}}/offline/system-rpms" && sha256sum -c SHA256SUMS)
+    python3 "${{TARGET_DIR}}/deploy/package_offline.py" \
+        --verify "${{TARGET_DIR}}" \
+        --expected-role {bundle_role}
     exit 0
 fi
-grep -Fq '\"source_commit\": \"{base_commit}\"' \
-    "${{TARGET_DIR}}/offline/MANIFEST.json" || fail \
-    "This patch requires base commit {base_commit}."
+
+MERGED_MANIFEST="${{PATCH_DIR}}/MERGED-MANIFEST.json"
+python3 "${{PATCH_DIR}}/merge-manifest.py" \
+    "${{TARGET_DIR}}/offline/MANIFEST.json" \
+    "${{PATCH_DIR}}/payload/{bundle_root_name}/offline/MANIFEST.json" \
+    "${{MERGED_MANIFEST}}" \
+    {bundle_role}
 
 BACKUP_DIR="${{TARGET_DIR}}/offline/system-rpms.before-{target_commit[:12]}"
 [[ ! -e "${{BACKUP_DIR}}" ]] || fail "Backup path already exists: ${{BACKUP_DIR}}"
@@ -216,16 +280,13 @@ log "Moving the old RPM payload to ${{BACKUP_DIR}}"
 mv "${{TARGET_DIR}}/offline/system-rpms" "${{BACKUP_DIR}}"
 log "Overlaying the verified {bundle_role} patch..."
 cp -a "${{PATCH_DIR}}/payload/{bundle_root_name}/." "${{TARGET_DIR}}/"
+cp "${{MERGED_MANIFEST}}" "${{TARGET_DIR}}/offline/MANIFEST.json"
 
 log "Verifying the replacement local DNF repository..."
 (cd "${{TARGET_DIR}}/offline/system-rpms" && sha256sum -c SHA256SUMS)
-if command -v python3 >/dev/null 2>&1; then
-    python3 "${{TARGET_DIR}}/deploy/package_offline.py" \
-        --verify "${{TARGET_DIR}}" \
-        --expected-role {bundle_role}
-else
-    log "Python is not installed yet; full manifest verification is deferred to devcloud-setup."
-fi
+python3 "${{TARGET_DIR}}/deploy/package_offline.py" \
+    --verify "${{TARGET_DIR}}" \
+    --expected-role {bundle_role}
 
 log "Patch applied successfully. The recoverable old RPM payload remains at ${{BACKUP_DIR}}"
 log "Continue with: cd ${{TARGET_DIR}} && bash deploy/devcloud-setup.sh"
@@ -261,10 +322,7 @@ def build_patch(args: argparse.Namespace) -> Path:
         raise PackageError("The base archive already identifies the current source commit")
 
     output_dir = Path(args.output_dir).resolve()
-    filename = (
-        f"{bundle_root_name}-offline-patch-"
-        f"{base_commit[:12]}-to-{source_commit[:12]}.zip"
-    )
+    filename = f"{bundle_root_name}-offline-patch-compatible-to-{source_commit[:12]}.zip"
     output_path = output_dir / filename
 
     with tempfile.TemporaryDirectory(prefix=f"{bundle_root_name}-patch-") as temp_dir:
@@ -314,6 +372,15 @@ def build_patch(args: argparse.Namespace) -> Path:
             newline="\n",
         )
         script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP)
+        merge_script_path = patch_root / "merge-manifest.py"
+        merge_script_path.write_text(
+            manifest_merge_script(),
+            encoding="utf-8",
+            newline="\n",
+        )
+        merge_script_path.chmod(
+            merge_script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP
+        )
         write_patch_checksums(patch_root)
         create_zip(patch_root, output_path)
 
