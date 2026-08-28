@@ -581,6 +581,38 @@ class InstallerEngine:
                     "A new controller installation requires an administrator password"
                 )
 
+    @staticmethod
+    def _dnf_disable_repositories_option(help_text: str) -> str:
+        if "--disable-repo" in help_text:
+            return "--disable-repo=*"
+        if "--disablerepo" in help_text:
+            return "--disablerepo=*"
+        raise InstallerError(
+            "The installed DNF command has no supported repository-disable option."
+        )
+
+    def _install_offline_rpms(self, rpms: list[Path]) -> None:
+        if self.runner.dry_run:
+            disable_option = "--disablerepo=*"
+        else:
+            help_result = self.runner.run(
+                ["dnf", "--help"],
+                capture_output=True,
+                check=False,
+            )
+            disable_option = self._dnf_disable_repositories_option(
+                f"{help_result.stdout}\n{help_result.stderr}"
+            )
+        self.runner.run(
+            [
+                "dnf",
+                disable_option,
+                "install",
+                "-y",
+                *[str(path) for path in rpms],
+            ]
+        )
+
     def _install_packages(self, config: InstallConfig) -> None:
         packages = {
             "gnupg2",
@@ -610,15 +642,7 @@ class InstallerEngine:
                     "This release is marked as an offline bundle but has no "
                     f"RPM closure for {profile}"
                 )
-            self.runner.run(
-                [
-                    "dnf",
-                    "--disable-repo=*",
-                    "install",
-                    "-y",
-                    *[str(path) for path in rpms],
-                ]
-            )
+            self._install_offline_rpms(rpms)
             return
 
         result = self.runner.run(
@@ -635,15 +659,7 @@ class InstallerEngine:
                 "DNF repositories could not install required packages and the "
                 f"release has no offline RPM closure for {profile}"
             )
-        self.runner.run(
-            [
-                "dnf",
-                "--disable-repo=*",
-                "install",
-                "-y",
-                *[str(path) for path in rpms],
-            ]
-        )
+        self._install_offline_rpms(rpms)
 
     def _configure_database(self, config: InstallConfig) -> None:
         if (

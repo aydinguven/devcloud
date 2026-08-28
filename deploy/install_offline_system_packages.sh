@@ -11,6 +11,18 @@ fail() {
     exit 1
 }
 
+dnf_disable_repositories_option() {
+    local help_text
+    help_text="$(dnf --help 2>&1)" || fail "Could not inspect the installed DNF command."
+    if [[ "${help_text}" == *"--disable-repo"* ]]; then
+        printf '%s\n' "--disable-repo=*"
+    elif [[ "${help_text}" == *"--disablerepo"* ]]; then
+        printf '%s\n' "--disablerepo=*"
+    else
+        fail "The installed DNF command has no supported repository-disable option."
+    fi
+}
+
 [[ "$(id -u)" -eq 0 ]] || fail "Run this installer as root."
 
 PROJECT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -52,7 +64,8 @@ mapfile -d '' RPM_FILES < <(find "${RPM_DIR}" -maxdepth 1 -type f -name '*.rpm' 
 [[ "${#RPM_FILES[@]}" -gt 0 ]] || fail "The ${PROFILE} RPM profile is empty."
 
 log "Installing ${#RPM_FILES[@]} verified RPMs from ${PROFILE} without network repositories..."
-dnf --disable-repo='*' install -y "${RPM_FILES[@]}"
+DNF_DISABLE_REPOSITORIES="$(dnf_disable_repositories_option)"
+dnf "${DNF_DISABLE_REPOSITORIES}" install -y "${RPM_FILES[@]}"
 
 command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide python3."
 command -v podman >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Podman."

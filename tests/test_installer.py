@@ -251,12 +251,29 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
     assert runner.commands == [
         [
             "dnf",
-            "--disable-repo=*",
+            "--disablerepo=*",
             "install",
             "-y",
             str(rpm),
         ]
     ]
+
+
+def test_installer_supports_dnf4_and_dnf5_repository_disable_options():
+    assert (
+        InstallerEngine._dnf_disable_repositories_option(
+            "--disablerepo [repo] Temporarily disable active repositories"
+        )
+        == "--disablerepo=*"
+    )
+    assert (
+        InstallerEngine._dnf_disable_repositories_option(
+            "--disable-repo=REPO_ID Temporarily disable active repositories"
+        )
+        == "--disable-repo=*"
+    )
+    with pytest.raises(InstallerError, match="no supported repository-disable"):
+        InstallerEngine._dnf_disable_repositories_option("dnf help")
 
 
 def test_external_postgresql_url_is_normalized_for_async_controller(tmp_path):

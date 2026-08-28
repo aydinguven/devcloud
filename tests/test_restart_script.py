@@ -93,7 +93,8 @@ def test_system_rpm_installer_is_offline_and_distribution_scoped():
     assert "rocky|rhel" in installer
     assert '[[ "${MAJOR_VERSION}" == "10" ]]' in installer
     assert "sha256sum -c SHA256SUMS" in installer
-    assert "--disable-repo='*'" in installer
+    assert '"--disablerepo=*"' in installer
+    assert '"--disable-repo=*"' in installer
     assert "subscription-manager" in installer
 
 

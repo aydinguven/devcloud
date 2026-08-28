@@ -11,6 +11,18 @@ fail() {
     exit 1
 }
 
+dnf_disable_repositories_option() {
+    local help_text
+    help_text="$(dnf --help 2>&1)" || fail "Could not inspect the installed DNF command."
+    if [[ "${help_text}" == *"--disable-repo"* ]]; then
+        printf '%s\n' "--disable-repo=*"
+    elif [[ "${help_text}" == *"--disablerepo"* ]]; then
+        printf '%s\n' "--disablerepo=*"
+    else
+        fail "The installed DNF command has no supported repository-disable option."
+    fi
+}
+
 [[ "$(id -u)" -eq 0 ]] || fail "Run devcloud-setup as root."
 [[ -r /etc/os-release ]] || fail "/etc/os-release is required."
 # shellcheck disable=SC1091
@@ -62,7 +74,8 @@ install_subscription_manager() {
         "subscription-manager is missing, configured repositories could not install it, and no ${PROFILE} bootstrap RPM closure is bundled."
     mapfile -d '' rpms < <(find "${BOOTSTRAP_RPMS}" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z)
     [[ "${#rpms[@]}" -gt 0 ]] || fail "The subscription-manager bootstrap RPM directory is empty."
-    dnf --disable-repo='*' install -y "${rpms[@]}"
+    DNF_DISABLE_REPOSITORIES="$(dnf_disable_repositories_option)"
+    dnf "${DNF_DISABLE_REPOSITORIES}" install -y "${rpms[@]}"
 }
 
 install_subscription_manager
