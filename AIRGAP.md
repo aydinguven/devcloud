@@ -13,7 +13,7 @@ from a specific Git commit. The server bundle supports both Controller and
 All-in-one installation, including SQLite, bundled PostgreSQL, and external
 PostgreSQL choices. Each bundle contains the required DevCloud source, Python
 wheels, all five workspace container images, the immutable controller image,
-the RHEL 10 PostgreSQL 16 image, a distribution-matched
+the PostgreSQL 16 image, a distribution-matched
 `subscription-manager` bootstrap repository, an artifact manifest, and SHA-256
 checksums. All other operating-system packages come from an internal
 Satellite/Foreman service after registration.
@@ -67,8 +67,12 @@ slower single-threaded gzip fallback when `pigz` is unavailable.
 
 ```bash
 sudo dnf install -y createrepo_c
-podman login registry.redhat.io
 ```
+
+The default PostgreSQL source is the public upstream SCL CentOS Stream 10
+image. To package the entitled RHEL 10 image or an internal mirror instead, set
+DEVCLOUD_POSTGRES_SOURCE_IMAGE before running the builder; authenticate to that
+registry first when required.
 
 ```bash
 git pull --ff-only
@@ -103,7 +107,7 @@ The builder:
 5. creates local DNF repository metadata and checksums it with the RPM payload;
 6. rebuilds and exports all five Linux/amd64 workspace images;
 7. for the server role, builds the controller image and exports it together
-   with Red Hat PostgreSQL 16 as OCI archives;
+   with PostgreSQL 16 as OCI archives;
 8. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
 9. verifies the stage and creates these ignored files:
 
@@ -236,6 +240,16 @@ For a disconnected in-place update, back up first and pass the transferred,
 verified server release to the active host installer. It stages the release,
 loads the new OCI image, runs schema migrations from that image, and restarts
 the Quadlet service without replacing persistent bind mounts.
+
+For a reviewed, unsigned Git ZIP or generated server bundle:
+
+```bash
+sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+  --bundle /root/devcloud-server-release.zip --allow-unsigned
+```
+
+Omit `--allow-unsigned` when the release is signed by a key in
+`/etc/devcloud/release-keyring.gpg`.
 
 ## 6. Enable HTTPS from Admin
 

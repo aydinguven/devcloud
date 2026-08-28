@@ -256,6 +256,15 @@ def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
     assert any("devcloud-controller.container" in command for command in commands)
     assert any("devcloud-postgresql.container" in command for command in commands)
     assert any(
+        "podman pull quay.io/sclorg/postgresql-16-c10s:latest" in command
+        for command in commands
+    )
+    assert any(
+        "podman tag quay.io/sclorg/postgresql-16-c10s:latest "
+        "localhost/devcloud-postgresql:16" in command
+        for command in commands
+    )
+    assert any(
         "podman inspect --format {{.State.Health.Status}} devcloud-controller"
         in command
         for command in commands
@@ -282,6 +291,10 @@ def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
     assert "{{" not in unit
     assert f"Image=localhost/devcloud-controller:{engine.release_version}" in unit
     assert "Requires=devcloud-postgresql.service" in unit
+    database_unit = (
+        tmp_path / "etc/containers/systemd/devcloud-postgresql.container"
+    ).read_text(encoding="utf-8")
+    assert "Image=localhost/devcloud-postgresql:16" in database_unit
 
 
 def test_old_install_state_defaults_to_native_controller_runtime():

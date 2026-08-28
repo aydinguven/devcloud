@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="$(cd "${ROOT_DIR}" && python3 -c 'from app import __version__; print(__version__)')"
 OUTPUT_DIR="${1:-${ROOT_DIR}/dist/container-images}"
 CONTROLLER_IMAGE="${DEVCLOUD_CONTROLLER_IMAGE:-localhost/devcloud-controller:${VERSION}}"
-POSTGRES_IMAGE="${DEVCLOUD_POSTGRES_IMAGE:-registry.redhat.io/rhel10/postgresql-16:latest}"
+POSTGRES_IMAGE="${DEVCLOUD_POSTGRES_IMAGE:-localhost/devcloud-postgresql:16}"
+POSTGRES_SOURCE_IMAGE="${DEVCLOUD_POSTGRES_SOURCE_IMAGE:-quay.io/sclorg/postgresql-16-c10s:latest}"
 
 mkdir -p "${OUTPUT_DIR}"
 podman image exists "${CONTROLLER_IMAGE}" || {
@@ -13,8 +14,8 @@ podman image exists "${CONTROLLER_IMAGE}" || {
     exit 1
 }
 podman image exists "${POSTGRES_IMAGE}" || {
-    echo "ERROR: PostgreSQL image is missing: ${POSTGRES_IMAGE}" >&2
-    exit 1
+    podman pull "${POSTGRES_SOURCE_IMAGE}"
+    podman tag "${POSTGRES_SOURCE_IMAGE}" "${POSTGRES_IMAGE}"
 }
 
 podman save --format oci-archive \

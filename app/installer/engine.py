@@ -211,7 +211,11 @@ class InstallerEngine:
             ),
             PlanStep(
                 "python",
-                "Create the release virtual environment and install verified Python dependencies",
+                (
+                    "Use Python dependencies embedded in the immutable controller image"
+                    if config.containerized_controller and not config.installs_worker
+                    else "Create the release virtual environment and install verified Python dependencies"
+                ),
                 lambda: self._install_python_dependencies(config),
             ),
             PlanStep(
@@ -254,7 +258,11 @@ class InstallerEngine:
                 [
                     PlanStep(
                         "migrations",
-                        "Apply explicit database migrations before starting the controller",
+                        (
+                            "Apply database migrations in the controller image before Uvicorn starts"
+                            if config.containerized_controller
+                            else "Apply explicit database migrations before starting the controller"
+                        ),
                         lambda: self._run_migrations(config),
                     ),
                     PlanStep(
@@ -1208,7 +1216,14 @@ class InstallerEngine:
 
     @staticmethod
     def _postgresql_image() -> str:
-        return "registry.redhat.io/rhel10/postgresql-16:latest"
+        return "localhost/devcloud-postgresql:16"
+
+    @staticmethod
+    def _postgresql_source_image() -> str:
+        return os.environ.get(
+            "DEVCLOUD_POSTGRES_SOURCE_IMAGE",
+            "quay.io/sclorg/postgresql-16-c10s:latest",
+        )
 
     def _prepare_controller_images(self, config: InstallConfig) -> None:
         if not config.containerized_controller:
@@ -1252,7 +1267,9 @@ class InstallerEngine:
             if result.returncode == 0 and not self.runner.dry_run:
                 continue
             if image == self._postgresql_image() and not archives:
-                self.runner.run(["podman", "pull", image])
+                source = self._postgresql_source_image()
+                self.runner.run(["podman", "pull", source])
+                self.runner.run(["podman", "tag", source, image])
                 continue
             if not self.runner.dry_run:
                 raise InstallerError(

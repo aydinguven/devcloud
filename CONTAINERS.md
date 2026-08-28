@@ -39,12 +39,18 @@ Build the controller image on a connected Rocky/RHEL-compatible builder:
 
     bash deploy/container/build-controller-image.sh
 
-Authenticate to the Red Hat registry and pull PostgreSQL 16, then export both
-images with checksums:
+The default PostgreSQL source is the upstream SCL PostgreSQL 16 image based on
+CentOS Stream 10. Build sites that require the RHEL image or a Satellite mirror
+can override DEVCLOUD_POSTGRES_SOURCE_IMAGE. Then export both images with
+checksums:
+
+    bash deploy/container/export-offline-images.sh
+
+For example, to use the entitled RHEL image:
 
     podman login registry.redhat.io
-    podman pull registry.redhat.io/rhel10/postgresql-16:latest
-    bash deploy/container/export-offline-images.sh
+    DEVCLOUD_POSTGRES_SOURCE_IMAGE=registry.redhat.io/rhel10/postgresql-16:latest \
+      bash deploy/container/export-offline-images.sh
 
 The resulting dist/container-images directory can be copied into the air gap
 for manual use. The standard server air-gap bundle builder embeds the same two

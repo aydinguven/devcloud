@@ -65,7 +65,11 @@ IMAGES = (
 )
 CONTROLLER_IMAGE_ARCHIVE = "devcloud-controller"
 POSTGRESQL_IMAGE_ARCHIVE = "devcloud-postgresql-16"
-POSTGRESQL_IMAGE = "registry.redhat.io/rhel10/postgresql-16:latest"
+POSTGRESQL_IMAGE = "localhost/devcloud-postgresql:16"
+POSTGRESQL_SOURCE_IMAGE = os.getenv(
+    "DEVCLOUD_POSTGRES_SOURCE_IMAGE",
+    "quay.io/sclorg/postgresql-16-c10s:latest",
+)
 
 
 class PackageError(RuntimeError):
@@ -442,7 +446,8 @@ def export_controller_images(
     except PackageError:
         if skip_build:
             raise PackageError(f"Required image is missing: {POSTGRESQL_IMAGE}")
-        run([podman_bin, "pull", POSTGRESQL_IMAGE])
+        run([podman_bin, "pull", POSTGRESQL_SOURCE_IMAGE])
+        run([podman_bin, "tag", POSTGRESQL_SOURCE_IMAGE, POSTGRESQL_IMAGE])
     for archive_name, image in (
         (CONTROLLER_IMAGE_ARCHIVE, controller_image),
         (POSTGRESQL_IMAGE_ARCHIVE, POSTGRESQL_IMAGE),
