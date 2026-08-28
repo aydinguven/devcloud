@@ -255,11 +255,12 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 
 ## Air-Gapped / Offline Installation
 
-DevCloud supports installation on isolated Rocky Linux 10.x and RHEL 10.x
-x86_64 VMs. New bundles include a complete distribution-matched local DNF repository
-for Python, Podman, `crun`, Nginx, SELinux tooling, and
-`subscription-manager`. The Rocky and RHEL RPM closures remain
-distribution-specific.
+DevCloud supports installation on Rocky Linux 10.x and RHEL 10.x x86_64 VMs
+that are isolated from the internet but can reach an internal Satellite or
+Foreman/Katello service. New bundles include a small distribution-matched local
+DNF repository only for bootstrapping `subscription-manager`. Python, Podman,
+`crun`, Nginx, SELinux tooling, and database packages are installed from the
+repositories enabled by the administrator's Satellite/Foreman registration.
 The base VM still needs DNF, systemd, `sudo`, `tar`, and `sha256sum`.
 
 ### Step 1: Prepare the Offline Bundle (On Connected Machine)
@@ -293,15 +294,24 @@ sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
 
-sudo bash deploy/deploy_offline.sh
+sudo bash deploy/devcloud-setup.sh
 ```
 
-The installer verifies the bundled RPMs and repository metadata, disables every
-configured network repository, and installs only from the bundle's `file://`
-DNF repository. It then verifies the full manifest and completes setup.
-Installing `subscription-manager` does not register the host automatically;
-Rocky nodes can subsequently be registered to Foreman/Katello using your normal
-organization and activation-key workflow.
+On the first run, the installer verifies the bootstrap RPM repository, disables
+all other repositories for that one transaction, and installs only
+`subscription-manager` from the bundle's `file://` repository. It then stops
+so the administrator can register the VM using the normal organization and
+activation-key workflow:
+
+```bash
+subscription-manager register --org='YOUR_ORG' --activationkey='YOUR_KEY'
+dnf repolist
+sudo bash deploy/devcloud-setup.sh
+```
+
+The second run installs all remaining operating-system prerequisites from the
+registered Satellite/Foreman repositories, verifies the full offline manifest,
+and continues into the interactive installer.
 
 A connected deployment can also publish separate controller and CPU-worker bundles
 at `/download/`. Administrators can trigger either verified background rebuild

@@ -40,8 +40,14 @@ grep -Eq '^DEVCLOUD_NODE_TOKEN=(replace-with-node-token)?$' "${WORKER_ENV_SOURCE
 
 bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
 
-command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Python 3."
-command -v podman >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Podman."
+log "Installing worker prerequisites from configured Satellite/Foreman repositories..."
+dnf install -y \
+    gnupg2 python3 python3-pip policycoreutils-python-utils \
+    podman crun tar gzip || fail \
+    "Configured repositories could not install worker prerequisites. Register this VM with Satellite/Foreman, confirm its repositories are enabled, and rerun."
+
+command -v python3 >/dev/null 2>&1 || fail "Configured repositories did not provide Python 3."
+command -v podman >/dev/null 2>&1 || fail "Configured repositories did not provide Podman."
 
 OCI_RUNTIME="$(command -v crun 2>/dev/null || command -v runc 2>/dev/null || true)"
 [[ -n "${OCI_RUNTIME}" ]] || fail "Bundled RPM installation did not provide crun or runc."

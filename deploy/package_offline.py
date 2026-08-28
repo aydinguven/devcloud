@@ -43,42 +43,15 @@ CONTAINER_PLATFORM = "linux/amd64"
 SUPPORTED_SYSTEM_PACKAGE_TARGETS = ("rocky", "rhel")
 SUPPORTED_SYSTEM_PACKAGE_MAJOR = "10"
 SYSTEM_REPOSITORY_PACKAGES_FILE = "REQUESTED_PACKAGES"
-COMMON_SYSTEM_PACKAGES = (
-    "gnupg2",
-    "python3",
-    "python3-pip",
-    "policycoreutils-python-utils",
-    "subscription-manager",
-)
-WORKER_SYSTEM_PACKAGES = (
-    "podman",
-    "crun",
-    "tar",
-    "gzip",
-)
-CONTROLLER_SYSTEM_PACKAGES = (
-    "nginx",
-    "curl",
-    "createrepo_c",
-    "postgresql-server",
-    "postgresql",
-)
+BOOTSTRAP_SYSTEM_PACKAGES = ("subscription-manager",)
 SYSTEM_PACKAGES_BY_BUNDLE_ROLE = {
     "server": {
-        "rocky": (
-            *COMMON_SYSTEM_PACKAGES,
-            *CONTROLLER_SYSTEM_PACKAGES,
-            *WORKER_SYSTEM_PACKAGES,
-        ),
-        "rhel": (
-            *COMMON_SYSTEM_PACKAGES,
-            *CONTROLLER_SYSTEM_PACKAGES,
-            *WORKER_SYSTEM_PACKAGES,
-        ),
+        "rocky": BOOTSTRAP_SYSTEM_PACKAGES,
+        "rhel": BOOTSTRAP_SYSTEM_PACKAGES,
     },
     "worker": {
-        "rocky": (*COMMON_SYSTEM_PACKAGES, *WORKER_SYSTEM_PACKAGES),
-        "rhel": (*COMMON_SYSTEM_PACKAGES, *WORKER_SYSTEM_PACKAGES),
+        "rocky": BOOTSTRAP_SYSTEM_PACKAGES,
+        "rhel": BOOTSTRAP_SYSTEM_PACKAGES,
     },
 }
 # Compatibility for integrations that imported the original server-wide map.
@@ -342,7 +315,7 @@ def download_system_rpms(
     packages = [str(value) for value in profile["requested_packages"]]
 
     print(
-        "\nDownloading the complete offline system RPM closure for "
+        "\nDownloading the subscription-manager bootstrap RPM closure for "
         f"{profile['profile']}..."
     )
     run(

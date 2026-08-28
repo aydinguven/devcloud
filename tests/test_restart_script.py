@@ -81,8 +81,9 @@ def test_master_and_worker_offline_installers_bootstrap_system_rpms():
     ):
         installer = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
         bootstrap_position = installer.index("install_offline_system_packages.sh")
+        connected_install_position = installer.index("dnf install -y")
         podman_check_position = installer.index("command -v podman")
-        assert bootstrap_position < podman_check_position
+        assert bootstrap_position < connected_install_position < podman_check_position
 
 
 def test_system_rpm_installer_is_offline_and_distribution_scoped():
@@ -103,6 +104,8 @@ def test_system_rpm_installer_is_offline_and_distribution_scoped():
     assert "REQUESTED_PACKAGES" in installer
     assert "repodata/repomd.xml" in installer
     assert "subscription-manager" in installer
+    assert "install -y subscription-manager" in installer
+    assert 'install -y "${REQUESTED_PACKAGES[@]}"' not in installer
 
 
 def test_unified_setup_prefers_and_verifies_offline_artifacts_before_ui():
@@ -116,6 +119,8 @@ def test_unified_setup_prefers_and_verifies_offline_artifacts_before_ui():
     assert "DEVCLOUD_OFFLINE_INSTALL=1" in setup
     assert '--verify "${PROJECT_DIR}"' in setup
     assert "--check-runtime" in setup
+    assert "Register this VM with Satellite/Foreman now" in setup
+    assert "subscription-manager identity" in setup
 
 
 def test_installers_use_bounded_restart_helper():
@@ -163,7 +168,7 @@ def test_offline_installer_requires_documented_sudo_and_does_not_alias_runtimes(
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (PROJECT_ROOT / "AIRGAP.md").read_text(encoding="utf-8")
 
-    assert "sudo bash deploy/deploy_offline.sh" in readme
+    assert "sudo bash deploy/devcloud-setup.sh" in readme
     assert "sudo bash deploy/devcloud-setup.sh" in runbook
     assert "ln -sf /usr/bin/runc /usr/bin/crun" not in installer
 

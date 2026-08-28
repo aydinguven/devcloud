@@ -118,14 +118,10 @@ def test_system_package_profile_targets_el10_distribution(
     )
 
     assert profile["profile"] == f"{distribution_id}-10-x86_64"
-    assert "podman" in profile["requested_packages"]
-    assert "crun" in profile["requested_packages"]
-    assert "subscription-manager" in profile["requested_packages"]
-    assert "postgresql-server" in profile["requested_packages"]
-    assert "postgresql" in profile["requested_packages"]
+    assert profile["requested_packages"] == ["subscription-manager"]
 
 
-def test_worker_system_package_profile_omits_controller_only_packages(
+def test_worker_system_package_profile_only_bootstraps_subscription_manager(
     tmp_path: Path,
 ):
     os_release = tmp_path / "os-release"
@@ -142,10 +138,7 @@ def test_worker_system_package_profile_omits_controller_only_packages(
     )
 
     assert profile["bundle_role"] == "worker"
-    assert "podman" in profile["requested_packages"]
-    assert "subscription-manager" in profile["requested_packages"]
-    assert "nginx" not in profile["requested_packages"]
-    assert "postgresql-server" not in profile["requested_packages"]
+    assert profile["requested_packages"] == ["subscription-manager"]
 
 
 def test_system_package_profile_rejects_unsupported_release(tmp_path: Path):
@@ -192,17 +185,18 @@ def test_system_rpm_download_collects_dependency_closure_and_checksums(
         system_name="Linux",
         machine="x86_64",
     )
-    assert "nginx" in profile["requested_packages"]
+    assert profile["requested_packages"] == ["subscription-manager"]
 
     command = commands[0]
     assert command[:4] == ["dnf5", "download", "--resolve", "--alldeps"]
-    assert "podman" in command
     assert "subscription-manager" in command
-    assert "postgresql-server" in command
     assert profile["profile"] == "rocky-10-x86_64"
     assert commands[1][0:2] == ["createrepo_c", "--no-database"]
     checksum_index = (rpm_root / "SHA256SUMS").read_text(encoding="ascii")
-    assert "rocky-10-x86_64/podman-1-1.el10.x86_64.rpm" in checksum_index
+    assert (
+        "rocky-10-x86_64/subscription-manager-1-1.el10.x86_64.rpm"
+        in checksum_index
+    )
     assert "rocky-10-x86_64/REQUESTED_PACKAGES" in checksum_index
     assert "rocky-10-x86_64/repodata/repomd.xml" in checksum_index
 

@@ -581,75 +581,6 @@ class InstallerEngine:
                     "A new controller installation requires an administrator password"
                 )
 
-    @staticmethod
-    def _dnf_disable_repositories_option(help_text: str) -> str:
-        if "--disable-repo" in help_text:
-            return "--disable-repo=*"
-        if "--disablerepo" in help_text:
-            return "--disablerepo=*"
-        raise InstallerError(
-            "The installed DNF command has no supported repository-disable option."
-        )
-
-    @staticmethod
-    def _dnf_enable_repository_option(help_text: str, repository_id: str) -> str:
-        if "--enable-repo" in help_text:
-            return f"--enable-repo={repository_id}"
-        if "--enablerepo" in help_text:
-            return f"--enablerepo={repository_id}"
-        raise InstallerError(
-            "The installed DNF command has no supported repository-enable option."
-        )
-
-    @staticmethod
-    def _dnf_no_gpg_checks_option(help_text: str) -> str:
-        if "--no-gpgchecks" in help_text:
-            return "--no-gpgchecks"
-        if "--nogpgcheck" in help_text:
-            return "--nogpgcheck"
-        raise InstallerError(
-            "The installed DNF command has no supported GPG-check disable option."
-        )
-
-    def _install_offline_packages(
-        self,
-        repository_root: Path,
-        packages: set[str],
-    ) -> None:
-        repository_id = "devcloud-offline"
-        if self.runner.dry_run:
-            disable_option = "--disablerepo=*"
-            enable_option = f"--enablerepo={repository_id}"
-            no_gpg_checks_option = "--nogpgcheck"
-        else:
-            help_result = self.runner.run(
-                ["dnf", "--help"],
-                capture_output=True,
-                check=False,
-            )
-            disable_option = self._dnf_disable_repositories_option(
-                f"{help_result.stdout}\n{help_result.stderr}"
-            )
-            enable_option = self._dnf_enable_repository_option(
-                f"{help_result.stdout}\n{help_result.stderr}",
-                repository_id,
-            )
-            no_gpg_checks_option = self._dnf_no_gpg_checks_option(
-                f"{help_result.stdout}\n{help_result.stderr}"
-            )
-        self.runner.run(
-            [
-                "dnf",
-                disable_option,
-                f"--repofrompath={repository_id},{repository_root.resolve().as_uri()}",
-                enable_option,
-                no_gpg_checks_option,
-                "install",
-                "-y",
-                *sorted(packages),
-            ]
-        )
-
     def _install_packages(self, config: InstallConfig) -> None:
         packages = {
             "gnupg2",
@@ -669,34 +600,17 @@ class InstallerEngine:
             and config.database_mode == DatabaseMode.EXTERNAL_POSTGRESQL
         ):
             packages.add("postgresql")
-        offline_manifest = self.project_root / "offline" / "MANIFEST.json"
-        if offline_manifest.is_file():
-            profile = detect_platform(self.host_path("/etc/os-release")).profile
-            rpm_root = self.project_root / "offline" / "system-rpms" / profile
-            rpms = sorted(rpm_root.glob("*.rpm")) if rpm_root.is_dir() else []
-            if not rpms or not (rpm_root / "repodata" / "repomd.xml").is_file():
-                raise InstallerError(
-                    "This release is marked as an offline bundle but has no "
-                    f"complete RPM repository for {profile}"
-                )
-            self._install_offline_packages(rpm_root, packages)
-            return
-
         result = self.runner.run(
             ["dnf", "install", "-y", *sorted(packages)],
             check=False,
         )
         if result.returncode == 0 or self.runner.dry_run:
             return
-        profile = detect_platform(self.host_path("/etc/os-release")).profile
-        rpm_root = self.project_root / "offline" / "system-rpms" / profile
-        rpms = sorted(rpm_root.glob("*.rpm")) if rpm_root.is_dir() else []
-        if not rpms or not (rpm_root / "repodata" / "repomd.xml").is_file():
-            raise InstallerError(
-                "DNF repositories could not install required packages and the "
-                f"release has no complete offline RPM repository for {profile}"
-            )
-        self._install_offline_packages(rpm_root, packages)
+        raise InstallerError(
+            "Configured repositories could not install the required packages. "
+            "Register this VM with Satellite/Foreman, confirm its repositories "
+            "are enabled and reachable, and rerun setup."
+        )
 
     def _configure_database(self, config: InstallConfig) -> None:
         if (

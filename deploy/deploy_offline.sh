@@ -29,18 +29,27 @@ chmod 0700 /run/user/0 /run/containers/storage 2>/dev/null || true
 # 1. Install and verify bundled operating-system prerequisites
 bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
 
+echo "--> Installing operating-system prerequisites from configured Satellite/Foreman repositories..."
+if ! dnf install -y \
+    gnupg2 python3 python3-pip policycoreutils-python-utils \
+    podman crun tar gzip nginx curl createrepo_c postgresql-server postgresql; then
+    echo "ERROR: Configured repositories could not install DevCloud prerequisites."
+    echo "Register this VM with Satellite/Foreman, confirm its repositories are enabled, and rerun."
+    exit 1
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is not found after the bundled RPM installation."
+    echo "ERROR: python3 is not found after the configured repository installation."
     exit 1
 fi
 
 if ! command -v podman >/dev/null 2>&1; then
-    echo "ERROR: podman is not found after the bundled RPM installation."
+    echo "ERROR: podman is not found after the configured repository installation."
     exit 1
 fi
 
 if ! command -v nginx >/dev/null 2>&1; then
-    echo "ERROR: nginx is not found after the bundled RPM installation."
+    echo "ERROR: nginx is not found after the configured repository installation."
     exit 1
 fi
 

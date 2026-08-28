@@ -6,7 +6,6 @@ import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -212,9 +211,8 @@ def test_bundled_postgresql_plan_is_role_scoped(tmp_path):
     assert not any(" podman" in f" {command}" for command in commands)
 
 
-def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
+def test_offline_bundle_installs_required_packages_from_configured_repositories(
     tmp_path,
-    monkeypatch,
 ):
     source = tmp_path / "source"
     source.joinpath("app").mkdir(parents=True)
@@ -241,10 +239,6 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
         encoding="utf-8",
     )
     runner = CommandRunner(dry_run=True)
-    monkeypatch.setattr(
-        "app.installer.engine.detect_platform",
-        lambda _path: SimpleNamespace(profile="rocky-10-x86_64"),
-    )
     engine = InstallerEngine(
         project_root=source,
         filesystem_root=host,
@@ -255,58 +249,10 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
 
     assert len(runner.commands) == 1
     command = runner.commands[0]
-    assert command[:2] == ["dnf", "--disablerepo=*"]
-    assert command[2] == (
-        f"--repofrompath=devcloud-offline,{rpm_dir.resolve().as_uri()}"
-    )
-    assert command[3:7] == [
-        "--enablerepo=devcloud-offline",
-        "--nogpgcheck",
-        "install",
-        "-y",
-    ]
+    assert command[:3] == ["dnf", "install", "-y"]
     assert "podman" in command
     assert "subscription-manager" in command
-    assert str(rpm) not in command
-
-
-def test_installer_supports_dnf4_and_dnf5_repository_disable_options():
-    assert (
-        InstallerEngine._dnf_disable_repositories_option(
-            "--disablerepo [repo] Temporarily disable active repositories"
-        )
-        == "--disablerepo=*"
-    )
-    assert (
-        InstallerEngine._dnf_disable_repositories_option(
-            "--disable-repo=REPO_ID Temporarily disable active repositories"
-        )
-        == "--disable-repo=*"
-    )
-    with pytest.raises(InstallerError, match="no supported repository-disable"):
-        InstallerEngine._dnf_disable_repositories_option("dnf help")
-    assert (
-        InstallerEngine._dnf_enable_repository_option(
-            "--enablerepo [repo] Temporarily enable repositories",
-            "offline",
-        )
-        == "--enablerepo=offline"
-    )
-    assert (
-        InstallerEngine._dnf_enable_repository_option(
-            "--enable-repo=REPO_ID Temporarily enable repositories",
-            "offline",
-        )
-        == "--enable-repo=offline"
-    )
-    assert (
-        InstallerEngine._dnf_no_gpg_checks_option("--nogpgcheck disable GPG")
-        == "--nogpgcheck"
-    )
-    assert (
-        InstallerEngine._dnf_no_gpg_checks_option("--no-gpgchecks disable GPG")
-        == "--no-gpgchecks"
-    )
+    assert not any("repofrompath" in argument for argument in command)
 
 
 def test_external_postgresql_url_is_normalized_for_async_controller(tmp_path):

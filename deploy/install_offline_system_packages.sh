@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install operating-system prerequisites from the air-gap bundle's local DNF repository.
+# Bootstrap subscription-manager from the air-gap bundle's local DNF repository.
 set -Eeuo pipefail
 
 log() {
@@ -74,29 +74,24 @@ REQUESTED_PACKAGES_FILE="${RPM_DIR}/REQUESTED_PACKAGES"
 log "Verifying bundled system RPM checksums..."
 (cd "${RPM_ROOT}" && sha256sum -c SHA256SUMS)
 
-mapfile -t REQUESTED_PACKAGES < <(sed '/^[[:space:]]*$/d' "${REQUESTED_PACKAGES_FILE}")
-[[ "${#REQUESTED_PACKAGES[@]}" -gt 0 ]] || fail \
-    "The ${PROFILE} requested-package list is empty."
-for package in "${REQUESTED_PACKAGES[@]}"; do
-    [[ "${package}" =~ ^[A-Za-z0-9_.+:-]+$ ]] || fail \
-        "The requested-package list contains an invalid package name."
-done
+grep -Fxq "subscription-manager" "${REQUESTED_PACKAGES_FILE}" || fail \
+    "The ${PROFILE} bootstrap repository does not include subscription-manager."
 
-log "Installing ${#REQUESTED_PACKAGES[@]} package groups from the verified ${PROFILE} repository..."
+if command -v subscription-manager >/dev/null 2>&1; then
+    log "subscription-manager is already installed; leaving system packages to configured repositories."
+    exit 0
+fi
+
+log "Installing only subscription-manager from the verified ${PROFILE} bootstrap repository..."
 configure_dnf_repository_options
 dnf \
     "${DNF_DISABLE_REPOSITORIES}" \
     "--repofrompath=devcloud-offline,file://${RPM_DIR}" \
     "${DNF_ENABLE_REPOSITORY}" \
     "${DNF_NO_GPG_CHECKS}" \
-    install -y "${REQUESTED_PACKAGES[@]}"
+    install -y subscription-manager
 
-command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide python3."
-command -v podman >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Podman."
-if ! command -v crun >/dev/null 2>&1 && ! command -v runc >/dev/null 2>&1; then
-    fail "Bundled RPM installation did not provide an OCI runtime."
-fi
 command -v subscription-manager >/dev/null 2>&1 || fail \
     "Bundled RPM installation did not provide subscription-manager."
 
-log "Offline operating-system prerequisites are ready."
+log "subscription-manager is ready. Remaining packages will come from configured Satellite/Foreman repositories."

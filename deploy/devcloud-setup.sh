@@ -80,11 +80,28 @@ install_subscription_manager() {
 
 install_subscription_manager
 
+if [[ "${OFFLINE_BUNDLE}" -eq 1 ]] && ! subscription-manager identity >/dev/null 2>&1; then
+    cat <<'EOF'
+
+[devcloud-setup] subscription-manager was installed successfully.
+[devcloud-setup] Register this VM with Satellite/Foreman now, for example with your
+[devcloud-setup] organization and activation key, then rerun:
+
+    bash deploy/devcloud-setup.sh
+
+[devcloud-setup] All remaining operating-system packages will be installed from
+[devcloud-setup] the repositories enabled by that registration.
+EOF
+    exit 0
+fi
+if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
+    log "Satellite/Foreman registration detected; configured repositories will provide remaining system packages."
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
-    [[ "${OFFLINE_BUNDLE}" -eq 0 ]] || fail \
-        "The verified offline RPM transaction did not install Python 3."
     log "Installing Python 3 from configured repositories..."
-    dnf install -y python3
+    dnf install -y python3 || fail \
+        "Configured repositories could not install Python 3. Register this VM with Satellite/Foreman, confirm its repositories are enabled, and rerun setup."
 fi
 
 if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then

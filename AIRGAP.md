@@ -8,13 +8,14 @@ in-place disconnected update, transfer a signed release or reviewed Git ZIP
 and use devcloud-setup update with the bundle path; do not extract over the
 active release.
 
-This runbook creates self-contained Linux x86_64 server or CPU-worker bundles
+This runbook creates Linux x86_64 server or CPU-worker bundles
 from a specific Git commit. The server bundle supports both Controller and
 All-in-one installation, including SQLite, bundled PostgreSQL, and external
 PostgreSQL choices. Each bundle contains the required DevCloud source, Python
-wheels, all five workspace container images, a role-specific and
-distribution-matched local operating-system DNF repository, an artifact manifest, and
-SHA-256 checksums.
+wheels, all five workspace container images, a distribution-matched
+`subscription-manager` bootstrap repository, an artifact manifest, and SHA-256
+checksums. All other operating-system packages come from an internal
+Satellite/Foreman service after registration.
 
 Generated bundles are intentionally excluded from normal Git history. Commit
 and push the packaging code, then attach the generated archive and checksum to
@@ -22,12 +23,11 @@ a Git release (or store them in an approved artifact repository).
 
 ## 1. Prepare the target VM before isolation
 
-The self-bootstrapping bundle targets Rocky Linux 10.x or RHEL 10.x on x86_64.
-The server bundle includes the complete DNF dependency closure for Python, pip,
-Podman, `crun`, Nginx, SELinux tooling, GnuPG, `subscription-manager`, and
-both PostgreSQL server and client packages. The smaller worker bundle omits
-controller-only Nginx and PostgreSQL packages. Rocky and RHEL use separate RPM
-closures, while Rocky nodes can still use the client for Foreman/Katello.
+The bootstrap bundle targets Rocky Linux 10.x or RHEL 10.x on x86_64 and
+contains only the DNF dependency closure required to install
+`subscription-manager`. Rocky and RHEL use separate bootstrap closures.
+The VM must be able to reach the organization's Satellite or Foreman/Katello
+service after this bootstrap step.
 
 The minimal target VM must already provide DNF, RPM, systemd, `sudo`, `tar`,
 and `sha256sum`. Record its distribution before isolation:
@@ -96,9 +96,8 @@ The builder:
 1. requires a clean tracked working tree;
 2. copies only Git-tracked source into a temporary staging directory;
 3. downloads Linux x86_64 binary wheels for the selected CPython version;
-4. downloads the complete role-specific Rocky/RHEL system RPM dependency
-   closure, including every package used by the interactive installer and all
-   server database choices;
+4. downloads the Rocky/RHEL `subscription-manager` bootstrap dependency
+   closure;
 5. creates local DNF repository metadata and checksums it with the RPM payload;
 6. rebuilds and exports all five Linux/amd64 Podman images;
 7. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
@@ -200,21 +199,28 @@ cd devcloud
 sudo bash deploy/devcloud-setup.sh
 ```
 
-The unified installer detects the manifest before any repository operation,
-verifies `offline/system-rpms/SHA256SUMS`, disables every configured DNF
-repository, enables only the bundle's `file://` repository, and installs the
-requested package names through DNF's normal dependency solver. Once Python is available, it
-verifies every artifact in the manifest before showing the role and database
-questions. Python dependencies are installed with `--no-index`; worker roles
-load the five verified container archives instead of building or pulling
-images. There is no connected-repository fallback for a manifest-marked
-offline bundle.
+The first unified-installer run detects the manifest, verifies
+`offline/system-rpms/SHA256SUMS`, disables every configured DNF repository for
+the bootstrap transaction, enables only the bundle's `file://` repository,
+and installs `subscription-manager`. It then exits so registration credentials
+never need to be stored in the bundle.
 
-On Rocky and RHEL, `subscription-manager` is installed but registration is
-intentionally left to the administrator because Foreman/Katello or Red Hat
-registration needs organization credentials and an activation key. External
-PostgreSQL still requires access to the operator-provided database endpoint;
-it does not require internet access.
+Register the host using the organization's normal activation-key workflow,
+verify its repositories, and rerun setup:
+
+```bash
+subscription-manager register --org='YOUR_ORG' --activationkey='YOUR_KEY'
+dnf repolist
+sudo bash deploy/devcloud-setup.sh
+```
+
+The second run installs all other operating-system prerequisites from the
+registered Satellite/Foreman repositories. It then verifies every artifact in
+the manifest before showing the role and database questions. Python
+dependencies are installed from bundled wheels with `--no-index`; worker roles
+load the five verified container archives instead of building or pulling
+images. External PostgreSQL still requires access to the operator-provided
+database endpoint.
 
 For an existing controller that can reach the Git remote, use the Git update flow
 in README.md instead of rerunning the clean offline installer. A fully
