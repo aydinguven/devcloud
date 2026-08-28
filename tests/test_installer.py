@@ -16,8 +16,12 @@ from app.installer.backup import (
     restore_backup,
 )
 from app.installer.engine import InstallerEngine
-from app.installer.cli import _worker_config_from_environment
+from app.installer.cli import (
+    _verify_offline_release,
+    _worker_config_from_environment,
+)
 from app.installer.models import (
+    ControllerRuntime,
     DatabaseMode,
     DeploymentRole,
     InstallConfig,
@@ -68,7 +72,9 @@ def test_install_plans_share_one_role_aware_engine(tmp_path):
 def test_all_in_one_dry_run_installs_controller_and_worker_services(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
-    engine.build_install_plan(config(DeploymentRole.ALL_IN_ONE)).execute()
+    candidate = config(DeploymentRole.ALL_IN_ONE)
+    candidate.controller_runtime = ControllerRuntime.NATIVE
+    engine.build_install_plan(candidate).execute()
 
     commands = [" ".join(command) for command in runner.commands]
     assert any("devcloud-controller.service" in command for command in commands)
@@ -208,11 +214,21 @@ def test_manifest_rejects_unlisted_release_payload(tmp_path):
             pass
 
 
+def test_offline_update_rejects_invalid_embedded_manifest(tmp_path):
+    manifest = tmp_path / "offline/MANIFEST.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"bundle_format": 2}\n', encoding="utf-8")
+
+    with pytest.raises(InstallerError, match="Offline release verification failed"):
+        _verify_offline_release(tmp_path)
+
+
 def test_bundled_postgresql_plan_is_role_scoped(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
     candidate = config(DeploymentRole.CONTROLLER)
     candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+    candidate.controller_runtime = ControllerRuntime.NATIVE
 
     engine.build_install_plan(candidate).execute()
 
@@ -225,6 +241,53 @@ def test_bundled_postgresql_plan_is_role_scoped(tmp_path):
         for command in commands
     )
     assert not any(" podman" in f" {command}" for command in commands)
+
+
+def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine.build_install_plan(candidate).execute()
+
+    commands = [" ".join(command) for command in runner.commands]
+    assert any("podman" in command for command in commands)
+    assert any("devcloud-controller.container" in command for command in commands)
+    assert any("devcloud-postgresql.container" in command for command in commands)
+    assert any(
+        "podman healthcheck run devcloud-controller" in command
+        for command in commands
+    )
+    assert not any("postgresql-setup --initdb" in command for command in commands)
+    assert not any("postgresql-server" in command for command in commands)
+    assert not any("app.migrations upgrade" in command for command in commands)
+
+
+def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
+    runner = CommandRunner()
+    runner.run = lambda command, **_kwargs: subprocess.CompletedProcess(
+        command, 0, "", ""
+    )
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine._install_services(candidate)
+
+    unit = (
+        tmp_path / "etc/containers/systemd/devcloud-controller.container"
+    ).read_text(encoding="utf-8")
+    assert "{{" not in unit
+    assert f"Image=localhost/devcloud-controller:{engine.release_version}" in unit
+    assert "Requires=devcloud-postgresql.service" in unit
+
+
+def test_old_install_state_defaults_to_native_controller_runtime():
+    payload = config(DeploymentRole.CONTROLLER).public_dict()
+    payload.pop("controller_runtime")
+    restored = InstallConfig.from_dict(payload)
+    assert restored.controller_runtime == ControllerRuntime.NATIVE
 
 
 def test_offline_bundle_installs_required_packages_from_configured_repositories(
@@ -440,6 +503,50 @@ def test_sqlite_backup_is_verified_and_restorable(tmp_path):
         )
     finally:
         connection.close()
+
+
+def test_container_postgresql_backup_runs_dump_inside_database_container(tmp_path):
+    root = tmp_path / "host"
+    etc = root / "etc/devcloud"
+    etc.mkdir(parents=True)
+    etc.joinpath("controller.env").write_text(
+        'DATABASE_URL="postgresql+asyncpg://devcloud:secret@devcloud-postgresql/devcloud"\n',
+        encoding="utf-8",
+    )
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+    runner = CommandRunner()
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        if command[:2] == ["podman", "cp"]:
+            Path(command[-1]).write_bytes(b"postgres-dump")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    runner.run = fake_run
+    output = tmp_path / "postgres-backup.tar.gz"
+    create_backup(
+        config=candidate,
+        version="3.1.0",
+        output=output,
+        host_path=lambda value: root / str(Path(value)).lstrip("/\\"),
+        runner=runner,
+        include_workspaces=False,
+    )
+
+    assert any(
+        command[:5]
+        == [
+            "podman",
+            "exec",
+            "devcloud-postgresql",
+            "pg_dump",
+            "--format=custom",
+        ]
+        for command in commands
+    )
+    assert output.is_file()
 
 
 def test_backup_rejects_tampered_member(tmp_path):

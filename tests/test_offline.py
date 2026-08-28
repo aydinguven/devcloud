@@ -16,6 +16,16 @@ package_offline = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_offline)
 
 
+def add_controller_images(bundle_root: Path) -> None:
+    image_dir = bundle_root / "offline" / "controller-images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        package_offline.CONTROLLER_IMAGE_ARCHIVE,
+        package_offline.POSTGRESQL_IMAGE_ARCHIVE,
+    ):
+        (image_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+
+
 def test_offline_source_directories_are_tracked_without_generated_artifacts():
     assert (ROOT_DIR / "offline" / "wheels" / ".gitkeep").is_file()
     assert (ROOT_DIR / "offline" / "images" / ".gitkeep").is_file()
@@ -42,6 +52,7 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
     for name, _, _ in package_offline.IMAGES:
         (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+    add_controller_images(bundle_root)
 
     package_offline.write_manifest(
         bundle_root,
@@ -50,7 +61,7 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     )
     manifest = package_offline.verify_staged_bundle(bundle_root)
     assert manifest["source_commit"] == "a" * 40
-    assert len(manifest["artifacts"]) == 6
+    assert len(manifest["artifacts"]) == 8
 
     (images_dir / "devcloud-vscode-react.tar").write_bytes(b"tampered")
     with pytest.raises(package_offline.PackageError, match="does not match"):
@@ -94,6 +105,39 @@ def test_worker_manifest_role_is_verified(tmp_path: Path):
 def test_worker_bundle_cli_uses_explicit_role():
     args = package_offline.parse_args(["--bundle-role", "worker"])
     assert args.bundle_role == "worker"
+
+
+def test_server_bundle_exports_controller_and_postgresql_oci_archives(
+    tmp_path: Path, monkeypatch
+):
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        if "save" in command:
+            output = Path(command[command.index("-o") + 1])
+            output.write_bytes(b"oci-archive")
+
+    monkeypatch.setattr(package_offline, "run", fake_run)
+    output = tmp_path / "controller-images"
+    package_offline.export_controller_images(
+        tmp_path,
+        output,
+        podman_bin="podman",
+        skip_build=False,
+        version="9.9.9",
+    )
+
+    assert (output / "devcloud-controller.tar").is_file()
+    assert (output / "devcloud-postgresql-16.tar").is_file()
+    assert any(
+        "localhost/devcloud-controller:9.9.9" in command for command in commands
+    )
+    assert all(
+        "--format" in command and "oci-archive" in command
+        for command in commands
+        if "save" in command
+    )
 
 
 @pytest.mark.parametrize(
@@ -214,6 +258,7 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
     (wheels_dir / "fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
     for name, _, _ in package_offline.IMAGES:
         (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
+    add_controller_images(bundle_root)
     for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
         (rpm_dir / f"{package}-1-1.el10.x86_64.rpm").write_bytes(package.encode())
     (rpm_dir / "REQUESTED_PACKAGES").write_text(
