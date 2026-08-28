@@ -256,7 +256,8 @@ def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
     assert any("devcloud-controller.container" in command for command in commands)
     assert any("devcloud-postgresql.container" in command for command in commands)
     assert any(
-        "podman healthcheck run devcloud-controller" in command
+        "podman inspect --format {{.State.Health.Status}} devcloud-controller"
+        in command
         for command in commands
     )
     assert not any("postgresql-setup --initdb" in command for command in commands)

@@ -1477,26 +1477,35 @@ class InstallerEngine:
         for name in names:
             self.runner.run(["systemctl", "is-active", "--quiet", name])
         if config.containerized_controller:
-            attempts = 1 if self.runner.dry_run else 45
-            for attempt in range(attempts):
-                health = self.runner.run(
-                    ["podman", "healthcheck", "run", "devcloud-controller"],
-                    capture_output=True,
-                    check=False,
-                )
-                if health.returncode == 0:
-                    break
-                if attempt + 1 == attempts:
-                    logs = self.runner.run(
-                        ["podman", "logs", "--tail", "100", "devcloud-controller"],
+            inspect = [
+                "podman",
+                "inspect",
+                "--format",
+                "{{.State.Health.Status}}",
+                "devcloud-controller",
+            ]
+            if self.runner.dry_run:
+                self.runner.run(inspect, capture_output=True)
+            else:
+                for attempt in range(45):
+                    health = self.runner.run(
+                        inspect,
                         capture_output=True,
                         check=False,
                     )
-                    raise InstallerError(
-                        "Controller container did not become ready. "
-                        + (logs.stdout.strip() or logs.stderr.strip())
-                    )
-                time.sleep(2)
+                    if health.returncode == 0 and health.stdout.strip() == "healthy":
+                        break
+                    if attempt == 44:
+                        logs = self.runner.run(
+                            ["podman", "logs", "--tail", "100", "devcloud-controller"],
+                            capture_output=True,
+                            check=False,
+                        )
+                        raise InstallerError(
+                            "Controller container did not become ready. "
+                            + (logs.stdout.strip() or logs.stderr.strip())
+                        )
+                    time.sleep(2)
         if config.installs_worker:
             release = self.host_path(config.install_root) / "current"
             worker_env = self._read_env(
