@@ -1170,15 +1170,51 @@ class InstallerEngine:
     def _prepare_images(self, config: InstallConfig) -> None:
         if not config.installs_worker or not config.preload_images:
             return
+        uid_result = self.runner.run(
+            ["id", "-u", config.service_user],
+            capture_output=True,
+        )
+        service_uid = uid_result.stdout.strip()
+        if not service_uid:
+            if not self.runner.dry_run:
+                raise InstallerError(
+                    f"Could not resolve the uid for service user {config.service_user}."
+                )
+            service_uid = "SERVICE_UID"
+        runtime_dir = f"/run/user/{service_uid}"
+        self.runner.run(
+            [
+                "install",
+                "-d",
+                "-o",
+                config.service_user,
+                "-g",
+                config.service_user,
+                "-m",
+                "0700",
+                runtime_dir,
+            ]
+        )
+        user_command = [
+            "runuser",
+            "-u",
+            config.service_user,
+            "--",
+            "env",
+            "HOME=/var/lib/devcloud",
+            f"XDG_RUNTIME_DIR={runtime_dir}",
+        ]
         release = self.host_path(config.install_root) / "current"
         image_dir = release / "offline" / "images"
         archives = sorted(image_dir.glob("*.tar")) if image_dir.is_dir() else []
         if archives:
             for archive in archives:
-                self.runner.run(["podman", "load", "-i", str(archive)])
+                self.runner.run(
+                    [*user_command, "podman", "load", "-i", str(archive)]
+                )
             return
         build_script = release / "containers" / "build_images.sh"
-        self.runner.run(["bash", str(build_script)])
+        self.runner.run([*user_command, "bash", str(build_script)])
 
     def _install_ingress(self, config: InstallConfig) -> None:
         if not config.installs_controller:

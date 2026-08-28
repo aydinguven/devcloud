@@ -317,6 +317,32 @@ def test_worker_plan_provisions_rootless_subordinate_ids(tmp_path):
     assert any("app.installer.verify_worker" in command for command in commands)
 
 
+def test_worker_images_are_loaded_into_service_users_rootless_store(tmp_path):
+    image_dir = tmp_path / "opt/devcloud/current/offline/images"
+    image_dir.mkdir(parents=True)
+    image_archive = image_dir / "workspace.tar"
+    image_archive.touch()
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+
+    engine._prepare_images(config(DeploymentRole.WORKER))
+
+    assert ["id", "-u", "devcloud"] in runner.commands
+    assert [
+        "runuser",
+        "-u",
+        "devcloud",
+        "--",
+        "env",
+        "HOME=/var/lib/devcloud",
+        "XDG_RUNTIME_DIR=/run/user/SERVICE_UID",
+        "podman",
+        "load",
+        "-i",
+        str(image_archive),
+    ] in runner.commands
+
+
 def test_ui_collects_worker_connection_details():
     answers = iter(
         [
