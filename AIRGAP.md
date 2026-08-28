@@ -12,7 +12,8 @@ This runbook creates Linux x86_64 server or CPU-worker bundles
 from a specific Git commit. The server bundle supports both Controller and
 All-in-one installation, including SQLite, bundled PostgreSQL, and external
 PostgreSQL choices. Each bundle contains the required DevCloud source, Python
-wheels, all five workspace container images, a distribution-matched
+wheels, all five workspace container images, the immutable controller image,
+the RHEL 10 PostgreSQL 16 image, a distribution-matched
 `subscription-manager` bootstrap repository, an artifact manifest, and SHA-256
 checksums. All other operating-system packages come from an internal
 Satellite/Foreman service after registration.
@@ -66,6 +67,7 @@ slower single-threaded gzip fallback when `pigz` is unavailable.
 
 ```bash
 sudo dnf install -y createrepo_c
+podman login registry.redhat.io
 ```
 
 ```bash
@@ -99,9 +101,11 @@ The builder:
 4. downloads the Rocky/RHEL `subscription-manager` bootstrap dependency
    closure;
 5. creates local DNF repository metadata and checksums it with the RPM payload;
-6. rebuilds and exports all five Linux/amd64 Podman images;
-7. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
-8. verifies the stage and creates these ignored files:
+6. rebuilds and exports all five Linux/amd64 workspace images;
+7. for the server role, builds the controller image and exports it together
+   with Red Hat PostgreSQL 16 as OCI archives;
+8. writes offline/MANIFEST.json with artifact sizes and SHA-256 hashes;
+9. verifies the stage and creates these ignored files:
 
 ```text
 dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
@@ -124,8 +128,9 @@ the old RPM directory as a backup, merges repository records into the target's
 own manifest, and leaves its wheels and container images in place. This permits
 compatible earlier bundle commits while still enforcing bundle format and role.
 
-If the five local image tags are already known-good, add
-`--skip-image-build`; missing tags still make packaging fail.
+If all local image tags, including the controller and PostgreSQL images for a
+server bundle, are already known-good, add --skip-image-build; missing tags
+still make packaging fail.
 
 ## 4. Publish the binary artifact
 
@@ -137,7 +142,7 @@ acceptable if your server has suitable quotas.
 
 ### Optional: publish and update bundles from the admin page
 
-A connected DevCloud server exposes verified bundles at `/download/` and lets
+A connected native DevCloud server exposes verified bundles at /download/ and lets
 an administrator rebuild them from the management page. New installations
 enable this feature and prepare its directories automatically. For an existing
 installation, enable it once with:
@@ -155,8 +160,11 @@ and reloads DevCloud. Then use the separate **Controller Paketini Güncelle** an
 The update operation downloads wheels and the Rocky/RHEL RPM dependency closure,
 rebuilds five Podman images, consumes substantial disk space, and requires
 access to package and container registries.
-On a truly disconnected server, keep published downloads available but set
-`DOWNLOAD_UPDATES_ENABLED=False` to prevent rebuild attempts.
+Containerized controllers intentionally disable in-application bundle rebuilds
+and source updates. Build releases on a dedicated connected builder and apply
+them with the host lifecycle installer. On a truly disconnected native server,
+keep published downloads available but set DOWNLOAD_UPDATES_ENABLED=False to
+prevent rebuild attempts.
 
 Each background job requires a clean tracked Git working tree. It builds into a
 temporary directory, verifies both the internal artifact manifest and outer
@@ -217,16 +225,17 @@ sudo bash deploy/devcloud-setup.sh
 The second run installs all other operating-system prerequisites from the
 registered Satellite/Foreman repositories. It then verifies every artifact in
 the manifest before showing the role and database questions. Python
-dependencies are installed from bundled wheels with `--no-index`; worker roles
-load the five verified container archives instead of building or pulling
-images. External PostgreSQL still requires access to the operator-provided
-database endpoint.
+dependencies are installed from bundled wheels with --no-index; worker roles
+load the five verified workspace archives. Container-controller roles also
+load the verified controller archive and, when selected, PostgreSQL archive.
+Neither installation path builds nor pulls an image inside the air gap.
+External PostgreSQL still requires access to the operator-provided database
+endpoint.
 
-For an existing controller that can reach the Git remote, use the Git update flow
-in README.md instead of rerunning the clean offline installer. A fully
-disconnected in-place application upgrade requires an explicit backup and
-migration procedure for the existing project-root data and is not performed by
-deploy_offline.sh.
+For a disconnected in-place update, back up first and pass the transferred,
+verified server release to the active host installer. It stages the release,
+loads the new OCI image, runs schema migrations from that image, and restarts
+the Quadlet service without replacing persistent bind mounts.
 
 ## 6. Enable HTTPS from Admin
 

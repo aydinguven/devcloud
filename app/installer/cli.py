@@ -12,9 +12,21 @@ from app.installer.models import DeploymentRole, InstallConfig
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import prepare_release
 from app.installer.ui import InstallerUI
+from deploy.package_offline import PackageError, verify_staged_bundle
 
 
 DEFAULT_STATE_ROOT = "/var/lib/devcloud/installer"
+
+
+def _verify_offline_release(root: Path) -> None:
+    """Verify every embedded artifact before an offline update can load it."""
+    manifest = root / "offline" / "MANIFEST.json"
+    if not manifest.is_file():
+        return
+    try:
+        verify_staged_bundle(root, expected_role="server")
+    except PackageError as exc:
+        raise InstallerError(f"Offline release verification failed: {exc}") from exc
 
 
 def _worker_config_from_environment(
@@ -265,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
                 keyring=keyring,
                 require_signature=not allow_unsigned,
             ) as prepared:
+                _verify_offline_release(prepared.root)
                 update_engine = InstallerEngine(
                     project_root=prepared.root,
                     filesystem_root=Path(args.filesystem_root),

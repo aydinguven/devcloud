@@ -31,14 +31,20 @@ Choose SQLite for the smallest footprint, bundled PostgreSQL for a controller
 expected to manage several workers, or an external PostgreSQL URL for an
 operator-managed database.
 
-The controller installs no Podman runtime. After installation, create worker
-records in **Admin > Worker Nodes** and retain each one-time enrollment token.
+The recommended controller runtime is an immutable OCI image supervised by
+Podman Quadlet. The optional bundled PostgreSQL database is a second container
+on a private network and is never published on a host port. Native Python
+systemd installation remains available for existing deployments and
+compatibility.
+
+After installation, create worker records in **Admin > Worker Nodes** and
+retain each one-time enrollment token.
 If administrator-built custom images must run on more than one worker,
 configure an external OCI registry prefix and authenticate each worker to it.
 
 ## All-in-one
 
-All-in-one installs both devcloud-controller.service and
+All-in-one installs the selected controller runtime and the host-native
 devcloud-worker.service. The installer creates one node ID/token pair, seeds
 that node in the database, and connects the worker over loopback. This is a
 convenience deployment, not a separate runtime architecture.
@@ -78,6 +84,11 @@ should contain release.json and release.json.asc and be verified by
 Build an official source release with:
 
     python3 deploy/build_release.py --signing-key GPG_KEY_ID
+
+Container deployments update through the host installer, not through Git
+inside the controller container. A verified server air-gap bundle contains the
+controller and PostgreSQL OCI archives, so update and reinstall require no
+registry connection.
 
 Copy published worker releases to /srv/devcloud-downloads/releases. Worker
 downloads require its node ID/token; release source is not publicly exposed.

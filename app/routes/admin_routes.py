@@ -817,6 +817,13 @@ async def get_system_update_info(
     import subprocess
     from app.config import settings
 
+    if not settings.UPDATES_ENABLED:
+        return {
+            "commit": "image",
+            "branch": "container",
+            "status": "Container updates are managed by the host installer.",
+            "version": settings.APP_VERSION,
+        }
     try:
         commit = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -943,6 +950,12 @@ async def run_system_update_stream(
     from fastapi.responses import StreamingResponse
     from app.config import settings
     from deploy.package_offline import get_app_version
+
+    if not settings.UPDATES_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Container updates are managed by the host installer.",
+        )
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 

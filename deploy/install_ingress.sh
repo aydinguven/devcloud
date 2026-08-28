@@ -9,7 +9,11 @@ fi
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_USER="${1:-root}"
-SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
+if [[ "${SERVICE_USER}" =~ ^[0-9]+$ ]] && ! id "${SERVICE_USER}" >/dev/null 2>&1; then
+    SERVICE_GROUP="${SERVICE_USER}"
+else
+    SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
+fi
 HTTPS_HOSTNAME="${DEVCLOUD_HTTPS_HOSTNAME:-aifactory.tcmb.gov.tr}"
 APPLY_INITIAL="${DEVCLOUD_INGRESS_APPLY_INITIAL:-1}"
 HELPER="/usr/local/libexec/devcloud-apply-ingress"

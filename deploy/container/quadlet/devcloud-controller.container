@@ -1,0 +1,33 @@
+[Unit]
+Description=DevCloud Controller container
+After=network-online.target
+Wants=network-online.target
+{{DATABASE_DEPENDENCIES}}
+
+[Container]
+Image={{CONTROLLER_IMAGE}}
+ContainerName=devcloud-controller
+Pull=never
+Network=devcloud.network
+EnvironmentFile=/etc/devcloud/controller.env
+PublishPort=127.0.0.1:8000:8000
+Volume=/var/lib/devcloud/database:/var/lib/devcloud/database:Z
+Volume=/var/lib/devcloud/download-builds:/var/lib/devcloud/download-builds:Z
+Volume=/var/lib/devcloud/ingress:/var/lib/devcloud/ingress:Z
+Volume=/srv/devcloud-downloads:/srv/devcloud-downloads:Z
+HealthCmd=python -m app.container_healthcheck
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+NoNewPrivileges=true
+ReadOnly=true
+Tmpfs=/tmp:rw,size=256m,mode=1777
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

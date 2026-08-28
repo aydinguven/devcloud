@@ -24,6 +24,11 @@ class RegistryMode(StrEnum):
     PRELOADED = "preloaded"
 
 
+class ControllerRuntime(StrEnum):
+    CONTAINER = "container"
+    NATIVE = "native"
+
+
 @dataclass(slots=True)
 class InstallConfig:
     role: DeploymentRole
@@ -33,6 +38,7 @@ class InstallConfig:
     database_url: str = ""
     registry_mode: RegistryMode = RegistryMode.PRELOADED
     registry_url: str = ""
+    controller_runtime: ControllerRuntime = ControllerRuntime.CONTAINER
     service_user: str = "devcloud"
     worker_name: str = ""
     worker_id: str = ""
@@ -60,10 +66,23 @@ class InstallConfig:
     def installs_worker(self) -> bool:
         return self.role in {DeploymentRole.WORKER, DeploymentRole.ALL_IN_ONE}
 
+    @property
+    def containerized_controller(self) -> bool:
+        return (
+            self.installs_controller
+            and self.controller_runtime == ControllerRuntime.CONTAINER
+        )
+
     def effective_database_url(self) -> str:
         if self.database_mode == DatabaseMode.SQLITE:
             return "sqlite+aiosqlite:////var/lib/devcloud/database/devcloud.db"
         if self.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+            if self.controller_runtime == ControllerRuntime.CONTAINER:
+                if not self.database_url:
+                    raise ValueError(
+                        "Containerized PostgreSQL requires its generated database URL"
+                    )
+                return self.database_url
             return self.database_url or (
                 "postgresql+asyncpg://devcloud@/devcloud?host=/var/run/postgresql"
             )
@@ -78,6 +97,7 @@ class InstallConfig:
         data["role"] = self.role.value
         data["database_mode"] = self.database_mode.value
         data["registry_mode"] = self.registry_mode.value
+        data["controller_runtime"] = self.controller_runtime.value
         data.pop("enrollment_token_file", None)
         data.pop("database_url", None)
         data.pop("private_key_file", None)
@@ -93,6 +113,11 @@ class InstallConfig:
         )
         values["registry_mode"] = RegistryMode(
             values.get("registry_mode", RegistryMode.PRELOADED)
+        )
+        # State written before container support always represents a native
+        # controller and must not silently change runtime during repair/update.
+        values["controller_runtime"] = ControllerRuntime(
+            values.get("controller_runtime", ControllerRuntime.NATIVE)
         )
         return cls(**values)
 

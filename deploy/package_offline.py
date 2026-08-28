@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
-BUNDLE_FORMAT = 1
+BUNDLE_FORMAT = 2
 BUNDLE_ROLES = ("server", "worker")
 BUNDLE_PREFIXES = {
     "server": "devcloud-offline",
@@ -63,6 +63,9 @@ IMAGES = (
     ("devcloud-jupyter-python", "localhost/devcloud-jupyter-python:latest", "jupyter-python"),
     ("devcloud-vscode-java", "localhost/devcloud-vscode-java:latest", "vscode-java"),
 )
+CONTROLLER_IMAGE_ARCHIVE = "devcloud-controller"
+POSTGRESQL_IMAGE_ARCHIVE = "devcloud-postgresql-16"
+POSTGRESQL_IMAGE = "registry.redhat.io/rhel10/postgresql-16:latest"
 
 
 class PackageError(RuntimeError):
@@ -404,6 +407,65 @@ def export_images(
             raise PackageError(f"Podman did not create a valid archive for {image_tag}")
 
 
+def export_controller_images(
+    root_dir: Path,
+    images_dir: Path,
+    *,
+    podman_bin: str,
+    skip_build: bool,
+    version: str,
+) -> None:
+    """Export immutable controller runtime images for a registry-free install."""
+    run([podman_bin, "--version"], capture_output=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    controller_image = f"localhost/devcloud-controller:{version}"
+    if skip_build:
+        run([podman_bin, "image", "exists", controller_image])
+    else:
+        run(
+            [
+                podman_bin,
+                "build",
+                "--platform",
+                CONTAINER_PLATFORM,
+                "--build-arg",
+                f"DEVCLOUD_VERSION={version}",
+                "--file",
+                str(root_dir / "containers/devcloud-controller/Containerfile"),
+                "--tag",
+                controller_image,
+                str(root_dir),
+            ]
+        )
+    try:
+        run([podman_bin, "image", "exists", POSTGRESQL_IMAGE])
+    except PackageError:
+        if skip_build:
+            raise PackageError(f"Required image is missing: {POSTGRESQL_IMAGE}")
+        run([podman_bin, "pull", POSTGRESQL_IMAGE])
+    for archive_name, image in (
+        (CONTROLLER_IMAGE_ARCHIVE, controller_image),
+        (POSTGRESQL_IMAGE_ARCHIVE, POSTGRESQL_IMAGE),
+    ):
+        archive = images_dir / f"{archive_name}.tar"
+        print(f"Exporting {image} to {archive.name}...")
+        run(
+            [
+                podman_bin,
+                "save",
+                "--format",
+                "oci-archive",
+                "-o",
+                str(archive),
+                image,
+            ]
+        )
+        if not archive.is_file() or archive.stat().st_size == 0:
+            raise PackageError(
+                f"Podman did not create a valid controller archive for {image}"
+            )
+
+
 def artifact_record(bundle_root: Path, path: Path, kind: str) -> dict[str, object]:
     return {
         "path": path.relative_to(bundle_root).as_posix(),
@@ -425,12 +487,32 @@ def write_manifest(
         raise PackageError(f"Unsupported bundle role: {bundle_role!r}")
     wheels = sorted((bundle_root / "offline" / "wheels").glob("*.whl"))
     images = sorted((bundle_root / "offline" / "images").glob("*.tar"))
+    controller_images = sorted(
+        (bundle_root / "offline" / "controller-images").glob("*.tar")
+    )
     expected_images = {f"offline/images/{name}.tar" for name, _, _ in IMAGES}
     actual_images = {path.relative_to(bundle_root).as_posix() for path in images}
     if actual_images != expected_images:
         missing = sorted(expected_images - actual_images)
         extra = sorted(actual_images - expected_images)
         raise PackageError(f"Image archive set is incomplete; missing={missing}, extra={extra}")
+    expected_controller_images = (
+        {
+            f"offline/controller-images/{CONTROLLER_IMAGE_ARCHIVE}.tar",
+            f"offline/controller-images/{POSTGRESQL_IMAGE_ARCHIVE}.tar",
+        }
+        if bundle_role == "server"
+        else set()
+    )
+    actual_controller_images = {
+        path.relative_to(bundle_root).as_posix() for path in controller_images
+    }
+    if actual_controller_images != expected_controller_images:
+        raise PackageError(
+            "Controller image archive set is incomplete; "
+            f"missing={sorted(expected_controller_images - actual_controller_images)}, "
+            f"extra={sorted(actual_controller_images - expected_controller_images)}"
+        )
 
     requirements = bundle_root / "requirements.txt"
     system_rpm_root = bundle_root / "offline" / "system-rpms"
@@ -475,6 +557,10 @@ def write_manifest(
         "artifacts": [
             *(artifact_record(bundle_root, path, "python-wheel") for path in wheels),
             *(artifact_record(bundle_root, path, "container-image") for path in images),
+            *(
+                artifact_record(bundle_root, path, "controller-container-image")
+                for path in controller_images
+            ),
             *(artifact_record(bundle_root, path, "system-rpm") for path in system_rpms),
             *(
                 artifact_record(bundle_root, path, "system-rpm-repository-metadata")
@@ -604,6 +690,7 @@ def verify_staged_bundle(
         raise PackageError("The manifest contains no artifacts")
     seen_paths: set[str] = set()
     image_paths: set[str] = set()
+    controller_image_paths: set[str] = set()
     wheel_paths: set[str] = set()
     system_rpm_paths: set[str] = set()
     system_rpm_metadata_paths: set[str] = set()
@@ -627,6 +714,8 @@ def verify_staged_bundle(
             raise PackageError(f"Bundle artifact checksum does not match: {raw_path}")
         if record.get("kind") == "container-image":
             image_paths.add(raw_path)
+        elif record.get("kind") == "controller-container-image":
+            controller_image_paths.add(raw_path)
         elif record.get("kind") == "python-wheel":
             wheel_paths.add(raw_path)
         elif record.get("kind") == "system-rpm":
@@ -641,6 +730,18 @@ def verify_staged_bundle(
     expected_images = {f"offline/images/{name}.tar" for name, _, _ in IMAGES}
     if image_paths != expected_images:
         raise PackageError("The manifest does not contain all required container images")
+    expected_controller_images = (
+        {
+            f"offline/controller-images/{CONTROLLER_IMAGE_ARCHIVE}.tar",
+            f"offline/controller-images/{POSTGRESQL_IMAGE_ARCHIVE}.tar",
+        }
+        if bundle_role == "server"
+        else set()
+    )
+    if controller_image_paths != expected_controller_images:
+        raise PackageError(
+            "The manifest does not contain the required controller images"
+        )
     if not wheel_paths:
         raise PackageError("The manifest does not contain Python wheels")
     actual_images = {
@@ -648,6 +749,12 @@ def verify_staged_bundle(
         for pattern in ("*.tar", "*.tar.gz")
         for path in (bundle_root / "offline" / "images").glob(pattern)
     }
+    actual_controller_images = {
+        path.relative_to(bundle_root).as_posix()
+        for path in (bundle_root / "offline" / "controller-images").glob("*.tar")
+    }
+    if actual_controller_images != controller_image_paths:
+        raise PackageError("The bundle contains unlisted controller image archives")
     actual_wheels = {
         path.relative_to(bundle_root).as_posix()
         for path in (bundle_root / "offline" / "wheels").glob("*.whl")
@@ -789,6 +896,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
         copy_tracked_source(root_dir, bundle_root)
         wheels_dir = bundle_root / "offline" / "wheels"
         images_dir = bundle_root / "offline" / "images"
+        controller_images_dir = bundle_root / "offline" / "controller-images"
         system_rpms_dir = bundle_root / "offline" / "system-rpms"
 
         versions = download_wheels(root_dir, wheels_dir, args.python_version)
@@ -806,6 +914,14 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
             podman_bin=args.podman_bin,
             skip_build=args.skip_image_build,
         )
+        if bundle_role == "server":
+            export_controller_images(
+                root_dir,
+                controller_images_dir,
+                podman_bin=args.podman_bin,
+                skip_build=args.skip_image_build,
+                version=version,
+            )
         write_manifest(
             bundle_root,
             git_commit=commit,

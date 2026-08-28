@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from app.installer.models import DatabaseMode, InstallConfig
+from app.installer.models import ControllerRuntime, DatabaseMode, InstallConfig
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import _extract_tar
 
@@ -112,7 +112,7 @@ def create_backup(
                 if raw and not raw.startswith("#") and "=" in raw:
                     key, value = raw.split("=", 1)
                     env_values[key] = value.strip().strip('"')
-        database_url = env_values.get("DATABASE_URL", config.effective_database_url())
+        database_url = env_values.get("DATABASE_URL") or config.effective_database_url()
         database_kind = "none"
         if config.installs_controller and database_url.startswith(
             "sqlite+aiosqlite:///"
@@ -132,17 +132,56 @@ def create_backup(
         elif config.installs_controller:
             target_db = payload / "database" / "devcloud.pgdump"
             target_db.parent.mkdir()
-            cli_url, pg_environment = _postgres_cli_connection(database_url)
-            runner.run(
-                [
-                    "pg_dump",
-                    "--format=custom",
-                    "--file",
-                    str(target_db),
-                    cli_url,
-                ],
-                env=pg_environment,
-            )
+            if (
+                config.controller_runtime == ControllerRuntime.CONTAINER
+                and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+            ):
+                container_dump = "/tmp/devcloud-backup.pgdump"
+                runner.run(
+                    [
+                        "podman",
+                        "exec",
+                        "devcloud-postgresql",
+                        "pg_dump",
+                        "--format=custom",
+                        "--file",
+                        container_dump,
+                        "devcloud",
+                    ]
+                )
+                try:
+                    runner.run(
+                        [
+                            "podman",
+                            "cp",
+                            f"devcloud-postgresql:{container_dump}",
+                            str(target_db),
+                        ]
+                    )
+                finally:
+                    runner.run(
+                        [
+                            "podman",
+                            "exec",
+                            "devcloud-postgresql",
+                            "rm",
+                            "-f",
+                            container_dump,
+                        ],
+                        check=False,
+                    )
+            else:
+                cli_url, pg_environment = _postgres_cli_connection(database_url)
+                runner.run(
+                    [
+                        "pg_dump",
+                        "--format=custom",
+                        "--file",
+                        str(target_db),
+                        cli_url,
+                    ],
+                    env=pg_environment,
+                )
             database_kind = "postgresql"
 
         if include_workspaces and config.installs_worker:
@@ -282,19 +321,73 @@ def restore_backup(
                     database_url = raw.split("=", 1)[1].strip().strip('"')
             if not database_url:
                 raise InstallerError("Restored PostgreSQL URL is missing")
-            cli_url, pg_environment = _postgres_cli_connection(database_url)
-            runner.run(
-                [
-                    "pg_restore",
-                    "--clean",
-                    "--if-exists",
-                    "--no-owner",
-                    "--dbname",
-                    cli_url,
-                    str(payload / "database" / "devcloud.pgdump"),
-                ],
-                env=pg_environment,
-            )
+            dump = payload / "database" / "devcloud.pgdump"
+            if (
+                config.controller_runtime == ControllerRuntime.CONTAINER
+                and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+            ):
+                container_dump = "/tmp/devcloud-restore.pgdump"
+                runner.run(
+                    [
+                        "podman",
+                        "cp",
+                        str(dump),
+                        f"devcloud-postgresql:{container_dump}",
+                    ]
+                )
+                try:
+                    runner.run(
+                        [
+                            "podman",
+                            "exec",
+                            "--user",
+                            "0",
+                            "devcloud-postgresql",
+                            "chmod",
+                            "0644",
+                            container_dump,
+                        ]
+                    )
+                    runner.run(
+                        [
+                            "podman",
+                            "exec",
+                            "devcloud-postgresql",
+                            "pg_restore",
+                            "--clean",
+                            "--if-exists",
+                            "--no-owner",
+                            "--dbname",
+                            "devcloud",
+                            container_dump,
+                        ]
+                    )
+                finally:
+                    runner.run(
+                        [
+                            "podman",
+                            "exec",
+                            "devcloud-postgresql",
+                            "rm",
+                            "-f",
+                            container_dump,
+                        ],
+                        check=False,
+                    )
+            else:
+                cli_url, pg_environment = _postgres_cli_connection(database_url)
+                runner.run(
+                    [
+                        "pg_restore",
+                        "--clean",
+                        "--if-exists",
+                        "--no-owner",
+                        "--dbname",
+                        cli_url,
+                        str(dump),
+                    ],
+                    env=pg_environment,
+                )
 
         restored_workspaces = payload / "workspaces"
         if restored_workspaces.is_dir() and config.installs_worker:

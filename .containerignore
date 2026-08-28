@@ -1,0 +1,11 @@
+.git
+.pytest_cache
+.pytest_tmp
+.venv
+data
+dist
+offline
+**/__pycache__
+**/*.pyc
+**/*.pyo
+

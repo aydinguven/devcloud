@@ -20,6 +20,12 @@ controller runs one Uvicorn process because live agent tunnels are held in
 process. A future HA design must externalize connection ownership and event
 routing before adding controller replicas.
 
+The preferred controller packaging is an OCI image supervised by Podman
+Quadlet. The optional bundled PostgreSQL database is a separate container on a
+private network; Nginx remains host-managed. Workers remain host-native because
+they own workspace storage and require root-equivalent Podman control. See
+CONTAINERS.md for the packaging boundary and offline image workflow.
+
 ## Request and control paths
 
     Browser -- HTTPS/WSS --> Controller -- worker tunnel --> Worker --> Workspace

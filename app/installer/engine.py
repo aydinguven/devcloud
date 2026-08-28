@@ -8,13 +8,21 @@ import secrets
 import shutil
 import stat
 import tempfile
+import time
 import uuid
+from urllib.parse import quote
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from app.installer.models import DatabaseMode, DeploymentRole, InstallConfig, RegistryMode
+from app.installer.models import (
+    ControllerRuntime,
+    DatabaseMode,
+    DeploymentRole,
+    InstallConfig,
+    RegistryMode,
+)
 from app.installer.backup import create_backup, restore_backup
 from app.installer.platform import (
     CommandRunner,
@@ -217,6 +225,15 @@ class InstallerEngine:
                 lambda: self._install_services(config),
             ),
         ]
+        if config.containerized_controller:
+            steps.insert(
+                4,
+                PlanStep(
+                    "controller-images",
+                    "Load verified controller images or build them from this release",
+                    lambda: self._prepare_controller_images(config),
+                ),
+            )
         if config.installs_worker:
             steps.extend(
                 [
@@ -275,6 +292,13 @@ class InstallerEngine:
                     lambda: self._ensure_directories(config),
                 ),
                 PlanStep(
+                    "controller-images",
+                    "Verify or reload controller container images",
+                    lambda: self._prepare_controller_images(config)
+                    if config.containerized_controller
+                    else None,
+                ),
+                PlanStep(
                     "configuration",
                     "Re-render configuration while preserving existing secrets",
                     lambda: self._write_configuration(config),
@@ -314,6 +338,13 @@ class InstallerEngine:
                     "release",
                     f"Stage immutable release {self.release_version} without removing the current release",
                     lambda: self._install_release(config),
+                ),
+                PlanStep(
+                    "controller-images",
+                    "Load the new verified controller image",
+                    lambda: self._prepare_controller_images(config)
+                    if config.containerized_controller
+                    else None,
                 ),
                 PlanStep(
                     "python",
@@ -359,7 +390,7 @@ class InstallerEngine:
             PlanStep(
                 "stop",
                 "Stop and disable DevCloud services",
-                lambda: self._stop_services(config),
+                lambda: self._stop_services(config, include_database=True),
             ),
             PlanStep(
                 "units",
@@ -465,6 +496,13 @@ class InstallerEngine:
         names = []
         if role in {DeploymentRole.CONTROLLER, DeploymentRole.ALL_IN_ONE}:
             names.append("devcloud-controller.service")
+            if (
+                state.configuration.get("controller_runtime")
+                == ControllerRuntime.CONTAINER.value
+                and state.configuration.get("database_mode")
+                == DatabaseMode.BUNDLED_POSTGRESQL.value
+            ):
+                names.append("devcloud-postgresql.service")
         if role in {DeploymentRole.WORKER, DeploymentRole.ALL_IN_ONE}:
             names.append("devcloud-worker.service")
         for name in names:
@@ -591,9 +629,14 @@ class InstallerEngine:
         }
         if config.installs_controller:
             packages.update({"nginx", "curl", "createrepo_c"})
+        if config.containerized_controller:
+            packages.update({"podman", "crun", "tar"})
         if config.installs_worker:
             packages.update({"podman", "crun", "tar", "gzip"})
-        if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+        if (
+            config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+            and not config.containerized_controller
+        ):
             packages.add("postgresql-server")
         elif (
             config.installs_controller
@@ -617,6 +660,23 @@ class InstallerEngine:
             not config.installs_controller
             or config.database_mode != DatabaseMode.BUNDLED_POSTGRESQL
         ):
+            return
+        if config.containerized_controller:
+            env_path = self.host_path("/etc/devcloud/postgresql.env")
+            existing = self._read_env(env_path)
+            password = existing.get("POSTGRESQL_PASSWORD", "") or secrets.token_urlsafe(36)
+            self._write_env(
+                env_path,
+                {
+                    "POSTGRESQL_USER": "devcloud",
+                    "POSTGRESQL_PASSWORD": password,
+                    "POSTGRESQL_DATABASE": "devcloud",
+                },
+            )
+            config.database_url = (
+                "postgresql+asyncpg://devcloud:"
+                f"{quote(password, safe='')}@devcloud-postgresql/devcloud"
+            )
             return
         pg_version = self.host_path("/var/lib/pgsql/data/PG_VERSION")
         if self.runner.dry_run or not pg_version.is_file():
@@ -790,6 +850,10 @@ class InstallerEngine:
             owned.append(config.workspace_root)
         if config.installs_controller:
             owned.append(config.downloads_root)
+        if config.containerized_controller:
+            owned.append("/var/lib/devcloud/ingress")
+            if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+                owned.append("/var/lib/devcloud/postgresql")
         if self.runner.dry_run:
             for value in owned:
                 self.runner.run(
@@ -818,6 +882,23 @@ class InstallerEngine:
         etc_dir.mkdir(parents=True, exist_ok=True)
         if not self.runner.dry_run:
             os.chmod(etc_dir, 0o750)
+        if config.containerized_controller:
+            controller_owned = [
+                "/var/lib/devcloud/database",
+                "/var/lib/devcloud/download-builds",
+                "/var/lib/devcloud/ingress",
+                config.downloads_root,
+            ]
+            for value in controller_owned:
+                self.runner.run(["chown", "10001:10001", str(self.host_path(value))])
+            if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+                self.runner.run(
+                    [
+                        "chown",
+                        "26:26",
+                        str(self.host_path("/var/lib/devcloud/postgresql")),
+                    ]
+                )
 
     def _install_release(self, config: InstallConfig) -> None:
         target = self.host_path(config.releases_root) / self.release_id
@@ -890,6 +971,8 @@ class InstallerEngine:
         os.replace(temporary, current)
 
     def _install_python_dependencies(self, config: InstallConfig) -> None:
+        if config.containerized_controller and not config.installs_worker:
+            return
         release = self.host_path(config.releases_root) / self.release_id
         venv = release / ".venv"
         if not (venv / "bin" / "python").exists():
@@ -973,6 +1056,22 @@ class InstallerEngine:
 
         if config.installs_controller:
             existing = self._read_env(controller_env_path)
+            if (
+                config.containerized_controller
+                and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+                and not config.database_url
+            ):
+                postgresql = self._read_env(etc_dir / "postgresql.env")
+                password = postgresql.get("POSTGRESQL_PASSWORD", "")
+                if not password:
+                    raise InstallerError(
+                        "Managed PostgreSQL credentials are missing from "
+                        "/etc/devcloud/postgresql.env"
+                    )
+                config.database_url = (
+                    "postgresql+asyncpg://devcloud:"
+                    f"{quote(password, safe='')}@devcloud-postgresql/devcloud"
+                )
             secret_key = existing.get("SECRET_KEY", "") or secrets.token_urlsafe(48)
             admin_password = (
                 existing.get("ADMIN_PASSWORD", "")
@@ -1008,6 +1107,13 @@ class InstallerEngine:
                 "DEVCLOUD_REGISTRY_MODE": config.registry_mode.value,
                 "DEVCLOUD_REGISTRY_URL": config.registry_url,
             }
+            if config.containerized_controller:
+                controller_values.update(
+                    {
+                        "UPDATES_ENABLED": "False",
+                        "DOWNLOAD_UPDATES_ENABLED": "False",
+                    }
+                )
             if local_worker_id:
                 controller_values.update(
                     {
@@ -1072,6 +1178,10 @@ class InstallerEngine:
     def _run_migrations(self, config: InstallConfig) -> None:
         if not config.installs_controller:
             return
+        if config.containerized_controller:
+            # The immutable image applies migrations immediately before
+            # Uvicorn starts, against the same network and credentials.
+            return
         release = self.host_path(config.install_root) / "current"
         python = release / ".venv" / "bin" / "python"
         controller_env = self._read_env(
@@ -1093,16 +1203,76 @@ class InstallerEngine:
         )
         self.migration_applied = True
 
+    def _controller_image(self) -> str:
+        return f"localhost/devcloud-controller:{self.release_version}"
+
+    @staticmethod
+    def _postgresql_image() -> str:
+        return "registry.redhat.io/rhel10/postgresql-16:latest"
+
+    def _prepare_controller_images(self, config: InstallConfig) -> None:
+        if not config.containerized_controller:
+            return
+        image_root = (
+            self.host_path(config.install_root)
+            / "current"
+            / "offline"
+            / "controller-images"
+        )
+        archives = sorted(image_root.glob("*.tar")) if image_root.is_dir() else []
+        if archives:
+            for archive in archives:
+                self.runner.run(["podman", "load", "-i", str(archive)])
+        else:
+            controller_image = self._controller_image()
+            exists = self.runner.run(
+                ["podman", "image", "exists", controller_image],
+                check=False,
+            )
+            if exists.returncode != 0 or self.runner.dry_run:
+                build_script = (
+                    self.host_path(config.install_root)
+                    / "current"
+                    / "deploy"
+                    / "container"
+                    / "build-controller-image.sh"
+                )
+                self.runner.run(
+                    ["bash", str(build_script)],
+                    env={"DEVCLOUD_CONTROLLER_IMAGE": controller_image},
+                )
+        required = [self._controller_image()]
+        if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+            required.append(self._postgresql_image())
+        for image in required:
+            result = self.runner.run(
+                ["podman", "image", "exists", image],
+                check=False,
+            )
+            if result.returncode == 0 and not self.runner.dry_run:
+                continue
+            if image == self._postgresql_image() and not archives:
+                self.runner.run(["podman", "pull", image])
+                continue
+            if not self.runner.dry_run:
+                raise InstallerError(
+                    f"Required controller container image is missing: {image}"
+                )
+
     def _install_services(self, config: InstallConfig) -> None:
         release = self.host_path(config.install_root) / "current"
         systemd_dir = self.host_path("/etc/systemd/system")
         if not self.runner.dry_run:
             systemd_dir.mkdir(parents=True, exist_ok=True)
-        units: list[tuple[str, str]] = [
-            ("devcloud-update.service", "devcloud-update.service"),
-            ("devcloud-update.path", "devcloud-update.path"),
-        ]
-        if config.installs_controller:
+        units: list[tuple[str, str]] = []
+        if not config.containerized_controller or config.installs_worker:
+            units.extend(
+                [
+                    ("devcloud-update.service", "devcloud-update.service"),
+                    ("devcloud-update.path", "devcloud-update.path"),
+                ]
+            )
+        if config.installs_controller and not config.containerized_controller:
             units.append(("devcloud.service", "devcloud-controller.service"))
         if config.installs_worker:
             units.append(("devcloud-worker.service", "devcloud-worker.service"))
@@ -1129,6 +1299,49 @@ class InstallerEngine:
                     rendered.encode("utf-8"),
                     0o644,
                 )
+        if config.containerized_controller:
+            quadlet_dir = self.host_path("/etc/containers/systemd")
+            if not self.runner.dry_run:
+                quadlet_dir.mkdir(parents=True, exist_ok=True)
+            quadlets = [
+                ("devcloud.network", "devcloud.network"),
+                ("devcloud-controller.container", "devcloud-controller.container"),
+            ]
+            if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+                quadlets.append(
+                    ("devcloud-postgresql.container", "devcloud-postgresql.container")
+                )
+            for source_name, target_name in quadlets:
+                source = (
+                    self.project_root
+                    / "deploy"
+                    / "container"
+                    / "quadlet"
+                    / source_name
+                )
+                rendered = source.read_text(encoding="utf-8")
+                rendered = rendered.replace(
+                    "{{CONTROLLER_IMAGE}}", self._controller_image()
+                ).replace("{{POSTGRES_IMAGE}}", self._postgresql_image())
+                dependencies = (
+                    "After=devcloud-postgresql.service\n"
+                    "Requires=devcloud-postgresql.service"
+                    if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+                    else ""
+                )
+                rendered = rendered.replace(
+                    "{{DATABASE_DEPENDENCIES}}", dependencies
+                )
+                if self.runner.dry_run:
+                    self.runner.run(
+                        ["install", "-m", "0644", str(source), str(quadlet_dir / target_name)]
+                    )
+                else:
+                    self._atomic_write(
+                        quadlet_dir / target_name,
+                        rendered.encode("utf-8"),
+                        0o644,
+                    )
         self.runner.run(["systemctl", "daemon-reload"])
 
     def _configure_worker_storage(self, config: InstallConfig) -> None:
@@ -1200,12 +1413,21 @@ class InstallerEngine:
         if not config.installs_controller:
             return
         script = self.host_path(config.install_root) / "current" / "deploy" / "install_ingress.sh"
-        self.runner.run(["bash", str(script), config.service_user])
+        owner = "10001" if config.containerized_controller else config.service_user
+        self.runner.run(["bash", str(script), owner])
 
     def _start_services(self, config: InstallConfig) -> None:
-        self.runner.run(
-            ["systemctl", "enable", "--now", "devcloud-update.path"]
-        )
+        if not config.containerized_controller or config.installs_worker:
+            self.runner.run(
+                ["systemctl", "enable", "--now", "devcloud-update.path"]
+            )
+        if (
+            config.containerized_controller
+            and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+        ):
+            self.runner.run(
+                ["systemctl", "enable", "--now", "devcloud-postgresql.service"]
+            )
         if config.installs_controller:
             self.runner.run(
                 ["systemctl", "enable", "--now", "devcloud-controller.service"]
@@ -1217,9 +1439,20 @@ class InstallerEngine:
         self._verify_services(config)
 
     def _restart_services(self, config: InstallConfig) -> None:
-        self.runner.run(
-            ["systemctl", "enable", "--now", "devcloud-update.path"]
-        )
+        if not config.containerized_controller or config.installs_worker:
+            self.runner.run(
+                ["systemctl", "enable", "--now", "devcloud-update.path"]
+            )
+        if (
+            config.containerized_controller
+            and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+        ):
+            self.runner.run(
+                ["systemctl", "enable", "devcloud-postgresql.service"]
+            )
+            self.runner.run(
+                ["systemctl", "restart", "devcloud-postgresql.service"]
+            )
         if config.installs_controller:
             self.runner.run(["systemctl", "enable", "devcloud-controller.service"])
             self.runner.run(["systemctl", "restart", "devcloud-controller.service"])
@@ -1229,13 +1462,41 @@ class InstallerEngine:
         self._verify_services(config)
 
     def _verify_services(self, config: InstallConfig) -> None:
-        names = ["devcloud-update.path"]
+        names = []
+        if not config.containerized_controller or config.installs_worker:
+            names.append("devcloud-update.path")
+        if (
+            config.containerized_controller
+            and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+        ):
+            names.append("devcloud-postgresql.service")
         if config.installs_controller:
             names.append("devcloud-controller.service")
         if config.installs_worker:
             names.append("devcloud-worker.service")
         for name in names:
             self.runner.run(["systemctl", "is-active", "--quiet", name])
+        if config.containerized_controller:
+            attempts = 1 if self.runner.dry_run else 45
+            for attempt in range(attempts):
+                health = self.runner.run(
+                    ["podman", "healthcheck", "run", "devcloud-controller"],
+                    capture_output=True,
+                    check=False,
+                )
+                if health.returncode == 0:
+                    break
+                if attempt + 1 == attempts:
+                    logs = self.runner.run(
+                        ["podman", "logs", "--tail", "100", "devcloud-controller"],
+                        capture_output=True,
+                        check=False,
+                    )
+                    raise InstallerError(
+                        "Controller container did not become ready. "
+                        + (logs.stdout.strip() or logs.stderr.strip())
+                    )
+                time.sleep(2)
         if config.installs_worker:
             release = self.host_path(config.install_root) / "current"
             worker_env = self._read_env(
@@ -1251,18 +1512,33 @@ class InstallerEngine:
                 env=worker_env,
             )
 
-    def _stop_services(self, config: InstallConfig) -> None:
-        names = ["devcloud-update.path", "devcloud-update.service"]
+    def _stop_services(
+        self,
+        config: InstallConfig,
+        *,
+        include_database: bool = False,
+    ) -> None:
+        names = []
+        if not config.containerized_controller or config.installs_worker:
+            names.extend(["devcloud-update.path", "devcloud-update.service"])
         if config.installs_worker:
             names.append("devcloud-worker.service")
         if config.installs_controller:
             names.append("devcloud-controller.service")
+        if (
+            include_database
+            and config.containerized_controller
+            and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+        ):
+            names.append("devcloud-postgresql.service")
         for name in names:
             self.runner.run(["systemctl", "disable", "--now", name])
 
     def _remove_service_units(self, config: InstallConfig) -> None:
         systemd_dir = self.host_path("/etc/systemd/system")
-        names = ["devcloud-update.service", "devcloud-update.path"]
+        names = []
+        if not config.containerized_controller or config.installs_worker:
+            names.extend(["devcloud-update.service", "devcloud-update.path"])
         if config.installs_controller:
             names.append("devcloud-controller.service")
         if config.installs_worker:
@@ -1270,6 +1546,15 @@ class InstallerEngine:
         for name in names:
             if not self.runner.dry_run:
                 (systemd_dir / name).unlink(missing_ok=True)
+        if config.containerized_controller:
+            quadlet_dir = self.host_path("/etc/containers/systemd")
+            for name in (
+                "devcloud.network",
+                "devcloud-controller.container",
+                "devcloud-postgresql.container",
+            ):
+                if not self.runner.dry_run:
+                    (quadlet_dir / name).unlink(missing_ok=True)
         self.runner.run(["systemctl", "daemon-reload"])
 
     def _remove_active_release(self, config: InstallConfig) -> None:
@@ -1299,6 +1584,10 @@ class InstallerEngine:
                     self.host_path("/var/lib/devcloud/download-builds"),
                 }
             )
+            if config.containerized_controller:
+                targets.add(self.host_path("/var/lib/devcloud/ingress"))
+                if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+                    targets.add(self.host_path("/var/lib/devcloud/postgresql"))
         root = self.filesystem_root.resolve()
         for target in targets:
             resolved = target.resolve()

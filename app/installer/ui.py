@@ -5,6 +5,7 @@ import sys
 from collections.abc import Callable
 
 from app.installer.models import (
+    ControllerRuntime,
     DatabaseMode,
     DeploymentRole,
     InstallConfig,
@@ -74,6 +75,22 @@ class InstallerUI:
         config = InstallConfig(role=role)
 
         if config.installs_controller:
+            config.controller_runtime = ControllerRuntime(
+                self.choose(
+                    "Controller runtime",
+                    [
+                        (
+                            ControllerRuntime.CONTAINER.value,
+                            "Podman container with Quadlet",
+                        ),
+                        (
+                            ControllerRuntime.NATIVE.value,
+                            "Native Python systemd service",
+                        ),
+                    ],
+                    default=1,
+                )
+            )
             config.public_url = self.ask(
                 "Public controller URL", "http://127.0.0.1"
             ).rstrip("/")

@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.auth.internal import hash_password
 from app.config import settings
@@ -114,6 +114,20 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
 )
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthcheck():
+    """Process liveness endpoint for systemd and OCI health checks."""
+    return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.get("/readyz", include_in_schema=False)
+async def readiness_check():
+    """Readiness requires the controller to reach its configured database."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("SELECT 1"))
+    return {"status": "ready", "version": settings.APP_VERSION}
 
 # CORS middleware
 app.add_middleware(

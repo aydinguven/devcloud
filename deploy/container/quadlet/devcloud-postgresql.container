@@ -1,0 +1,27 @@
+[Unit]
+Description=DevCloud managed PostgreSQL container
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{POSTGRES_IMAGE}}
+ContainerName=devcloud-postgresql
+Pull=never
+Network=devcloud.network
+EnvironmentFile=/etc/devcloud/postgresql.env
+Volume=/var/lib/devcloud/postgresql:/var/lib/pgsql/data:Z
+HealthCmd=/usr/bin/pg_isready -U devcloud -d devcloud
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=5
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+
