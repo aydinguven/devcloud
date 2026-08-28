@@ -118,6 +118,12 @@ compatibility; otherwise it falls back to the standard gzip writer. Previously
 published plain `.tar` bundles remain downloadable and the worker bootstrap can
 still extract them during the transition.
 
+For an already extracted bundle that needs only installer/RPM-repository fixes,
+`deploy/package_offline_patch.py` can build a role-specific delta ZIP from the
+original archive. The generated `apply-patch.sh` verifies its payload, preserves
+the old RPM directory as a backup, and leaves wheels and container images in
+place.
+
 If the five local image tags are already known-good, add
 `--skip-image-build`; missing tags still make packaging fail.
 
