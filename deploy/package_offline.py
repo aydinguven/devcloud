@@ -42,6 +42,7 @@ LINUX_PLATFORMS = (
 CONTAINER_PLATFORM = "linux/amd64"
 SUPPORTED_SYSTEM_PACKAGE_TARGETS = ("rocky", "rhel")
 SUPPORTED_SYSTEM_PACKAGE_MAJOR = "10"
+SYSTEM_REPOSITORY_PACKAGES_FILE = "REQUESTED_PACKAGES"
 COMMON_SYSTEM_PACKAGES = (
     "gnupg2",
     "python3",
@@ -58,6 +59,7 @@ WORKER_SYSTEM_PACKAGES = (
 CONTROLLER_SYSTEM_PACKAGES = (
     "nginx",
     "curl",
+    "createrepo_c",
     "postgresql-server",
     "postgresql",
 )
@@ -324,6 +326,7 @@ def download_system_rpms(
     *,
     bundle_role: str = "server",
     dnf_bin: str = "dnf",
+    createrepo_bin: str = "createrepo_c",
     os_release_path: Path = Path("/etc/os-release"),
     system_name: str | None = None,
     machine: str | None = None,
@@ -367,11 +370,26 @@ def download_system_rpms(
         raise PackageError(
             "The system RPM set is missing requested packages: " + ", ".join(missing)
         )
+    requested_packages_path = destination / SYSTEM_REPOSITORY_PACKAGES_FILE
+    requested_packages_path.write_text(
+        "".join(f"{package}\n" for package in packages),
+        encoding="ascii",
+    )
+    print(f"Creating the offline DNF repository for {profile['profile']}...")
+    run([createrepo_bin, "--no-database", str(destination)])
+    repository_metadata = destination / "repodata" / "repomd.xml"
+    if not repository_metadata.is_file():
+        raise PackageError(
+            "createrepo completed without producing repodata/repomd.xml"
+        )
+    repository_files = sorted(
+        path for path in destination.rglob("*") if path.is_file()
+    )
     checksum_path = system_rpms_root / "SHA256SUMS"
     checksum_path.write_text(
         "".join(
             f"{sha256_file(path)}  {path.relative_to(system_rpms_root).as_posix()}\n"
-            for path in rpms
+            for path in repository_files
         ),
         encoding="ascii",
     )
@@ -442,14 +460,30 @@ def write_manifest(
         raise PackageError(f"Image archive set is incomplete; missing={missing}, extra={extra}")
 
     requirements = bundle_root / "requirements.txt"
-    system_rpms = sorted((bundle_root / "offline" / "system-rpms").rglob("*.rpm"))
-    system_rpm_checksums = bundle_root / "offline" / "system-rpms" / "SHA256SUMS"
+    system_rpm_root = bundle_root / "offline" / "system-rpms"
+    system_rpms = sorted(system_rpm_root.rglob("*.rpm"))
+    system_rpm_checksums = system_rpm_root / "SHA256SUMS"
+    system_rpm_metadata = sorted(
+        path
+        for path in system_rpm_root.rglob("*")
+        if path.is_file()
+        and path != system_rpm_checksums
+        and path.suffix.lower() != ".rpm"
+    )
     if system_package_profile and not system_rpms:
         raise PackageError("The system package profile has no RPM artifacts")
     if system_rpms and not system_package_profile:
         raise PackageError("System RPM artifacts require a target profile")
     if system_package_profile and not system_rpm_checksums.is_file():
         raise PackageError("The system RPM checksum index is missing")
+    if system_package_profile:
+        profile_root = system_rpm_root / str(system_package_profile["profile"])
+        required_metadata = {
+            profile_root / SYSTEM_REPOSITORY_PACKAGES_FILE,
+            profile_root / "repodata" / "repomd.xml",
+        }
+        if not required_metadata.issubset(system_rpm_metadata):
+            raise PackageError("The offline DNF repository metadata is incomplete")
     target = {
         "os": "linux",
         "architecture": "x86_64",
@@ -469,6 +503,10 @@ def write_manifest(
             *(artifact_record(bundle_root, path, "python-wheel") for path in wheels),
             *(artifact_record(bundle_root, path, "container-image") for path in images),
             *(artifact_record(bundle_root, path, "system-rpm") for path in system_rpms),
+            *(
+                artifact_record(bundle_root, path, "system-rpm-repository-metadata")
+                for path in system_rpm_metadata
+            ),
             *(
                 [artifact_record(bundle_root, system_rpm_checksums, "system-rpm-checksums")]
                 if system_package_profile
@@ -595,6 +633,7 @@ def verify_staged_bundle(
     image_paths: set[str] = set()
     wheel_paths: set[str] = set()
     system_rpm_paths: set[str] = set()
+    system_rpm_metadata_paths: set[str] = set()
     system_rpm_checksum_paths: set[str] = set()
     for record in artifacts:
         if not isinstance(record, dict):
@@ -619,6 +658,8 @@ def verify_staged_bundle(
             wheel_paths.add(raw_path)
         elif record.get("kind") == "system-rpm":
             system_rpm_paths.add(raw_path)
+        elif record.get("kind") == "system-rpm-repository-metadata":
+            system_rpm_metadata_paths.add(raw_path)
         elif record.get("kind") == "system-rpm-checksums":
             system_rpm_checksum_paths.add(raw_path)
         else:
@@ -642,12 +683,25 @@ def verify_staged_bundle(
         path.relative_to(bundle_root).as_posix()
         for path in (bundle_root / "offline" / "system-rpms").rglob("*.rpm")
     }
+    system_rpm_root = bundle_root / "offline" / "system-rpms"
+    system_rpm_checksum_path = system_rpm_root / "SHA256SUMS"
+    actual_system_rpm_metadata = {
+        path.relative_to(bundle_root).as_posix()
+        for path in system_rpm_root.rglob("*")
+        if path.is_file()
+        and path != system_rpm_checksum_path
+        and path.suffix.lower() != ".rpm"
+    }
     if actual_images != image_paths:
         raise PackageError("The image directory contains unlisted or missing artifacts")
     if actual_wheels != wheel_paths:
         raise PackageError("The wheel directory contains unlisted or missing artifacts")
     if actual_system_rpms != system_rpm_paths:
         raise PackageError("The system RPM directory contains unlisted or missing artifacts")
+    if actual_system_rpm_metadata != system_rpm_metadata_paths:
+        raise PackageError(
+            "The system RPM repository contains unlisted or missing metadata"
+        )
     if system_packages:
         expected_prefix = f"offline/system-rpms/{system_packages['profile']}/"
         if not system_rpm_paths or not all(
@@ -656,10 +710,16 @@ def verify_staged_bundle(
             raise PackageError("The manifest system RPM set does not match its target profile")
         if system_rpm_checksum_paths != {"offline/system-rpms/SHA256SUMS"}:
             raise PackageError("The manifest system RPM checksum index is missing")
+        required_metadata_paths = {
+            f"{expected_prefix}{SYSTEM_REPOSITORY_PACKAGES_FILE}",
+            f"{expected_prefix}repodata/repomd.xml",
+        }
+        if not required_metadata_paths.issubset(system_rpm_metadata_paths):
+            raise PackageError("The manifest offline DNF repository is incomplete")
     elif system_rpm_paths:
         raise PackageError("The manifest lists system RPMs without a target profile")
-    elif system_rpm_checksum_paths:
-        raise PackageError("The manifest lists an RPM checksum index without RPMs")
+    elif system_rpm_checksum_paths or system_rpm_metadata_paths:
+        raise PackageError("The manifest lists an RPM repository without RPMs")
     return manifest
 
 
@@ -765,6 +825,7 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
                 system_rpms_dir,
                 bundle_role=bundle_role,
                 dnf_bin=args.dnf_bin,
+                createrepo_bin=args.createrepo_bin,
             )
         export_images(
             root_dir,
@@ -832,6 +893,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dnf-bin",
         default=os.getenv("DNF_BIN", "dnf"),
         help="DNF executable used to collect Rocky/RHEL RPMs (default: DNF_BIN or dnf)",
+    )
+    parser.add_argument(
+        "--createrepo-bin",
+        default=os.getenv("CREATEREPO_BIN", "createrepo_c"),
+        help=(
+            "createrepo executable used to build the bundled local repository "
+            "(default: CREATEREPO_BIN or createrepo_c)"
+        ),
     )
     parser.add_argument(
         "--skip-system-rpms",

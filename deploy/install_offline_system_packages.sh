@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the Rocky/RHEL bootstrap RPM closure embedded in an air-gap bundle.
+# Install operating-system prerequisites from the air-gap bundle's local DNF repository.
 set -Eeuo pipefail
 
 log() {
@@ -11,13 +11,15 @@ fail() {
     exit 1
 }
 
-dnf_disable_repositories_option() {
+configure_dnf_repository_options() {
     local help_text
     help_text="$(dnf --help 2>&1)" || fail "Could not inspect the installed DNF command."
     if [[ "${help_text}" == *"--disable-repo"* ]]; then
-        printf '%s\n' "--disable-repo=*"
+        DNF_DISABLE_REPOSITORIES="--disable-repo=*"
+        DNF_ENABLE_REPOSITORY="--enable-repo=devcloud-offline"
     elif [[ "${help_text}" == *"--disablerepo"* ]]; then
-        printf '%s\n' "--disablerepo=*"
+        DNF_DISABLE_REPOSITORIES="--disablerepo=*"
+        DNF_ENABLE_REPOSITORY="--enablerepo=devcloud-offline"
     else
         fail "The installed DNF command has no supported repository-disable option."
     fi
@@ -56,16 +58,30 @@ RPM_DIR="${RPM_ROOT}/${PROFILE}"
 command -v dnf >/dev/null 2>&1 || fail "DNF is required to install the bundled RPM transaction."
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required to verify bundled RPMs."
 [[ -f "${RPM_ROOT}/SHA256SUMS" ]] || fail "The system RPM checksum index is missing."
+REQUESTED_PACKAGES_FILE="${RPM_DIR}/REQUESTED_PACKAGES"
+[[ -f "${REQUESTED_PACKAGES_FILE}" ]] || fail \
+    "The ${PROFILE} requested-package list is missing."
+[[ -f "${RPM_DIR}/repodata/repomd.xml" ]] || fail \
+    "The ${PROFILE} DNF repository metadata is missing."
 
 log "Verifying bundled system RPM checksums..."
 (cd "${RPM_ROOT}" && sha256sum -c SHA256SUMS)
 
-mapfile -d '' RPM_FILES < <(find "${RPM_DIR}" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z)
-[[ "${#RPM_FILES[@]}" -gt 0 ]] || fail "The ${PROFILE} RPM profile is empty."
+mapfile -t REQUESTED_PACKAGES < <(sed '/^[[:space:]]*$/d' "${REQUESTED_PACKAGES_FILE}")
+[[ "${#REQUESTED_PACKAGES[@]}" -gt 0 ]] || fail \
+    "The ${PROFILE} requested-package list is empty."
+for package in "${REQUESTED_PACKAGES[@]}"; do
+    [[ "${package}" =~ ^[A-Za-z0-9_.+:-]+$ ]] || fail \
+        "The requested-package list contains an invalid package name."
+done
 
-log "Installing ${#RPM_FILES[@]} verified RPMs from ${PROFILE} without network repositories..."
-DNF_DISABLE_REPOSITORIES="$(dnf_disable_repositories_option)"
-dnf "${DNF_DISABLE_REPOSITORIES}" install -y "${RPM_FILES[@]}"
+log "Installing ${#REQUESTED_PACKAGES[@]} package groups from the verified ${PROFILE} repository..."
+configure_dnf_repository_options
+dnf \
+    "${DNF_DISABLE_REPOSITORIES}" \
+    "--repofrompath=devcloud-offline,file://${RPM_DIR}" \
+    "${DNF_ENABLE_REPOSITORY}" \
+    install -y "${REQUESTED_PACKAGES[@]}"
 
 command -v python3 >/dev/null 2>&1 || fail "Bundled RPM installation did not provide python3."
 command -v podman >/dev/null 2>&1 || fail "Bundled RPM installation did not provide Podman."

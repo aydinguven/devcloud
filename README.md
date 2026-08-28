@@ -256,7 +256,7 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 ## Air-Gapped / Offline Installation
 
 DevCloud supports installation on isolated Rocky Linux 10.x and RHEL 10.x
-x86_64 VMs. New bundles include the complete distribution-matched RPM closure
+x86_64 VMs. New bundles include a complete distribution-matched local DNF repository
 for Python, Podman, `crun`, Nginx, SELinux tooling, and
 `subscription-manager`. The Rocky and RHEL RPM closures remain
 distribution-specific.
@@ -266,9 +266,11 @@ The base VM still needs DNF, systemd, `sudo`, `tar`, and `sha256sum`.
 Commit the source first, then run the fail-fast packager on an
 internet-connected Rocky 10 or RHEL 10 machine matching the target distribution.
 Its enabled DNF repositories must be reachable; a RHEL builder must have access
-to the entitled RHEL repositories. Select the target CPython major/minor:
+to the entitled RHEL repositories. Install `createrepo_c` on the builder, then
+select the target CPython major/minor:
 
 ```bash
+sudo dnf install -y createrepo_c
 git status
 python3 deploy/package_offline.py --python-version 3.12
 ```
@@ -294,8 +296,9 @@ cd devcloud
 sudo bash deploy/deploy_offline.sh
 ```
 
-The installer verifies and installs the bundled system RPMs without enabling
-network repositories, then verifies the full manifest and completes setup.
+The installer verifies the bundled RPMs and repository metadata, disables every
+configured network repository, and installs only from the bundle's `file://`
+DNF repository. It then verifies the full manifest and completes setup.
 Installing `subscription-manager` does not register the host automatically;
 Rocky nodes can subsequently be registered to Foreman/Katello using your normal
 organization and activation-key workflow.

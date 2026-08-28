@@ -591,9 +591,25 @@ class InstallerEngine:
             "The installed DNF command has no supported repository-disable option."
         )
 
-    def _install_offline_rpms(self, rpms: list[Path]) -> None:
+    @staticmethod
+    def _dnf_enable_repository_option(help_text: str, repository_id: str) -> str:
+        if "--enable-repo" in help_text:
+            return f"--enable-repo={repository_id}"
+        if "--enablerepo" in help_text:
+            return f"--enablerepo={repository_id}"
+        raise InstallerError(
+            "The installed DNF command has no supported repository-enable option."
+        )
+
+    def _install_offline_packages(
+        self,
+        repository_root: Path,
+        packages: set[str],
+    ) -> None:
+        repository_id = "devcloud-offline"
         if self.runner.dry_run:
             disable_option = "--disablerepo=*"
+            enable_option = f"--enablerepo={repository_id}"
         else:
             help_result = self.runner.run(
                 ["dnf", "--help"],
@@ -603,13 +619,19 @@ class InstallerEngine:
             disable_option = self._dnf_disable_repositories_option(
                 f"{help_result.stdout}\n{help_result.stderr}"
             )
+            enable_option = self._dnf_enable_repository_option(
+                f"{help_result.stdout}\n{help_result.stderr}",
+                repository_id,
+            )
         self.runner.run(
             [
                 "dnf",
                 disable_option,
+                f"--repofrompath={repository_id},{repository_root.resolve().as_uri()}",
+                enable_option,
                 "install",
                 "-y",
-                *[str(path) for path in rpms],
+                *sorted(packages),
             ]
         )
 
@@ -622,7 +644,7 @@ class InstallerEngine:
             "subscription-manager",
         }
         if config.installs_controller:
-            packages.update({"nginx", "curl"})
+            packages.update({"nginx", "curl", "createrepo_c"})
         if config.installs_worker:
             packages.update({"podman", "crun", "tar", "gzip"})
         if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
@@ -637,12 +659,12 @@ class InstallerEngine:
             profile = detect_platform(self.host_path("/etc/os-release")).profile
             rpm_root = self.project_root / "offline" / "system-rpms" / profile
             rpms = sorted(rpm_root.glob("*.rpm")) if rpm_root.is_dir() else []
-            if not rpms:
+            if not rpms or not (rpm_root / "repodata" / "repomd.xml").is_file():
                 raise InstallerError(
                     "This release is marked as an offline bundle but has no "
-                    f"RPM closure for {profile}"
+                    f"complete RPM repository for {profile}"
                 )
-            self._install_offline_rpms(rpms)
+            self._install_offline_packages(rpm_root, packages)
             return
 
         result = self.runner.run(
@@ -654,12 +676,12 @@ class InstallerEngine:
         profile = detect_platform(self.host_path("/etc/os-release")).profile
         rpm_root = self.project_root / "offline" / "system-rpms" / profile
         rpms = sorted(rpm_root.glob("*.rpm")) if rpm_root.is_dir() else []
-        if not rpms:
+        if not rpms or not (rpm_root / "repodata" / "repomd.xml").is_file():
             raise InstallerError(
                 "DNF repositories could not install required packages and the "
-                f"release has no offline RPM closure for {profile}"
+                f"release has no complete offline RPM repository for {profile}"
             )
-        self._install_offline_rpms(rpms)
+        self._install_offline_packages(rpm_root, packages)
 
     def _configure_database(self, config: InstallConfig) -> None:
         if (

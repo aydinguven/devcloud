@@ -13,7 +13,7 @@ from a specific Git commit. The server bundle supports both Controller and
 All-in-one installation, including SQLite, bundled PostgreSQL, and external
 PostgreSQL choices. Each bundle contains the required DevCloud source, Python
 wheels, all five workspace container images, a role-specific and
-distribution-matched operating-system RPM closure, an artifact manifest, and
+distribution-matched local operating-system DNF repository, an artifact manifest, and
 SHA-256 checksums.
 
 Generated bundles are intentionally excluded from normal Git history. Commit
@@ -58,11 +58,15 @@ Do not use `git add -f` on generated wheels, image archives, or `dist/`.
 ## 3. Build the bundle on a connected machine
 
 The machine needs Rocky Linux 10.x or RHEL 10.x, Git, Python/pip, Podman, DNF's
-`download` command, internet access to Python/package/container repositories,
+`download` command, `createrepo_c`, internet access to Python/package/container repositories,
 and enough free disk space for all images and RPMs twice. RHEL package builders
 must have access to entitled BaseOS/AppStream repositories. Install `pigz` on
 the builder to compress with multiple CPU cores; packaging still works with a
 slower single-threaded gzip fallback when `pigz` is unavailable.
+
+```bash
+sudo dnf install -y createrepo_c
+```
 
 ```bash
 git pull --ff-only
@@ -95,9 +99,10 @@ The builder:
 4. downloads the complete role-specific Rocky/RHEL system RPM dependency
    closure, including every package used by the interactive installer and all
    server database choices;
-5. rebuilds and exports all five Linux/amd64 Podman images;
-6. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
-7. verifies the stage and creates these ignored files:
+5. creates local DNF repository metadata and checksums it with the RPM payload;
+6. rebuilds and exports all five Linux/amd64 Podman images;
+7. writes `offline/MANIFEST.json` with artifact sizes and SHA-256 hashes;
+8. verifies the stage and creates these ignored files:
 
 ```text
 dist/devcloud-offline-v<version>-<YYYYMMDD>-<commit>.tar.gz
@@ -189,8 +194,9 @@ sudo bash deploy/devcloud-setup.sh
 ```
 
 The unified installer detects the manifest before any repository operation,
-verifies `offline/system-rpms/SHA256SUMS`, and installs the local RPM
-transaction with every DNF repository disabled. Once Python is available, it
+verifies `offline/system-rpms/SHA256SUMS`, disables every configured DNF
+repository, enables only the bundle's `file://` repository, and installs the
+requested package names through DNF's normal dependency solver. Once Python is available, it
 verifies every artifact in the manifest before showing the role and database
 questions. Python dependencies are installed with `--no-index`; worker roles
 load the five verified container archives instead of building or pulling

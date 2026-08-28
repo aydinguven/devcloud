@@ -14,7 +14,7 @@ if command -v apt-get >/dev/null 2>&1; then
     fi
 elif command -v dnf >/dev/null 2>&1; then
     echo "Installing Podman & Python via DNF..."
-    sudo dnf install -y podman crun python3 python3-pip git curl nginx policycoreutils-python-utils selinux-policy-targeted
+    sudo dnf install -y podman crun python3 python3-pip git curl nginx createrepo_c policycoreutils-python-utils selinux-policy-targeted
     if ! sudo dnf install -y pigz; then
         echo "WARNING: pigz is unavailable; offline bundles will use slower single-threaded gzip."
     fi

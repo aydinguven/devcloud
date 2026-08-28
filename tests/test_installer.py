@@ -228,6 +228,11 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
     rpm_dir.mkdir(parents=True)
     rpm = rpm_dir / "complete-closure.rpm"
     rpm.write_bytes(b"rpm")
+    rpm_dir.joinpath("repodata").mkdir()
+    rpm_dir.joinpath("repodata/repomd.xml").write_text(
+        "<repomd/>\n",
+        encoding="utf-8",
+    )
 
     host = tmp_path / "host"
     host.joinpath("etc").mkdir(parents=True)
@@ -248,15 +253,16 @@ def test_offline_bundle_installs_local_rpm_closure_without_repo_attempt(
 
     engine._install_packages(config(DeploymentRole.ALL_IN_ONE))
 
-    assert runner.commands == [
-        [
-            "dnf",
-            "--disablerepo=*",
-            "install",
-            "-y",
-            str(rpm),
-        ]
-    ]
+    assert len(runner.commands) == 1
+    command = runner.commands[0]
+    assert command[:2] == ["dnf", "--disablerepo=*"]
+    assert command[2] == (
+        f"--repofrompath=devcloud-offline,{rpm_dir.resolve().as_uri()}"
+    )
+    assert command[3:6] == ["--enablerepo=devcloud-offline", "install", "-y"]
+    assert "podman" in command
+    assert "subscription-manager" in command
+    assert str(rpm) not in command
 
 
 def test_installer_supports_dnf4_and_dnf5_repository_disable_options():
@@ -274,6 +280,20 @@ def test_installer_supports_dnf4_and_dnf5_repository_disable_options():
     )
     with pytest.raises(InstallerError, match="no supported repository-disable"):
         InstallerEngine._dnf_disable_repositories_option("dnf help")
+    assert (
+        InstallerEngine._dnf_enable_repository_option(
+            "--enablerepo [repo] Temporarily enable repositories",
+            "offline",
+        )
+        == "--enablerepo=offline"
+    )
+    assert (
+        InstallerEngine._dnf_enable_repository_option(
+            "--enable-repo=REPO_ID Temporarily enable repositories",
+            "offline",
+        )
+        == "--enable-repo=offline"
+    )
 
 
 def test_external_postgresql_url_is_normalized_for_async_controller(tmp_path):

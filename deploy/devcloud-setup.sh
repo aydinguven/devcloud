@@ -51,8 +51,8 @@ OFFLINE_BUNDLE=0
 
 if [[ -f "${OFFLINE_MANIFEST}" ]]; then
     [[ -d "${SYSTEM_RPMS}" ]] || fail \
-        "The offline bundle has no system RPM closure for ${PROFILE}."
-    log "Offline bundle detected; verifying and installing bundled RPMs with all repositories disabled..."
+        "The offline bundle has no system RPM repository for ${PROFILE}."
+    log "Offline bundle detected; verifying and installing from its bundled DNF repository..."
     bash "${PROJECT_DIR}/deploy/install_offline_system_packages.sh" "${PROJECT_DIR}"
     OFFLINE_BUNDLE=1
     export DEVCLOUD_OFFLINE_INSTALL=1

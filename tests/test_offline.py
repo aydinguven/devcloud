@@ -169,12 +169,19 @@ def test_system_rpm_download_collects_dependency_closure_and_checksums(
 
     def fake_run(command, **_kwargs):
         commands.append(command)
-        destination = Path(command[command.index("--destdir") + 1])
-        destination.mkdir(parents=True, exist_ok=True)
-        for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
-            (destination / f"{package}-1-1.el10.x86_64.rpm").write_bytes(
-                package.encode()
-            )
+        if "--destdir" in command:
+            destination = Path(command[command.index("--destdir") + 1])
+            destination.mkdir(parents=True, exist_ok=True)
+            for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
+                (destination / f"{package}-1-1.el10.x86_64.rpm").write_bytes(
+                    package.encode()
+                )
+        else:
+            destination = Path(command[-1])
+            repodata = destination / "repodata"
+            repodata.mkdir(parents=True)
+            (repodata / "repomd.xml").write_text("<repomd/>\n", encoding="utf-8")
+            (repodata / "primary.xml.gz").write_bytes(b"metadata")
 
     monkeypatch.setattr(package_offline, "run", fake_run)
     rpm_root = tmp_path / "system-rpms"
@@ -193,8 +200,11 @@ def test_system_rpm_download_collects_dependency_closure_and_checksums(
     assert "subscription-manager" in command
     assert "postgresql-server" in command
     assert profile["profile"] == "rocky-10-x86_64"
+    assert commands[1][0:2] == ["createrepo_c", "--no-database"]
     checksum_index = (rpm_root / "SHA256SUMS").read_text(encoding="ascii")
     assert "rocky-10-x86_64/podman-1-1.el10.x86_64.rpm" in checksum_index
+    assert "rocky-10-x86_64/REQUESTED_PACKAGES" in checksum_index
+    assert "rocky-10-x86_64/repodata/repomd.xml" in checksum_index
 
 
 def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path):
@@ -212,6 +222,12 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
         (images_dir / f"{name}.tar").write_bytes(name.encode("utf-8"))
     for package in package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]:
         (rpm_dir / f"{package}-1-1.el10.x86_64.rpm").write_bytes(package.encode())
+    (rpm_dir / "REQUESTED_PACKAGES").write_text(
+        "\n".join(package_offline.SYSTEM_PACKAGES_BY_DISTRIBUTION["rocky"]) + "\n",
+        encoding="ascii",
+    )
+    (rpm_dir / "repodata").mkdir()
+    (rpm_dir / "repodata/repomd.xml").write_text("<repomd/>\n", encoding="utf-8")
     (rpm_root / "SHA256SUMS").write_text("checksums\n", encoding="ascii")
     profile = {
         "distribution_id": "rocky",
@@ -237,6 +253,10 @@ def test_manifest_verifies_system_rpm_profile_and_checksum_index(tmp_path: Path)
     assert any(record["kind"] == "system-rpm" for record in manifest["artifacts"])
     assert any(
         record["kind"] == "system-rpm-checksums"
+        for record in manifest["artifacts"]
+    )
+    assert any(
+        record["kind"] == "system-rpm-repository-metadata"
         for record in manifest["artifacts"]
     )
 
