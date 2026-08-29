@@ -37,7 +37,7 @@ def _publish_fake_release(tmp_path, monkeypatch):
     downloads = tmp_path / "downloads"
     releases = downloads / "releases"
     releases.mkdir(parents=True)
-    bundle = releases / "devcloud-platform-update-v3.4.1-abcdef123456.tar.gz"
+    bundle = releases / "devcloud-platform-update-v3.4.2-abcdef123456.tar.gz"
     bundle.write_bytes(b"authenticated-platform-release")
     monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(downloads))
     monkeypatch.setattr(settings, "DOWNLOAD_PUBLIC_BASE_URL", "")

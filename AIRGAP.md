@@ -281,7 +281,7 @@ Apply the signed bundle:
 
 ```bash
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.1-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.2-COMMIT.tar.gz
 ```
 
 The release is rejected unless its manifest signature chains to
