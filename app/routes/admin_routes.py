@@ -51,6 +51,8 @@ from app.schemas.workspace_image import (
     WorkspaceImageUpdate,
 )
 from app.config import settings
+from app.installer.platform import InstallerError
+from app.installer.update_source import validate_git_source
 from app.ingress_settings import (
     MAX_CERTIFICATE_BYTES,
     MAX_PRIVATE_KEY_BYTES,
@@ -110,22 +112,68 @@ def _worker_image_state(node: Node) -> list[dict]:
     return images if isinstance(images, list) else []
 
 
+def _worker_image_progress(node: Node) -> list[dict]:
+    try:
+        capabilities = json.loads(node.capabilities_json or "{}")
+    except ValueError:
+        return []
+    progress = (
+        capabilities.get("workspace_image_sync", [])
+        if isinstance(capabilities, dict)
+        else []
+    )
+    return progress if isinstance(progress, list) else []
+
+
 def _workspace_image_out(record: WorkspaceImage, nodes: list[Node]) -> WorkspaceImageOut:
-    synced = sum(
-        1
-        for node in nodes
-        if any(
+    workers = []
+    for node in nodes:
+        ready = any(
             isinstance(item, dict)
             and item.get("image_ref") == record.image_ref
             and item.get("sha256") == record.sha256
             for item in _worker_image_state(node)
         )
-    )
+        progress = next(
+            (
+                item
+                for item in _worker_image_progress(node)
+                if isinstance(item, dict) and item.get("id") == record.id
+            ),
+            {},
+        )
+        state = "ready" if ready else str(progress.get("state") or "pending")
+        if node.status == NodeStatus.OFFLINE and not ready:
+            state = "offline"
+        downloaded = int(
+            progress.get("downloaded_bytes") or (record.size if ready else 0)
+        )
+        total = int(progress.get("total_bytes") or record.size)
+        workers.append(
+            {
+                "node_id": node.id,
+                "node_name": node.name,
+                "state": state,
+                "downloaded_bytes": downloaded,
+                "total_bytes": total,
+                "percent": (
+                    100.0
+                    if ready
+                    else round(
+                        min(100.0, (downloaded / total * 100) if total else 0),
+                        1,
+                    )
+                ),
+                "error": str(progress.get("error") or "")[:500],
+            }
+        )
+    synced = sum(1 for item in workers if item["state"] == "ready")
     return WorkspaceImageOut.model_validate(
         {
             **{column.name: getattr(record, column.name) for column in record.__table__.columns},
             "synced_workers": synced,
             "total_workers": len(nodes),
+            "workers": workers,
         }
     )
 
@@ -1051,6 +1099,9 @@ async def get_system_update_info(
             "branch": "container",
             "status": "Container updates are managed by the host installer.",
             "version": settings.APP_VERSION,
+            "update_source_type": settings.UPDATE_SOURCE_TYPE,
+            "update_source": settings.UPDATE_SOURCE,
+            "update_ref": settings.UPDATE_REF,
         }
     try:
         commit = subprocess.check_output(
@@ -1070,6 +1121,9 @@ async def get_system_update_info(
             "branch": branch,
             "status": "Hazır",
             "version": settings.APP_VERSION,
+            "update_source_type": settings.UPDATE_SOURCE_TYPE,
+            "update_source": settings.UPDATE_SOURCE,
+            "update_ref": settings.UPDATE_REF,
         }
     except Exception as exc:
         return {
@@ -1077,6 +1131,9 @@ async def get_system_update_info(
             "branch": "unknown",
             "status": str(exc),
             "version": settings.APP_VERSION,
+            "update_source_type": settings.UPDATE_SOURCE_TYPE,
+            "update_source": settings.UPDATE_SOURCE,
+            "update_ref": settings.UPDATE_REF,
         }
 
 
@@ -1090,6 +1147,47 @@ async def get_release_upload_status(
     return _read_update_status()
 
 
+@admin_router.post("/system/release-source", status_code=status.HTTP_202_ACCEPTED)
+async def queue_git_release_update(
+    repository: Annotated[str, Form()],
+    ref: Annotated[str, Form()],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Queue a signed platform release selected through a Git channel file."""
+    if not settings.UPDATES_ENABLED:
+        raise HTTPException(status_code=503, detail="Release updates are disabled.")
+    try:
+        repository, ref = validate_git_source(repository, ref)
+    except InstallerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    root = _update_queue_root()
+    root.mkdir(parents=True, exist_ok=True)
+    if (root / "pending.json").exists() or (root / "running.json").exists():
+        raise HTTPException(
+            status_code=409,
+            detail="Another release update is already queued or running.",
+        )
+    request = {
+        "state": "queued",
+        "queued_at": datetime.now(timezone.utc).isoformat(),
+        "source_type": "git",
+        "repository": repository,
+        "ref": ref,
+        "filename": f"{repository}@{ref}",
+        "allow_unsigned": False,
+    }
+    marker_tmp = root / "pending.tmp"
+    marker_tmp.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+    os.chmod(marker_tmp, 0o600)
+    os.replace(marker_tmp, root / "pending.json")
+    return {
+        "state": "queued",
+        "source_type": "git",
+        "repository": repository,
+        "ref": ref,
+    }
+
+
 @admin_router.post(
     "/system/release-upload",
     status_code=status.HTTP_202_ACCEPTED,
@@ -1099,9 +1197,14 @@ async def upload_release_update(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     allow_unsigned: Annotated[bool, Form()] = False,
 ):
-    """Stage a signed release or explicitly approved source ZIP for systemd."""
+    """Stage a signed platform release for the root-owned systemd updater."""
     if not settings.UPDATES_ENABLED:
         raise HTTPException(status_code=503, detail="Release updates are disabled.")
+    if allow_unsigned and not settings.ALLOW_UNSIGNED_UPDATES:
+        raise HTTPException(
+            status_code=403,
+            detail="Unsigned platform updates are disabled on this controller.",
+        )
     filename = Path(release.filename or "").name
     if not filename.lower().endswith((".zip", ".tar", ".tar.gz", ".tgz")):
         raise HTTPException(
@@ -1142,6 +1245,7 @@ async def upload_release_update(
         request = {
             "state": "queued",
             "queued_at": datetime.now(timezone.utc).isoformat(),
+            "source_type": "bundle",
             "filename": filename,
             "bundle": str(destination),
             "size": size,

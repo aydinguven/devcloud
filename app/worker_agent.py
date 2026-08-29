@@ -87,6 +87,7 @@ class WorkerAgent:
         self.registry = self._load_registry()
         self.image_state_path = Path(settings.STORAGE_ROOT) / ".devcloud-image-state.json"
         self.image_state = self._load_image_state()
+        self.image_progress: dict[str, dict] = {}
 
     def _load_registry(self) -> dict:
         try:
@@ -194,32 +195,50 @@ class WorkerAgent:
                 ):
                     raise RuntimeError("Controller returned unsafe workspace image metadata")
                 desired_ids.add(image_id)
+                self.image_progress[image_id] = {
+                    "id": image_id,
+                    "image_ref": image_ref,
+                    "sha256": expected_sha256,
+                    "state": "queued",
+                    "downloaded_bytes": 0,
+                    "total_bytes": expected_size,
+                    "error": "",
+                }
                 current = self.image_state.get(image_id, {})
                 exists_code, _, _ = await podman_service.run_cmd(
                     "image", "exists", image_ref, timeout=30
                 )
                 if current.get("sha256") == expected_sha256 and exists_code == 0:
+                    self.image_progress[image_id].update(
+                        state="ready", downloaded_bytes=expected_size
+                    )
                     continue
 
                 temporary = cache_root / f"{image_id}.partial"
                 digest = hashlib.sha256()
                 downloaded = 0
                 try:
+                    self.image_progress[image_id]["state"] = "downloading"
                     async with client.stream("GET", download_url) as download:
                         download.raise_for_status()
                         with temporary.open("wb") as destination:
                             async for chunk in download.aiter_bytes(1024 * 1024):
                                 downloaded += len(chunk)
+                                self.image_progress[image_id][
+                                    "downloaded_bytes"
+                                ] = downloaded
                                 if downloaded > expected_size:
                                     raise RuntimeError(
                                         f"Workspace image {image_ref} exceeded its catalog size"
                                     )
                                 digest.update(chunk)
                                 destination.write(chunk)
+                    self.image_progress[image_id]["state"] = "verifying"
                     if downloaded != expected_size or digest.hexdigest() != expected_sha256:
                         raise RuntimeError(
                             f"Workspace image verification failed for {image_ref}"
                         )
+                    self.image_progress[image_id]["state"] = "loading"
                     code, stdout, stderr = await podman_service.run_cmd(
                         "load", "-i", str(temporary), timeout=1800
                     )
@@ -243,7 +262,15 @@ class WorkerAgent:
                         "size": expected_size,
                     }
                     self._save_image_state()
+                    self.image_progress[image_id].update(
+                        state="ready", downloaded_bytes=expected_size, error=""
+                    )
                     logger.info("Workspace image synchronized: %s", image_ref)
+                except Exception as exc:
+                    self.image_progress[image_id].update(
+                        state="failed", error=str(exc)[:500]
+                    )
+                    raise
                 finally:
                     temporary.unlink(missing_ok=True)
 
@@ -252,6 +279,8 @@ class WorkerAgent:
                 for image_id in stale:
                     self.image_state.pop(image_id, None)
                 self._save_image_state()
+            for image_id in set(self.image_progress) - desired_ids:
+                self.image_progress.pop(image_id, None)
             return [self.image_state[key] for key in sorted(self.image_state)]
 
     async def image_sync_loop(self) -> None:
@@ -338,6 +367,10 @@ class WorkerAgent:
                         "capabilities": {
                             "runtime": "podman",
                             "workspace_images": workspace_images,
+                            "workspace_image_sync": [
+                                self.image_progress[key]
+                                for key in sorted(self.image_progress)
+                            ],
                         },
                         "inventory": inventory,
                         "agent_version": __version__,
@@ -731,7 +764,11 @@ class WorkerAgent:
                     queue_root / "running.json"
                 ).exists():
                     raise RuntimeError("Başka bir worker güncellemesi zaten bekliyor.")
-                destination = uploads / f"{uuid.uuid4().hex}.zip"
+                suffix = (
+                    "".join(Path(str(metadata["filename"])).suffixes[-2:])
+                    or ".release"
+                )
+                destination = uploads / f"{uuid.uuid4().hex}{suffix}"
                 temporary = destination.with_suffix(".part")
                 digest = hashlib.sha256()
                 size = 0

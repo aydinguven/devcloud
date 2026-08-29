@@ -65,14 +65,14 @@
 </nav>
 {% endif %}
 <div class="admin-feature-grid">
-  <!-- 1-Click Platform Updater Card -->
+  <!-- Signed, controller-managed platform updater -->
   {% if admin_section == 'system' %}
   <div class="card" id="platform-update" style="border-top: 3px solid #10b981;">
     <div class="card-header">
       <div>
-        <h2 class="card-title">🚀 1-Tıkla Platform Güncelleme</h2>
+        <h2 class="card-title">🚀 Platform Güncelleme</h2>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
-          Git sunucusundan en güncel kodları çeker, paketleri günceller ve servisi kesintisiz yeniden başlatır.
+          Git yalnızca imzalı release kanalını seçer. Controller ve worker OCI imajları önceden build edilmiş platform paketinden yüklenir.
         </p>
       </div>
     </div>
@@ -81,12 +81,25 @@
         <span style="color: var(--text-muted);">Mevcut Revizyon:</span>
         <code id="admin-current-commit" style="color: var(--primary);">Yükleniyor...</code>
       </div>
-      <button id="btn-run-platform-update" class="btn btn-primary btn-sm" style="font-weight: 600;">
-        🚀 Platformu Güncelle
-      </button>
+      <span id="admin-update-state" class="badge badge-neutral">Durum yükleniyor</span>
     </div>
-    <div id="admin-update-terminal-box" style="display: none;">
-      <pre id="admin-update-terminal" class="terminal-window" style="max-height: 180px; font-size: 0.75rem;"></pre>
+    <form id="platform-git-update-form" style="display:grid;grid-template-columns:minmax(240px,1fr) minmax(110px,.3fr) auto;gap:.5rem;align-items:end;margin-bottom:1rem;">
+      <label class="form-group" style="margin:0;">Git release kanalı
+        <input id="platform-update-repository" name="repository" type="text" required placeholder="https://github.com/aydinguven/devcloud.git">
+      </label>
+      <label class="form-group" style="margin:0;">Branch / tag
+        <input id="platform-update-ref" name="ref" type="text" required value="stable">
+      </label>
+      <button class="btn btn-primary btn-sm" type="submit">Git'ten Güncelle</button>
+    </form>
+    <form id="platform-bundle-update-form" style="display:flex;gap:.5rem;align-items:end;flex-wrap:wrap;margin-bottom:1rem;">
+      <label class="form-group" style="margin:0;flex:1;min-width:240px;">İmzalı platform bundle
+        <input name="release" type="file" required accept=".tar,.tar.gz,.tgz,.zip">
+      </label>
+      <button class="btn btn-secondary btn-sm" type="submit">Bundle Yükle ve Güncelle</button>
+    </form>
+    <div id="admin-update-terminal-box">
+      <pre id="admin-update-terminal" class="terminal-window" style="max-height:180px;font-size:.75rem;">Güncelleme kuyruğu hazır.</pre>
     </div>
   </div>
   {% endif %}

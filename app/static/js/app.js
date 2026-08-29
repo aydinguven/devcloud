@@ -63,6 +63,23 @@ function initWorkspaceImageManager() {
     element.textContent = message;
     element.className = `quota-form-status ${error ? "quota-status-error" : "quota-status-success"}`;
   };
+  const syncStateLabel = {
+    pending: "Bekliyor", queued: "Sırada", downloading: "İndiriliyor",
+    verifying: "Doğrulanıyor", loading: "Podman'a yükleniyor",
+    ready: "Hazır", failed: "Başarısız", offline: "Worker çevrimdışı",
+  };
+  const renderWorkerProgress = (workers) => {
+    if (!workers?.length) return '<small>Kayıtlı worker yok</small>';
+    return workers.map((worker) => {
+      const percent = Math.max(0, Math.min(100, Number(worker.percent || 0)));
+      const error = worker.error ? `<small class="quota-status-error" title="${escapeHtml(worker.error)}">${escapeHtml(worker.error)}</small>` : "";
+      return `<div style="min-width:180px;margin:.25rem 0;">
+        <div style="display:flex;justify-content:space-between;gap:.5rem;"><small><strong>${escapeHtml(worker.node_name)}</strong> · ${escapeHtml(syncStateLabel[worker.state] || worker.state)}</small><small>${percent.toFixed(0)}%</small></div>
+        <div style="height:6px;background:rgba(148,163,184,.22);border-radius:999px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:${worker.state === "failed" ? "var(--color-danger,#ef4444)" : "var(--primary,#3b82f6)"};transition:width .3s;"></div></div>
+        <small>${humanSize(worker.downloaded_bytes)} / ${humanSize(worker.total_bytes)}</small>${error}
+      </div>`;
+    }).join("");
+  };
 
   async function loadImages() {
     try {
@@ -76,7 +93,7 @@ function initWorkspaceImageManager() {
           <td><span class="badge badge-neutral">${escapeHtml(image.source_type)}</span><br><small>${escapeHtml(image.source_ref)}</small></td>
           <td><code title="${escapeHtml(image.digest)}">${escapeHtml((image.digest || "-").slice(0, 24))}</code><br><code title="${escapeHtml(image.sha256)}">${escapeHtml(image.sha256.slice(0, 24))}…</code></td>
           <td>${humanSize(image.size)}</td>
-          <td><strong>${image.synced_workers} / ${image.total_workers}</strong></td>
+          <td><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
           <td><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Pasif"}</span></td>
           <td><div style="display:flex;gap:.4rem;flex-wrap:wrap;">
             <button class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}">${image.enabled ? "Devre Dışı" : "Etkinleştir"}</button>
@@ -147,7 +164,7 @@ function initWorkspaceImageManager() {
     }
   });
   loadImages();
-  window.setInterval(loadImages, 20000);
+  window.setInterval(loadImages, 5000);
 }
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
@@ -1605,6 +1622,10 @@ function initAdminPlatformUpdater() {
       })
       .then((d) => {
         commitCode.textContent = `v${d.version} · ${d.branch} (${d.commit})`;
+        const repository = document.getElementById("platform-update-repository");
+        const ref = document.getElementById("platform-update-ref");
+        if (repository && d.update_source) repository.value = d.update_source;
+        if (ref && d.update_ref) ref.value = d.update_ref;
       })
       .catch(() => {
         commitCode.textContent = "Bağlantı hatası";
@@ -1675,6 +1696,75 @@ function initAdminPlatformUpdater() {
         }
       }
     });
+  }
+
+  const gitUpdateForm = document.getElementById("platform-git-update-form");
+  const bundleUpdateForm = document.getElementById("platform-bundle-update-form");
+  const updateState = document.getElementById("admin-update-state");
+  let lastUpdateStatus = "";
+
+  const renderQueuedUpdateStatus = (value) => {
+    if (!updateState) return;
+    const labels = {
+      idle: "Hazır", queued: "Kuyrukta", running: "Uygulanıyor",
+      succeeded: "Tamamlandı", failed: "Başarısız", unknown: "Bilinmiyor",
+    };
+    updateState.textContent = labels[value.state] || value.state || "Bilinmiyor";
+    updateState.className = `badge ${value.state === "succeeded" ? "badge-running" : value.state === "failed" ? "badge-stopped" : "badge-neutral"}`;
+    const serialized = JSON.stringify(value);
+    if (serialized !== lastUpdateStatus && updateTerminal) {
+      lastUpdateStatus = serialized;
+      const detail = value.output || value.error || value.filename || "Güncelleme kuyruğu hazır.";
+      updateTerminal.textContent = detail;
+      updateTerminal.scrollTop = updateTerminal.scrollHeight;
+    }
+  };
+
+  const refreshQueuedUpdateStatus = async () => {
+    try {
+      const response = await fetch("/api/admin/system/release-upload/status", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      renderQueuedUpdateStatus(await response.json());
+    } catch (error) {
+      renderQueuedUpdateStatus({ state: "unknown", error: error.message });
+    }
+  };
+
+  const submitQueuedUpdate = async (form, endpoint, confirmation) => {
+    if (!confirm(confirmation)) return;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const response = await fetch(endpoint, { method: "POST", body: new FormData(form) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      renderQueuedUpdateStatus(data);
+    } catch (error) {
+      renderQueuedUpdateStatus({ state: "failed", error: error.message });
+    } finally {
+      button.disabled = false;
+    }
+  };
+
+  gitUpdateForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitQueuedUpdate(
+      gitUpdateForm,
+      "/api/admin/system/release-source",
+      "Git kanalındaki imzalı platform release'i uygulansın mı?",
+    );
+  });
+  bundleUpdateForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitQueuedUpdate(
+      bundleUpdateForm,
+      "/api/admin/system/release-upload",
+      "Seçilen imzalı platform bundle uygulansın mı?",
+    );
+  });
+  if (gitUpdateForm || bundleUpdateForm) {
+    refreshQueuedUpdateStatus();
+    window.setInterval(refreshQueuedUpdateStatus, 5000);
   }
 
   const tbModal = document.getElementById("template-builder-modal");

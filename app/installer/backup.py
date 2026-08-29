@@ -12,6 +12,7 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 from app.installer.models import ControllerRuntime, DatabaseMode, InstallConfig
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import _extract_tar
@@ -52,27 +53,22 @@ def _sqlite_path(database_url: str) -> Path:
 
 
 def _postgres_cli_connection(database_url: str) -> tuple[str, dict[str, str]]:
-    # Keep the lifecycle installer importable before application wheels exist.
-    # SQLAlchemy is available in every installed release when backup/restore runs.
-    from sqlalchemy.engine import URL, make_url
-
-    try:
-        parsed = make_url(database_url)
-    except Exception as exc:
-        raise InstallerError("The configured PostgreSQL URL is invalid") from exc
-    if not parsed.drivername.startswith("postgresql"):
+    normalized = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    parsed = urlsplit(normalized)
+    if parsed.scheme != "postgresql" or not parsed.hostname or not parsed.path.strip("/"):
         raise InstallerError("The configured database URL is not PostgreSQL")
-    password = parsed.password
-    parsed = URL.create(
-        drivername="postgresql",
-        username=parsed.username,
-        host=parsed.host,
-        port=parsed.port,
-        database=parsed.database,
-        query=parsed.query,
+    username = unquote(parsed.username or "")
+    password = unquote(parsed.password or "")
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    authority = f"{quote(username, safe='')}@" if username else ""
+    authority += host
+    if parsed.port:
+        authority += f":{parsed.port}"
+    cli_url = urlunsplit(
+        ("postgresql", authority, parsed.path, parsed.query, "")
     )
     environment = {"PGPASSWORD": password} if password else {}
-    return parsed.render_as_string(hide_password=False), environment
+    return cli_url, environment
 
 
 def create_backup(

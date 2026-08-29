@@ -34,6 +34,11 @@ class WorkerRuntime(StrEnum):
     NATIVE = "native"
 
 
+class UpdateSourceType(StrEnum):
+    BUNDLE = "bundle"
+    GIT = "git"
+
+
 @dataclass(slots=True)
 class InstallConfig:
     role: DeploymentRole
@@ -63,6 +68,10 @@ class InstallConfig:
     admin_username: str = "admin"
     admin_email: str = "admin@example.com"
     admin_password: str = ""
+    update_source_type: UpdateSourceType = UpdateSourceType.BUNDLE
+    update_source: str = ""
+    update_ref: str = "stable"
+    update_token_file: str = ""
 
     @property
     def installs_controller(self) -> bool:
@@ -116,10 +125,12 @@ class InstallConfig:
         data["registry_mode"] = self.registry_mode.value
         data["controller_runtime"] = self.controller_runtime.value
         data["worker_runtime"] = self.worker_runtime.value
+        data["update_source_type"] = self.update_source_type.value
         data.pop("enrollment_token_file", None)
         data.pop("database_url", None)
         data.pop("private_key_file", None)
         data.pop("admin_password", None)
+        data.pop("update_token_file", None)
         return data
 
     @classmethod
@@ -141,6 +152,9 @@ class InstallConfig:
         # native systemd worker and must not silently migrate during an update.
         values["worker_runtime"] = WorkerRuntime(
             values.get("worker_runtime", WorkerRuntime.NATIVE)
+        )
+        values["update_source_type"] = UpdateSourceType(
+            values.get("update_source_type", UpdateSourceType.BUNDLE)
         )
         return cls(**values)
 

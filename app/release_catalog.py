@@ -7,8 +7,10 @@ from pathlib import Path
 
 
 RELEASE_PATTERN = re.compile(
-    r"^devcloud-release-v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
-    r"(?:-(?P<revision>[0-9a-f]{7,40}))?\.zip$"
+    r"^devcloud-(?:release|platform-update)-v"
+    r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
+    r"(?:-(?P<revision>[0-9a-f]{7,40}))?"
+    r"(?P<extension>\.zip|\.tar\.gz)$"
 )
 
 

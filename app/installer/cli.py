@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.installer.engine import InstallerEngine
-from app.installer.models import DeploymentRole, InstallConfig
+from app.installer.models import DeploymentRole, InstallConfig, UpdateSourceType
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import prepare_release
 from app.installer.ui import InstallerUI
+from app.installer.update_source import resolve_update_bundle
+from app.platform_release import load_platform_release, publish_platform_bundle
 from deploy.package_offline import PackageError, verify_staged_bundle
 
 
@@ -93,7 +95,15 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--answers", type=Path, help="JSON answer file")
 
     update = commands.add_parser("update", help="apply a connected or uploaded release")
-    update.add_argument("--bundle", type=Path, required=True)
+    update.add_argument("--bundle", type=Path)
+    update.add_argument(
+        "--source-type", choices=[item.value for item in UpdateSourceType]
+    )
+    update.add_argument("--repository", help="Git repository URL or local path")
+    update.add_argument("--ref", help="Git branch, tag, or commit")
+    update.add_argument(
+        "--token-file", type=Path, help="Bearer token file for a private HTTPS bundle"
+    )
     update.add_argument(
         "--allow-unsigned",
         action="store_true",
@@ -132,13 +142,14 @@ def _config_from_state(engine: InstallerEngine) -> InstallConfig:
     return InstallConfig.from_dict({**state.configuration, "role": state.role})
 
 
-def _execute_plan(plan, ui: InstallerUI, *, assume_yes: bool) -> None:
+def _execute_plan(plan, ui: InstallerUI, *, assume_yes: bool) -> bool:
     ui.show_plan(plan.title, plan.descriptions)
     if not assume_yes and not ui.confirm("Proceed with this plan?", False):
         ui.write("No changes were made.")
-        return
+        return False
     plan.execute()
     ui.write(f"\n{plan.title} completed successfully.")
+    return True
 
 
 def _interactive_command(ui: InstallerUI, installed: bool) -> str:
@@ -255,8 +266,48 @@ def main(argv: list[str] | None = None) -> int:
 
         if command == "update":
             bundle = getattr(args, "bundle", None)
-            if bundle is None:
-                bundle = Path(ui.ask("Release ZIP or tar archive"))
+            source_type = getattr(args, "source_type", None)
+            repository = getattr(args, "repository", None)
+            update_ref = getattr(args, "ref", None)
+            token_file = getattr(args, "token_file", None)
+            if args.command is None:
+                source_type = ui.choose(
+                    "Update source",
+                    [
+                        (UpdateSourceType.GIT.value, "Configured Git release channel"),
+                        (UpdateSourceType.BUNDLE.value, "Local/uploaded platform bundle"),
+                    ],
+                    default=(
+                        1
+                        if config.update_source_type == UpdateSourceType.GIT
+                        else 2
+                    ),
+                )
+            if bundle is not None:
+                source_type = UpdateSourceType.BUNDLE.value
+                location = str(bundle)
+            elif source_type == UpdateSourceType.GIT.value or (
+                source_type is None
+                and config.update_source_type == UpdateSourceType.GIT
+            ):
+                source_type = UpdateSourceType.GIT.value
+                repository = repository or config.update_source
+                update_ref = update_ref or config.update_ref
+                if args.command is None:
+                    repository = ui.ask(
+                        "Git repository URL or local path", repository
+                    )
+                    update_ref = ui.ask("Release branch/tag/commit", update_ref)
+                location = repository or ""
+                if token_file is None and config.update_token_file:
+                    token_file = Path(config.update_token_file)
+            else:
+                source_type = UpdateSourceType.BUNDLE.value
+                location = ui.ask("Release ZIP or tar archive") if args.command is None else ""
+            if not location:
+                raise InstallerError(
+                    "Update requires --bundle or a configured Git repository"
+                )
             allow_unsigned = bool(getattr(args, "allow_unsigned", False))
             if args.command is None:
                 allow_unsigned = ui.confirm(
@@ -271,23 +322,43 @@ def main(argv: list[str] | None = None) -> int:
             keyring = engine.host_path(
                 getattr(args, "keyring", Path("/etc/devcloud/release-keyring.gpg"))
             )
-            with prepare_release(
-                bundle.resolve(),
+            with resolve_update_bundle(
+                source_type=source_type,
+                location=location,
+                ref=update_ref or "stable",
                 runner=runner,
-                keyring=keyring,
-                require_signature=not allow_unsigned,
-            ) as prepared:
-                _verify_offline_release(prepared.root)
-                update_engine = InstallerEngine(
-                    project_root=prepared.root,
-                    filesystem_root=Path(args.filesystem_root),
+                token_file=token_file,
+            ) as resolved_bundle:
+                with prepare_release(
+                    resolved_bundle,
                     runner=runner,
-                )
-                _execute_plan(
-                    update_engine.build_update_plan(config),
-                    ui,
-                    assume_yes=args.yes,
-                )
+                    keyring=keyring,
+                    require_signature=not allow_unsigned,
+                ) as prepared:
+                    _verify_offline_release(prepared.root)
+                    platform_release = (
+                        load_platform_release(prepared.root)
+                        if (prepared.root / "platform-release.json").is_file()
+                        else None
+                    )
+                    update_engine = InstallerEngine(
+                        project_root=prepared.root,
+                        filesystem_root=Path(args.filesystem_root),
+                        runner=runner,
+                    )
+                    applied = _execute_plan(
+                        update_engine.build_update_plan(config),
+                        ui,
+                        assume_yes=args.yes,
+                    )
+                    if applied and platform_release and config.installs_controller:
+                        published = publish_platform_bundle(
+                            resolved_bundle,
+                            engine.host_path(config.downloads_root),
+                        )
+                        ui.write(
+                            f"Worker update artifact published: {published.name}"
+                        )
             return 0
 
         if command == "uninstall":

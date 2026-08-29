@@ -8,6 +8,6 @@ User=root
 WorkingDirectory={{PROJECT_DIR}}
 EnvironmentFile=-/etc/devcloud/controller.env
 EnvironmentFile=-/etc/devcloud/worker.env
-ExecStart={{PROJECT_DIR}}/.venv/bin/python -m app.installer.queued_update
+ExecStart=/usr/bin/python3 -m app.installer.queued_update
 PrivateTmp=true
 NoNewPrivileges=true

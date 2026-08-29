@@ -8,7 +8,14 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.config import settings
+from app.installer.update_source import validate_git_source
+
+
+def _environment_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -19,7 +26,9 @@ def _write_json(path: Path, value: dict) -> None:
 
 
 def main() -> int:
-    root = Path(settings.UPDATE_QUEUE_ROOT).resolve()
+    root = Path(
+        os.environ.get("UPDATE_QUEUE_ROOT", "/var/lib/devcloud/update-queue")
+    ).resolve()
     pending = root / "pending.json"
     running = root / "running.json"
     status = root / "status.json"
@@ -33,29 +42,41 @@ def main() -> int:
         return 0
     try:
         request = json.loads(running.read_text(encoding="utf-8"))
-        bundle = Path(str(request.get("bundle") or "")).resolve()
-        uploads = (root / "uploads").resolve()
-        if bundle.parent != uploads or not bundle.is_file() or bundle.is_symlink():
-            raise RuntimeError("Queued release path is outside the upload directory")
         setup = Path(__file__).resolve().parents[2] / "deploy" / "devcloud-setup.sh"
         if not setup.is_file():
             raise RuntimeError(f"Active release installer is missing: {setup}")
-        command = [
-            "bash",
-            str(setup),
-            "--yes",
-            "update",
-            "--bundle",
-            str(bundle),
-        ]
-        if request.get("allow_unsigned"):
-            command.append("--allow-unsigned")
+        source_type = str(request.get("source_type") or "bundle")
+        if source_type == "git":
+            repository, ref = validate_git_source(
+                str(request.get("repository") or ""),
+                str(request.get("ref") or ""),
+            )
+            command = [
+                "bash", str(setup), "--yes", "update",
+                "--source-type", "git", "--repository", repository,
+                "--ref", ref,
+            ]
+        elif source_type == "bundle":
+            bundle = Path(str(request.get("bundle") or "")).resolve()
+            uploads = (root / "uploads").resolve()
+            if bundle.parent != uploads or not bundle.is_file() or bundle.is_symlink():
+                raise RuntimeError("Queued release path is outside the upload directory")
+            command = [
+                "bash", str(setup), "--yes", "update", "--bundle", str(bundle)
+            ]
+            if request.get("allow_unsigned") and _environment_bool(
+                "ALLOW_UNSIGNED_UPDATES"
+            ):
+                command.append("--allow-unsigned")
+        else:
+            raise RuntimeError("Queued update source type is unsupported")
         _write_json(
             status,
             {
                 "state": "running",
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
+                "source_type": source_type,
             },
         )
         result = subprocess.run(command, text=True, capture_output=True)
@@ -65,10 +86,13 @@ def main() -> int:
                 "state": "succeeded" if result.returncode == 0 else "failed",
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
+                "source_type": source_type,
                 "return_code": result.returncode,
                 "output": (result.stdout + "\n" + result.stderr)[-20000:],
             },
         )
+        if result.returncode == 0 and source_type == "bundle":
+            bundle.unlink(missing_ok=True)
         return result.returncode
     except Exception as exc:
         _write_json(

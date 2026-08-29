@@ -89,6 +89,7 @@ async def test_admin_release_upload_creates_atomic_root_updater_request(
     headers = await _admin_headers(client)
     queue = tmp_path / "update-queue"
     monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+    monkeypatch.setattr(settings, "ALLOW_UNSIGNED_UPDATES", True)
 
     response = await client.post(
         "/api/admin/system/release-upload",
@@ -104,6 +105,50 @@ async def test_admin_release_upload_creates_atomic_root_updater_request(
     assert marker["sha256"] == hashlib.sha256(b"source-zip").hexdigest()
     assert (queue / "uploads").resolve() == Path(bundle).parent
     assert Path(bundle).read_bytes() == b"source-zip"
+
+
+@pytest.mark.asyncio
+async def test_admin_release_upload_rejects_unsigned_by_default(
+    client: AsyncClient, tmp_path, monkeypatch
+):
+    headers = await _admin_headers(client)
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(tmp_path / "update-queue"))
+    monkeypatch.setattr(settings, "ALLOW_UNSIGNED_UPDATES", False)
+
+    response = await client.post(
+        "/api/admin/system/release-upload",
+        headers=headers,
+        files={"release": ("untrusted.zip", b"source-zip", "application/zip")},
+        data={"allow_unsigned": "true"},
+    )
+
+    assert response.status_code == 403
+    assert not (tmp_path / "update-queue" / "pending.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_admin_git_release_channel_creates_root_updater_request(
+    client: AsyncClient, tmp_path, monkeypatch
+):
+    headers = await _admin_headers(client)
+    queue = tmp_path / "update-queue"
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+
+    response = await client.post(
+        "/api/admin/system/release-source",
+        headers=headers,
+        data={
+            "repository": "https://git.aydin.cloud/platform/devcloud.git",
+            "ref": "stable",
+        },
+    )
+
+    assert response.status_code == 202
+    marker = json.loads((queue / "pending.json").read_text(encoding="utf-8"))
+    assert marker["source_type"] == "git"
+    assert marker["repository"] == "https://git.aydin.cloud/platform/devcloud.git"
+    assert marker["ref"] == "stable"
+    assert marker["allow_unsigned"] is False
 
 
 @pytest.mark.asyncio

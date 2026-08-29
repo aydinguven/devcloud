@@ -145,7 +145,9 @@ async def worker_download_release(
         raise HTTPException(status_code=404, detail="Release bulunamadı")
     return FileResponse(
         path,
-        media_type="application/zip",
+        media_type=(
+            "application/gzip" if path.name.endswith(".tar.gz") else "application/zip"
+        ),
         filename=filename,
         headers={"X-Content-Type-Options": "nosniff"},
     )

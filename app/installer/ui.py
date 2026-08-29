@@ -10,6 +10,7 @@ from app.installer.models import (
     DeploymentRole,
     InstallConfig,
     RegistryMode,
+    UpdateSourceType,
 )
 
 
@@ -135,6 +136,24 @@ class InstallerUI:
                 if config.registry_url
                 else RegistryMode.PRELOADED
             )
+            config.update_source_type = UpdateSourceType(
+                self.choose(
+                    "Platform update source",
+                    [
+                        (UpdateSourceType.GIT.value, "Git repository release channel"),
+                        (UpdateSourceType.BUNDLE.value, "Local/uploaded platform bundle"),
+                    ],
+                    default=1,
+                )
+            )
+            if config.update_source_type == UpdateSourceType.GIT:
+                config.update_source = self.ask(
+                    "Git repository URL or local path",
+                    "https://github.com/aydinguven/devcloud.git",
+                )
+                config.update_ref = self.ask(
+                    "Release channel branch/tag", "stable"
+                )
 
         if config.installs_worker:
             if role == DeploymentRole.WORKER:

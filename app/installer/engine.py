@@ -22,6 +22,7 @@ from app.installer.models import (
     DeploymentRole,
     InstallConfig,
     RegistryMode,
+    UpdateSourceType,
 )
 from app.installer.backup import create_backup, restore_backup
 from app.installer.platform import (
@@ -31,6 +32,7 @@ from app.installer.platform import (
     validate_target,
 )
 from app.installer.state import InstallationState
+from app.platform_release import load_platform_release
 
 
 @dataclass(slots=True)
@@ -363,10 +365,33 @@ class InstallerEngine:
 
     def build_update_plan(self, config: InstallConfig) -> InstallPlan:
         self._validate_config(config)
+        backup_step = []
+        if config.installs_controller:
+            state = self.current_state(config.state_root)
+            current_version = state.version if state else "unknown"
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup_path = self.host_path(
+                f"/var/lib/devcloud/backups/pre-update-v{current_version}-{timestamp}.tar.gz"
+            )
+            backup_step.append(
+                PlanStep(
+                    "backup",
+                    "Create a verified pre-update configuration and database backup",
+                    lambda: create_backup(
+                        config=config,
+                        version=current_version,
+                        output=backup_path,
+                        host_path=self.host_path,
+                        runner=self.runner,
+                        include_workspaces=False,
+                    ),
+                )
+            )
         return InstallPlan(
             f"Update DevCloud to {self.release_version}",
             [
                 PlanStep("preflight", "Validate the target host and release source", self.preflight),
+                *backup_step,
                 PlanStep(
                     "release",
                     f"Stage immutable release {self.release_version} without removing the current release",
@@ -415,7 +440,7 @@ class InstallerEngine:
                     lambda: self._save_state(config),
                 ),
             ],
-            on_failure=lambda: self._rollback_release(config),
+            on_failure=lambda: self._rollback_update(config),
         )
 
     def build_uninstall_plan(
@@ -624,6 +649,17 @@ class InstallerEngine:
                     "External registry must be an OCI image prefix such as "
                     "registry.example.com/devcloud"
                 )
+        if config.installs_controller and config.update_source_type == UpdateSourceType.GIT:
+            if (
+                not config.update_source.strip()
+                or any(character in config.update_source for character in "\r\n\0")
+            ):
+                raise InstallerError("Git update source requires a repository URL or path")
+            if (
+                not config.update_ref.strip()
+                or any(character.isspace() for character in config.update_ref)
+            ):
+                raise InstallerError("Git update source requires one branch, tag, or commit")
         if config.database_mode == DatabaseMode.EXTERNAL_POSTGRESQL:
             if not config.database_url.startswith(
                 ("postgresql+asyncpg://", "postgresql://")
@@ -669,6 +705,8 @@ class InstallerEngine:
         }
         if config.installs_controller:
             packages.update({"nginx", "curl", "createrepo_c", "skopeo"})
+            if config.update_source_type == UpdateSourceType.GIT:
+                packages.add("git")
         if config.containerized_controller:
             packages.update({"podman", "crun", "tar"})
         if config.installs_worker:
@@ -928,6 +966,8 @@ class InstallerEngine:
                 "/var/lib/devcloud/database",
                 "/var/lib/devcloud/download-builds",
                 "/var/lib/devcloud/ingress",
+                "/var/lib/devcloud/update-queue",
+                "/var/lib/devcloud/update-queue/uploads",
                 config.downloads_root,
             ]
             for value in controller_owned:
@@ -1011,8 +1051,22 @@ class InstallerEngine:
         temporary.symlink_to(relative_target, target_is_directory=True)
         os.replace(temporary, current)
 
+    def _rollback_update(self, config: InstallConfig) -> None:
+        """Restore the previous release link and its rendered service units."""
+        previous = self.previous_release
+        self._rollback_release(config)
+        if self.runner.dry_run or self.migration_applied or previous is None:
+            return
+        previous_engine = InstallerEngine(
+            project_root=previous,
+            filesystem_root=self.filesystem_root,
+            runner=self.runner,
+        )
+        previous_engine._install_services(config)
+        previous_engine._restart_services(config)
+
     def _install_python_dependencies(self, config: InstallConfig) -> None:
-        if config.containerized_controller and not config.installs_worker:
+        if config.fully_containerized:
             return
         release = self.host_path(config.releases_root) / self.release_id
         venv = release / ".venv"
@@ -1161,11 +1215,15 @@ class InstallerEngine:
                 "DEVCLOUD_DEPLOYMENT_ROLE": config.role.value,
                 "DEVCLOUD_REGISTRY_MODE": config.registry_mode.value,
                 "DEVCLOUD_REGISTRY_URL": config.registry_url,
+                "ALLOW_UNSIGNED_UPDATES": "False",
+                "UPDATE_SOURCE_TYPE": config.update_source_type.value,
+                "UPDATE_SOURCE": config.update_source,
+                "UPDATE_REF": config.update_ref,
             }
             if config.containerized_controller:
                 controller_values.update(
                     {
-                        "UPDATES_ENABLED": "False",
+                        "UPDATES_ENABLED": "True",
                         "DOWNLOAD_UPDATES_ENABLED": "False",
                     }
                 )
@@ -1281,6 +1339,31 @@ class InstallerEngine:
             f"quay.io/aaslangoren/devcloud:worker-{self.release_version}",
         )
 
+    def _verify_platform_image(
+        self,
+        config: InstallConfig,
+        *,
+        role: str,
+        image: str,
+    ) -> None:
+        release = self.host_path(config.install_root) / "current"
+        if not (release / "platform-release.json").is_file():
+            return
+        manifest = load_platform_release(release)
+        expected = (
+            manifest.controller.digest
+            if role == "controller"
+            else manifest.worker.digest
+        )
+        inspected = self.runner.run(
+            ["podman", "image", "inspect", "--format", "{{.Id}}", image],
+            capture_output=True,
+        )
+        if not self.runner.dry_run and inspected.stdout.strip() != expected:
+            raise InstallerError(
+                f"Loaded {role} image identity does not match the signed platform manifest"
+            )
+
     @staticmethod
     def _postgresql_image() -> str:
         return "localhost/devcloud-postgresql:16"
@@ -1334,6 +1417,11 @@ class InstallerEngine:
                 raise InstallerError(
                     f"Required controller container image is missing: {image}"
                 )
+        self._verify_platform_image(
+            config,
+            role="controller",
+            image=self._controller_image(),
+        )
 
     def _prepare_worker_image(self, config: InstallConfig) -> None:
         if not config.containerized_worker:
@@ -1360,20 +1448,17 @@ class InstallerEngine:
             source = self._worker_source_image()
             self.runner.run(["podman", "pull", source])
             self.runner.run(["podman", "tag", source, worker_image])
+        self._verify_platform_image(config, role="worker", image=worker_image)
 
     def _install_services(self, config: InstallConfig) -> None:
         release = self.host_path(config.install_root) / "current"
         systemd_dir = self.host_path("/etc/systemd/system")
         if not self.runner.dry_run:
             systemd_dir.mkdir(parents=True, exist_ok=True)
-        units: list[tuple[str, str]] = []
-        if not config.containerized_controller or config.installs_worker:
-            units.extend(
-                [
-                    ("devcloud-update.service", "devcloud-update.service"),
-                    ("devcloud-update.path", "devcloud-update.path"),
-                ]
-            )
+        units: list[tuple[str, str]] = [
+            ("devcloud-update.service", "devcloud-update.service"),
+            ("devcloud-update.path", "devcloud-update.path"),
+        ]
         if config.installs_controller and not config.containerized_controller:
             units.append(("devcloud.service", "devcloud-controller.service"))
         if config.installs_worker and not config.containerized_worker:
@@ -1540,10 +1625,9 @@ class InstallerEngine:
         )
 
     def _start_services(self, config: InstallConfig) -> None:
-        if not config.containerized_controller or config.installs_worker:
-            self.runner.run(
-                ["systemctl", "enable", "--now", "devcloud-update.path"]
-            )
+        self.runner.run(
+            ["systemctl", "enable", "--now", "devcloud-update.path"]
+        )
         if (
             config.containerized_controller
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
@@ -1567,10 +1651,9 @@ class InstallerEngine:
         self._verify_services(config)
 
     def _restart_services(self, config: InstallConfig) -> None:
-        if not config.containerized_controller or config.installs_worker:
-            self.runner.run(
-                ["systemctl", "enable", "--now", "devcloud-update.path"]
-            )
+        self.runner.run(
+            ["systemctl", "enable", "--now", "devcloud-update.path"]
+        )
         if (
             config.containerized_controller
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
@@ -1591,9 +1674,7 @@ class InstallerEngine:
         self._verify_services(config)
 
     def _verify_services(self, config: InstallConfig) -> None:
-        names = []
-        if not config.containerized_controller or config.installs_worker:
-            names.append("devcloud-update.path")
+        names = ["devcloud-update.path"]
         if (
             config.containerized_controller
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
@@ -1668,9 +1749,7 @@ class InstallerEngine:
         *,
         include_database: bool = False,
     ) -> None:
-        names = []
-        if not config.containerized_controller or config.installs_worker:
-            names.extend(["devcloud-update.path", "devcloud-update.service"])
+        names = ["devcloud-update.path", "devcloud-update.service"]
         if config.installs_worker:
             names.append("devcloud-worker.service")
         if config.installs_controller:
@@ -1686,9 +1765,7 @@ class InstallerEngine:
 
     def _remove_service_units(self, config: InstallConfig) -> None:
         systemd_dir = self.host_path("/etc/systemd/system")
-        names = []
-        if not config.containerized_controller or config.installs_worker:
-            names.extend(["devcloud-update.service", "devcloud-update.path"])
+        names = ["devcloud-update.service", "devcloud-update.path"]
         if config.installs_controller:
             names.append("devcloud-controller.service")
         if config.installs_worker:

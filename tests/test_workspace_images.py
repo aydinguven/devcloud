@@ -169,6 +169,8 @@ async def test_admin_catalog_and_authenticated_worker_download(
     catalog = await client.get("/api/admin/workspace-images", headers=admin_headers)
     assert catalog.status_code == 200
     assert catalog.json()[0]["synced_workers"] == 1
+    assert catalog.json()[0]["workers"][0]["state"] == "ready"
+    assert catalog.json()[0]["workers"][0]["percent"] == 100.0
 
     worker_headers = {"Authorization": f"Bearer {worker_token}"}
     desired = await client.get(
@@ -269,3 +271,5 @@ async def test_worker_reconciles_and_verifies_controller_image(tmp_path, monkeyp
     assert state[0]["image_ref"] == image_ref
     assert agent.image_state_path.is_file()
     assert any(call and call[0] == "load" for call in calls)
+    assert agent.image_progress[image_id]["state"] == "ready"
+    assert agent.image_progress[image_id]["downloaded_bytes"] == len(content)

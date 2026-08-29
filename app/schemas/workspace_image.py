@@ -23,6 +23,16 @@ class WorkspaceImageUpdate(BaseModel):
     enabled: bool
 
 
+class WorkspaceImageWorkerProgress(BaseModel):
+    node_id: str
+    node_name: str
+    state: str = "pending"
+    downloaded_bytes: int = 0
+    total_bytes: int = 0
+    percent: float = 0.0
+    error: str = ""
+
+
 class WorkspaceImageOut(BaseModel):
     id: str
     template_id: str
@@ -40,5 +50,6 @@ class WorkspaceImageOut(BaseModel):
     updated_at: datetime
     synced_workers: int = 0
     total_workers: int = 0
+    workers: list[WorkspaceImageWorkerProgress] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

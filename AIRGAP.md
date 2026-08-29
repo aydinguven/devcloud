@@ -270,20 +270,24 @@ SHA-256 before loading it and report the synchronized checksum. They require no
 internet or registry access, and scheduling waits until the requested image is
 present on a worker.
 
-For a disconnected in-place update, back up first and pass the transferred,
-verified server release to the active host installer. It stages the release,
-loads the new OCI image, runs schema migrations from that image, and restarts
-the Quadlet service without replacing persistent bind mounts.
+For a disconnected in-place update, copy the signed
+`devcloud-platform-update-v*.tar.gz` bundle to the controller. It already
+contains the prebuilt controller and worker OCI archives and contains no
+workspace images. The updater creates a verified pre-update backup, stages the
+release, loads the OCI images, runs migrations, restarts the Quadlet services,
+and publishes the same bundle for enrolled workers.
 
-For a reviewed, unsigned Git ZIP or generated server bundle:
+Apply the signed bundle:
 
 ```bash
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-server-release.zip --allow-unsigned
+  --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
 ```
 
-Omit `--allow-unsigned` when the release is signed by a key in
-`/etc/devcloud/release-keyring.gpg`.
+The release is rejected unless its manifest signature chains to
+`/etc/devcloud/release-keyring.gpg`. It may alternatively be uploaded from
+**Admin > System > Platform Güncelleme**. Workers only need connectivity to the
+controller; they download the published bundle through authenticated endpoints.
 
 ## 6. Enable HTTPS from Admin
 

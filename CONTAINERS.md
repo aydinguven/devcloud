@@ -69,7 +69,9 @@ in a temporary authentication file for the duration of the import.
 
 Enrolled workers poll the authenticated image catalogue, download missing
 archives from the controller, verify their size and SHA-256, and load them into
-host Podman. Their heartbeat advertises the exact synchronized checksum.
+host Podman. Their heartbeat advertises the exact synchronized checksum and
+download/load progress; the Admin image catalogue displays a per-worker status
+bar and any synchronization error.
 Scheduling selects a worker only after it reports the currently enabled version
 of the image requested by the workspace template. No registry access is needed
 from worker hosts.
@@ -88,9 +90,13 @@ reinstalling controller and worker bundles.
 - Database migrations run before every controller start and are idempotent.
 - Application startup uses one Uvicorn process because worker tunnels are
   still process-local.
-- In-application source updates are disabled for container installations.
-  Run the host installer with a verified release bundle; it loads the new image
-  archive and restarts the Quadlet service.
+- Container hosts never build during an update. A trusted release builder
+  creates one signed platform bundle containing the already-built controller
+  and worker OCI archives. The Admin page or host installer queues that bundle
+  for the root-owned updater, which reloads the Quadlet definitions.
+- A Git repository contains only the small release-channel descriptor. It does
+  not replace the OCI build or carry multi-gigabyte image archives in normal
+  Git history.
 - SQLite and external PostgreSQL remain supported; the PostgreSQL container is
   only installed for the bundled database choice.
 - Backups target host bind mounts, so they survive image replacement.

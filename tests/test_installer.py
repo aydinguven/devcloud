@@ -55,6 +55,16 @@ def test_lifecycle_installer_imports_before_application_wheels_are_installed():
     assert result.returncode == 0, result.stderr
 
 
+def test_root_queued_updater_imports_with_system_python_only():
+    result = subprocess.run(
+        [sys.executable, "-S", "-c", "import app.installer.queued_update"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_install_plans_share_one_role_aware_engine(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)

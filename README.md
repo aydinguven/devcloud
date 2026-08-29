@@ -156,43 +156,40 @@ curl -I http://127.0.0.1:8000/login
 curl -I http://aifactory.tcmb.gov.tr/login
 ```
 
-### 2. Update an existing Git installation
+### 2. Update a managed installation
 
-The update must start from a clean tracked working tree. Pull the new updater
-first, then run it from the project directory:
+Managed production VMs do not run `git pull` and do not build images. A trusted
+builder builds the controller and worker OCI images once and packages both in a
+signed platform release. Git stores only the small checksum-pinned release
+channel descriptor.
 
-```bash
-cd /path/to/devcloud
-git status --short
-git pull --ff-only origin main
-bash deploy/update.sh
-```
-
-The updater uses a cross-process lock, installs changed Python dependencies,
-refreshes the DevCloud systemd unit, installs or updates the root-owned HTTPS
-ingress helper and watcher, and schedules a health-checked Uvicorn reload that
-does not stop running workspace containers. On the first upgrade to the HTTPS
-release it preserves the currently active Nginx configuration; applying the
-HTTPS form later takes ownership of the DevCloud Nginx server block.
-
-The same updater is available through **Admin > Platformu Güncelle** after the
-host has the required Git/network access and passwordless sudo policy already
-used by the update service account.
-
-Verify an update and inspect the asynchronous reload:
+Apply a configured Git channel or a transferred bundle from the host:
 
 ```bash
-tail -n 100 data/platform-update-restart.log
-systemctl status devcloud nginx devcloud-ingress.path --no-pager
-curl -I http://127.0.0.1:8000/login
+sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+  --source-type git --repository https://git.example/devcloud.git --ref stable
+
+sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+  --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
 ```
 
-If an older updater was used before this release and the watcher is still
-missing, install it once without replacing the active Nginx configuration:
+The same two choices are available under **Admin > System > Platform
+Güncelleme**. The web container only queues the request. A root-owned systemd
+service verifies the signature, creates a pre-update backup, loads immutable
+OCI archives, applies migrations, and restarts Quadlet services. The controller
+then publishes the same release to enrolled workers for authenticated OTA.
+Workspace images remain independently managed in the image catalogue.
+
+Verify the result:
 
 ```bash
-sudo env DEVCLOUD_INGRESS_APPLY_INITIAL=0 bash deploy/install_ingress.sh "$(systemctl show --property User --value devcloud)"
+systemctl status devcloud-controller devcloud-update.path --no-pager
+podman ps
+curl -fsS http://127.0.0.1:8000/healthz
 ```
+
+See [INSTALL.md](INSTALL.md) for release-builder and channel publication
+commands, and [AIRGAP.md](AIRGAP.md) for disconnected updates.
 
 ### 3. Manual Linux VM Setup
 

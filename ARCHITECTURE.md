@@ -80,17 +80,21 @@ the new release atomically, verify its
 manifest/signature, run migrations, refresh systemd units, and restart the
 selected services.
 
-Authenticated administrators may upload a signed release or explicitly approve
-an unsigned Git source ZIP. The web process only writes a queue;
-devcloud-update.path invokes a root-owned one-shot service to apply it. Workers
-obtain published releases through node-authenticated endpoints, validate
-SHA-256, and use the same root-owned queue.
+Authenticated administrators may select a Git release channel or upload a
+signed platform bundle. Git carries a checksum-pinned channel descriptor; the
+runtime artifact contains prebuilt controller and worker OCI archives and
+explicitly excludes workspace images. The web process only writes a queue;
+`devcloud-update.path` invokes a root-owned one-shot service to verify the
+signature, back up controller state, apply the release, and publish it to
+workers. Workers obtain releases through node-authenticated endpoints, validate
+SHA-256, and use the same root-owned queue. Production web requests cannot
+authorize unsigned root updates.
 
 ## Images and storage
 
-Base images are loaded or built on each worker and may be preloaded in an
-air-gap bundle. Administrator-built custom images require an external registry
-prefix so all workers can pull them. Workspace snapshots remain all-in-one
+Workspace images are managed separately from platform releases. The controller
+imports them from an OCI registry or tar archive, normalizes and verifies them,
+and serves them to workers over authenticated endpoints. Workspace snapshots remain all-in-one
 only: publishing a snapshot could export user data and therefore requires a
 future, separately authorized registry workflow. Workspace data remains on the
 assigned worker unless external storage is mounted at the configured workspace

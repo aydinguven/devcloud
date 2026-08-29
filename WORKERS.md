@@ -16,7 +16,12 @@ The short path is:
 4. Verify devcloud-worker.service is active and the node reports online.
 5. Add workspace images under **Admin > Workspace Image'ları**. The worker
    downloads and verifies enabled versions automatically; no image archives are
-   copied to the worker installation directory.
+   copied to the worker installation directory. The page shows download,
+   verification, Podman load, ready, and failed status for every worker.
+
+Platform updates are separate from workspace images. After the controller
+applies a signed platform bundle, it publishes that bundle to enrolled workers;
+workers verify its SHA-256 and apply it through their root-owned update queue.
 
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.

@@ -92,26 +92,55 @@ requested template.
 
 ## Updates
 
-For an operator-reviewed Git source ZIP:
+Production updates are build-once/deploy-many. Git is the release channel, not
+the runtime artifact: every application release builds the controller and
+worker OCI images once on a trusted builder, exports them into one signed
+platform bundle, and deploys that same bundle without building on the VMs.
+Workspace images are never included.
+
+On the release builder:
+
+    bash deploy/container/build-controller-image.sh
+    bash deploy/container/build-worker-image.sh
+    python3 deploy/build_platform_update.py \
+      --signing-key GPG_KEY_ID \
+      --channel-output /tmp/release-channel/devcloud-update-channel.json \
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+
+Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
+another configured branch/tag). Store the multi-gigabyte bundle in a Git
+release, an internal artifact server, or beside the channel file for a local
+repository. The descriptor pins its filename, size, and SHA-256.
+
+The controller installer asks for the Git repository and branch/tag and stores
+them in `/etc/devcloud/controller.env`. They can also be supplied directly:
+
+    sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+      --source-type git \
+      --repository https://git.example/devcloud.git \
+      --ref stable
+
+The same Git source or an uploaded signed bundle can be selected under
+**Admin > System > Platform Güncelleme**. The controller process only writes a
+request; `devcloud-update.path` invokes the root-owned updater. A verified
+pre-update database/configuration backup is created automatically. On success,
+the controller publishes the platform bundle to enrolled workers, which obtain
+it through authenticated release endpoints and use their own root-owned queue.
+
+For an air-gapped or local update:
+
+    sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+      --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+
+Official releases contain `release.json` and `release.json.asc` and are
+verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates are disabled
+on installed controllers. The CLI break-glass option is intended only for
+explicit development use when the host configuration enables it.
+
+For an operator-reviewed development source ZIP:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
       --bundle /root/devcloud-source.zip --allow-unsigned
-
-The allow-unsigned option is an explicit trust decision. Official releases
-should contain release.json and release.json.asc and be verified by
-/etc/devcloud/release-keyring.gpg.
-
-Build an official source release with:
-
-    python3 deploy/build_release.py --signing-key GPG_KEY_ID
-
-Container deployments update through the host installer, not through Git
-inside the controller container. A verified server air-gap bundle contains
-controller, worker, and PostgreSQL OCI archives. A worker bundle contains the
-worker archive. Update and reinstall therefore require no registry connection.
-
-Copy published worker releases to /srv/devcloud-downloads/releases. Worker
-downloads require its node ID/token; release source is not publicly exposed.
 
 ## Back up, restore, and uninstall
 
