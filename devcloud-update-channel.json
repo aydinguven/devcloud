@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "version": "3.4.0",
+  "bundle": {
+    "filename": "devcloud-platform-update-v3.4.0-2618582d19fe.tar.gz",
+    "url": "https://github.com/aydinguven/devcloud/releases/download/v3.4.0/devcloud-platform-update-v3.4.0-2618582d19fe.tar.gz",
+    "sha256": "06364f0e3584876531d56f325dbd55f5eb35ae91f8b3b90aa1330d945142c089",
+    "size": 269132763
+  }
+}
