@@ -1749,19 +1749,28 @@ class InstallerEngine:
         *,
         include_database: bool = False,
     ) -> None:
-        names = ["devcloud-update.path", "devcloud-update.service"]
+        managed_units = ["devcloud-update.path", "devcloud-update.service"]
+        generated_units = []
         if config.installs_worker:
-            names.append("devcloud-worker.service")
+            target = (
+                generated_units if config.containerized_worker else managed_units
+            )
+            target.append("devcloud-worker.service")
         if config.installs_controller:
-            names.append("devcloud-controller.service")
+            target = (
+                generated_units if config.containerized_controller else managed_units
+            )
+            target.append("devcloud-controller.service")
         if (
             include_database
             and config.containerized_controller
             and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
         ):
-            names.append("devcloud-postgresql.service")
-        for name in names:
+            generated_units.append("devcloud-postgresql.service")
+        for name in managed_units:
             self.runner.run(["systemctl", "disable", "--now", name])
+        for name in generated_units:
+            self.runner.run(["systemctl", "stop", name])
 
     def _remove_service_units(self, config: InstallConfig) -> None:
         systemd_dir = self.host_path("/etc/systemd/system")

@@ -315,6 +315,28 @@ def test_generated_quadlet_services_are_started_without_enable(tmp_path):
     )
 
 
+def test_generated_quadlet_services_are_stopped_without_disable(tmp_path):
+    runner = CommandRunner(dry_run=True)
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.ALL_IN_ONE)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine._stop_services(candidate, include_database=True)
+
+    generated = {
+        "devcloud-postgresql.service",
+        "devcloud-controller.service",
+        "devcloud-worker.service",
+    }
+    for unit in generated:
+        assert ["systemctl", "stop", unit] in runner.commands
+    assert not any(
+        command[:3] == ["systemctl", "disable", "--now"]
+        and any(unit in command for unit in generated)
+        for command in runner.commands
+    )
+
+
 def test_controller_public_url_drives_ingress_and_https_default(tmp_path):
     runner = CommandRunner()
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
