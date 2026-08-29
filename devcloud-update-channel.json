@@ -1,10 +1,10 @@
 {
   "format": 1,
-  "version": "3.4.2",
+  "version": "3.4.3",
   "bundle": {
-    "filename": "devcloud-platform-update-v3.4.2-a5998fca2824.tar.gz",
-    "url": "https://github.com/aydinguven/devcloud/releases/download/v3.4.2/devcloud-platform-update-v3.4.2-a5998fca2824.tar.gz",
-    "sha256": "e3a79b8d51353170f2d4aa20d10fcbee8a3789a48f96c77eb2bfa1b412c6b328",
-    "size": 269158706
+    "filename": "devcloud-platform-update-v3.4.3-58f4a62dd9b3.tar.gz",
+    "url": "https://github.com/aydinguven/devcloud/releases/download/v3.4.3/devcloud-platform-update-v3.4.3-58f4a62dd9b3.tar.gz",
+    "sha256": "2f3fb576674e8a0c4cfb4531ca294761a5d185278a1f0854f505fef3adebe028",
+    "size": 269165645
   }
 }
