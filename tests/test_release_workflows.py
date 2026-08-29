@@ -18,37 +18,49 @@ def test_ci_runs_tests_without_write_permissions():
     assert "contents: write" not in content
 
 
-def test_platform_release_is_restricted_to_release_triggers_and_rocky_runner():
+def test_platform_release_is_restricted_to_release_triggers_and_hosted_runner():
     content = workflow("release-platform.yml")
 
     assert "workflow_dispatch:" in content
     assert '"v*.*.*"' in content
     assert "pull_request:" not in content
-    assert "runs-on: [self-hosted, linux, x64, rocky10, devcloud-release]" in content
+    assert "runs-on: ubuntu-24.04" in content
+    assert "docker run --privileged --rm" in content
+    assert "rockylinux:10" in content
+    assert "self-hosted" not in content
     assert 'Manual releases must be dispatched from main.' in content
     assert 'Tag ${release_tag} does not match app version' in content
 
 
 def test_platform_release_builds_and_verifies_every_distribution_artifact():
-    content = workflow("release-platform.yml")
+    workflow_content = workflow("release-platform.yml")
+    builder = (
+        ROOT / "deploy" / "ci" / "build-release-assets.sh"
+    ).read_text(encoding="utf-8")
 
-    assert "deploy/container/build-controller-image.sh" in content
-    assert "deploy/container/build-worker-image.sh" in content
-    assert "deploy/build_platform_update.py" in content
-    assert "--bundle-role server" in content
-    assert "--bundle-role worker" in content
-    assert "--skip-image-build" in content
-    assert "--check-runtime" in content
-    assert "prepare_release" in content
-    assert "load_platform_release" in content
+    assert "deploy/ci/build-release-assets.sh" in workflow_content
+    assert "driver = \"vfs\"" in builder
+    assert "python -m pytest -q" in builder
+    assert "deploy/container/build-controller-image.sh" in builder
+    assert "deploy/container/build-worker-image.sh" in builder
+    assert "deploy/build_platform_update.py" in builder
+    assert "--bundle-role server" in builder
+    assert "--bundle-role worker" in builder
+    assert "--skip-image-build" in builder
+    assert "--check-runtime" in builder
+    assert "prepare_release" in builder
+    assert "load_platform_release" in builder
 
 
 def test_platform_release_publishes_quay_release_assets_and_stable_channel():
     content = workflow("release-platform.yml")
+    builder = (
+        ROOT / "deploy" / "ci" / "build-release-assets.sh"
+    ).read_text(encoding="utf-8")
 
     assert "QUAY_USERNAME" in content
     assert "QUAY_PASSWORD" in content
-    assert "podman push" in content
+    assert "podman push" in builder
     assert "gh release create" in content
     assert "gh release upload" in content
     assert "devcloud-update-channel.json" in content
@@ -59,8 +71,9 @@ def test_platform_release_publishes_quay_release_assets_and_stable_channel():
 def test_release_operator_guide_documents_required_controls():
     content = (ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
-    assert "If the GitHub mirror is public" in content
-    assert "isolated Rocky Linux 10" in content
+    assert "No self-hosted runner registration is required" in content
+    assert "privileged, disposable Rocky Linux" in content
+    assert "at least 8 GiB free" in content
     assert "QUAY_USERNAME" in content
     assert "RELEASE_GPG_PRIVATE_KEY" in content
     assert "--ref stable" in content

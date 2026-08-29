@@ -11,47 +11,35 @@ machine-managed `stable` branch.
 - `.github/workflows/ci.yml` runs the complete Python test suite on
   GitHub-hosted Ubuntu runners for pushes and pull requests targeting `main`.
 - `.github/workflows/release-platform.yml` runs only after a manual dispatch
-  from `main` or an exact `vMAJOR.MINOR.PATCH` tag. It requires a dedicated
-  Rocky Linux 10 release runner.
+  from `main` or an exact `vMAJOR.MINOR.PATCH` tag. It uses a GitHub-hosted
+  Ubuntu runner and performs the build in a privileged, disposable Rocky Linux
+  10 container.
 
 The release workflow deliberately does not run for pull requests.
 
 ## Release runner
 
-Use an isolated Rocky Linux 10 x86_64 VM with at least:
+No self-hosted runner registration is required. GitHub creates a fresh
+`ubuntu-24.04` runner for each release job. The workflow starts
+`rockylinux:10` with Docker's `--privileged` option, installs the Rocky build
+dependencies there, and runs Podman with the `vfs` storage driver. GitHub CLI
+and Git operations that publish the finished artifacts remain on the host.
 
-- 8 CPU cores;
-- 16 GB RAM;
-- 50 GB free SSD space;
-- outbound HTTPS access to GitHub, Python package indexes, Rocky repositories,
-  Red Hat UBI registries, Quay, and the PostgreSQL image registry.
+The standard GitHub-hosted runner has limited temporary storage. The workflow
+requires at least 8 GiB free before starting. If future platform images make
+the job exceed the standard runner, configure a larger GitHub-hosted runner or
+return to a disposable self-hosted release VM.
 
-The runner must provide these commands:
-
-`git`, `python3`, `podman`, `dnf`, `createrepo_c`, `gh`, and
-optionally `gpg` when signing is enabled. Python must support `venv`, and
-`dnf download` must be available. Installing `pigz` is recommended.
-
-Register the VM as a repository runner and give it all of these labels:
-
-`self-hosted`, `linux`, `x64`, `rocky10`, `devcloud-release`.
-
-Follow GitHub's current self-hosted runner registration instructions rather
-than embedding a registration token in this repository:
-
-https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners
-
-If the GitHub mirror is public, do not put this runner on a sensitive company
-network. For a private mirror, restrict the runner to this repository and its
-release workflow. In either case, prefer a disposable release VM with no
-unrelated credentials or data.
+The job requires outbound HTTPS access to GitHub, Python package indexes, Rocky
+repositories, Red Hat UBI registries, Quay, and the PostgreSQL image registry.
+The runner and Rocky build container are discarded after the job.
 
 ## Repository configuration
 
 Create a GitHub Environment named `release`. Required reviewers are
 recommended for production releases. Configure Actions workflow permissions to
 allow the repository `GITHUB_TOKEN` to write repository contents and create
-releases.
+releases. GitHub-hosted runners must be enabled for the repository.
 
 Add these environment or repository secrets when Quay publishing is enabled:
 
@@ -63,7 +51,7 @@ Optional release-signing secrets:
 - `RELEASE_GPG_PRIVATE_KEY`: ASCII-armored private release key;
 - `RELEASE_GPG_KEY_ID`: fingerprint of that key.
 
-The signing key must be usable non-interactively on the isolated runner. The
+The signing key must be usable non-interactively in the release job. The
 workflow exports its public key as `devcloud-release-keyring.gpg` alongside
 the bundles.
 
@@ -129,5 +117,5 @@ replaced, and `stable` advances only after all builds and verification steps
 succeed. If bundle publication succeeds but the channel update fails, rerun the
 same workflow after correcting branch permissions.
 
-Periodically prune unused Podman images and runner temporary data. Do not delete
-an active job's working directory or image store.
+Each GitHub-hosted run starts clean, so there is no persistent Podman image
+store or release workspace to maintain.
