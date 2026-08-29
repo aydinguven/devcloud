@@ -51,18 +51,12 @@ async def test_download_listing_file_and_range_support(
     assert worker_filename in listing.text
     assert legacy_filename in listing.text
     assert "CPU Worker" in listing.text
-    assert "http://test/download/install-worker.sh" in listing.text
+    assert "http://test/download/install-worker.sh" not in listing.text
     assert listing.headers["cache-control"] == "private, no-store"
 
     bootstrap = await client.get("/download/install-worker.sh")
-    assert bootstrap.status_code == 200
-    assert bootstrap.headers["content-type"].startswith("text/plain")
-    assert bootstrap.headers["cache-control"] == "private, no-store"
-    assert f"http://test/download/{worker_filename}" in bootstrap.text
-    assert f"http://test/download/{worker_filename}.sha256" in bootstrap.text
-    assert "read -r -s NODE_TOKEN" in bootstrap.text
-    assert 'NODE_ID="${DEVCLOUD_NODE_ID:-}"' in bootstrap.text
-    assert "__BUNDLE_URL__" not in bootstrap.text
+    assert bootstrap.status_code == 410
+    assert "tek kullanımlık kurulum komutu" in bootstrap.json()["detail"]
 
     response = await client.get(f"/download/{filename}")
     assert response.status_code == 200
@@ -100,11 +94,11 @@ async def test_downloads_are_disabled_by_default(
     assert (
         await client.get("/download/devcloud-offline-abcdef123456.tar")
     ).status_code == 404
-    assert (await client.get("/download/install-worker.sh")).status_code == 404
+    assert (await client.get("/download/install-worker.sh")).status_code == 410
 
 
 @pytest.mark.asyncio
-async def test_worker_bootstrap_uses_configured_public_base_url(
+async def test_legacy_worker_bootstrap_is_retired_even_with_public_base_url(
     client: AsyncClient,
     db_session: AsyncSession,
     tmp_path: Path,
@@ -132,6 +126,5 @@ async def test_worker_bootstrap_uses_configured_public_base_url(
         headers={"Host": "attacker.invalid"},
     )
 
-    assert response.status_code == 200
-    assert f"https://devcloud.example.com/download/{filename}" in response.text
-    assert "attacker.invalid" not in response.text
+    assert response.status_code == 410
+    assert "tek kullanımlık kurulum komutu" in response.json()["detail"]

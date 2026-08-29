@@ -5,6 +5,7 @@ from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
+from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 
 __all__ = [
     "Base",
@@ -17,4 +18,5 @@ __all__ = [
     "MlflowSettings",
     "DownloadSettings",
     "WorkspaceImage",
+    "WorkerBootstrapTicket",
 ]

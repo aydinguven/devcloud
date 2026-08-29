@@ -170,7 +170,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.1-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -334,12 +334,10 @@ at `/download/`. Administrators can trigger either verified background rebuild
 from the Admin page after enabling the download settings documented in
 [AIRGAP.md](AIRGAP.md).
 
-After publishing a Worker bundle, a connected worker can bootstrap directly
-from the controller without placing its enrollment token on the command line:
-
-```bash
-curl -fsSL https://controller.example.com/download/install-worker.sh | sudo bash
-```
+After controller installation, open **Admin > Worker Node'ları** and generate a
+10-minute, single-use installation command. Run the generated command as root on
+the new worker. The script asks only for the worker name; the controller creates
+the node and enrollment token, then serves the checksummed platform release.
 
 The initial bootstrap/controller address is `http://10.253.6.189` and can be
 changed without restarting DevCloud from the Offline Downloads card in Admin.

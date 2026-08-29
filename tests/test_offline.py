@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.orchestrator.podman_service import PodmanService
+from app.platform_release import load_platform_release
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -89,6 +90,44 @@ def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     (images_dir / "unlisted.tar").write_bytes(b"unlisted")
     with pytest.raises(package_offline.PackageError, match="unlisted"):
         package_offline.verify_staged_bundle(bundle_root)
+
+
+def test_server_bundle_manifests_support_controller_worker_bootstrap(tmp_path: Path):
+    bundle_root = tmp_path / "devcloud"
+    (bundle_root / "offline" / "wheels").mkdir(parents=True)
+    (bundle_root / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (bundle_root / "app.py").write_text("print('devcloud')\n", encoding="utf-8")
+    (bundle_root / "offline/wheels/fastapi-1-py3-none-any.whl").write_bytes(b"wheel")
+    add_controller_images(bundle_root)
+    package_offline.write_manifest(
+        bundle_root,
+        git_commit="c" * 40,
+        python_versions=["3.12"],
+    )
+    package_offline.write_platform_release(
+        bundle_root,
+        version="9.9.9",
+        source_commit="c" * 40,
+        controller_digest="sha256:" + "a" * 64,
+        worker_digest="sha256:" + "b" * 64,
+    )
+    release_path = package_offline.write_release_manifest(
+        bundle_root,
+        version="9.9.9",
+        source_commit="c" * 40,
+    )
+
+    platform = load_platform_release(bundle_root)
+    release = json.loads(release_path.read_text(encoding="utf-8"))
+    indexed = {artifact["path"] for artifact in release["artifacts"]}
+    actual = {
+        path.relative_to(bundle_root).as_posix()
+        for path in bundle_root.rglob("*")
+        if path.is_file() and path != release_path
+    }
+    assert platform.version == "9.9.9"
+    assert platform.worker.digest == "sha256:" + "b" * 64
+    assert indexed == actual
 
 
 def test_worker_manifest_role_is_verified(tmp_path: Path):

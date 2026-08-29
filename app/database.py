@@ -217,6 +217,7 @@ async def init_db() -> None:
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
     from app.models.download_settings import DownloadSettings  # noqa: F401
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
+    from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

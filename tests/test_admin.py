@@ -86,7 +86,7 @@ async def test_admin_access_controls(client: AsyncClient):
     workers_page = await client.get("/admin/workers", headers=admin_headers)
     assert workers_page.status_code == 200
     assert "Worker Node'ları" in workers_page.text
-    assert 'id="node-create-form"' in workers_page.text
+    assert 'id="worker-bootstrap-ticket-form"' in workers_page.text
 
     integrations_page = await client.get(
         "/admin/integrations", headers=admin_headers

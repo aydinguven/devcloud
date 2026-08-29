@@ -14,7 +14,6 @@ class DownloadSettingsUpdate(BaseModel):
 
 class DownloadSettingsOut(BaseModel):
     public_base_url: str
-    worker_bootstrap_url: str
     https_enabled: bool
     https_hostname: str
     http_fallback_enabled: bool

@@ -91,9 +91,6 @@ async def test_download_update_controls_are_admin_only(
     assert saved_settings.status_code == 200
     assert saved_settings.json() == {
         "public_base_url": "https://master.internal.example",
-        "worker_bootstrap_url": (
-            "https://master.internal.example/download/install-worker.sh"
-        ),
         "https_enabled": False,
         "https_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
         "http_fallback_enabled": True,

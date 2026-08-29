@@ -1,6 +1,7 @@
 import hashlib
 import json
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,11 @@ from app.installer.update_source import (
     validate_git_source,
     write_channel,
 )
-from app.platform_release import load_platform_release, publish_platform_bundle
+from app.platform_release import (
+    load_platform_release,
+    publish_platform_bundle,
+    publish_platform_root,
+)
 from app.release_catalog import latest_release
 from deploy.build_platform_update import _image_digest
 
@@ -77,6 +82,40 @@ def test_platform_bundle_publication_is_visible_to_workers(tmp_path):
     assert latest.path == published
     assert latest.version == "3.4.0"
     assert published.with_name(published.name + ".sha256").is_file()
+
+
+def test_clean_install_tree_is_published_as_verified_worker_bundle(tmp_path):
+    root = _platform_root(tmp_path / "release")
+    artifacts = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        artifacts.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": path.stat().st_size,
+            }
+        )
+    (root / "release.json").write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "version": "3.4.0",
+                "source_commit": "abcdef123456",
+                "artifacts": artifacts,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    published = publish_platform_root(root, tmp_path / "downloads")
+
+    assert published.name == "devcloud-platform-update-v3.4.0-abcdef123456.tar.gz"
+    assert latest_release(tmp_path / "downloads").path == published
+    with tarfile.open(published, "r:gz") as archive:
+        members = {member.name for member in archive.getmembers() if member.isfile()}
+    assert "devcloud-3.4.0/release.json" in members
+    assert "devcloud-3.4.0/platform-release.json" in members
+    assert "devcloud-3.4.0/offline/worker-images/devcloud-worker.tar" in members
 
 
 def test_git_channel_resolves_a_checksum_pinned_relative_bundle(tmp_path):

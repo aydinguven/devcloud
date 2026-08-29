@@ -197,19 +197,19 @@ page.
 The public listing is `https://dev.aydin.cloud/download/`. Keep the entire
 hostname behind Cloudflare Access if downloads should be restricted.
 
-When workers can reach the controller, the listing also exposes a one-command
-bootstrapper:
-
-```bash
-curl -fsSL https://dev.aydin.cloud/download/install-worker.sh | sudo bash
-```
+When workers can reach the controller, generate a 10-minute, single-use command
+under **Admin > Worker Node'ları**. Run that exact command as root on the worker.
+Only the worker name is requested; the controller creates the node and token and
+serves its locally published, checksummed platform release. This works without
+internet access because controller and worker communicate only over the internal
+network.
 
 The initial Controller URL is `http://10.253.6.189`. Change it at any time under
 **Admin > Çevrim Dışı İndirmeler > Worker kurulumunda kullanılacak Controller URL**.
 `DOWNLOAD_PUBLIC_BASE_URL` in `.env` remains the first-run fallback, including
-when DevCloud runs behind a reverse proxy. The bootstrapper still uses the separately verified worker archive;
-it does not duplicate installation logic. It prompts for node ID and token via
-the terminal and never places the token in the command line.
+when DevCloud runs behind a reverse proxy. The ticket token is short-lived and
+single-use; the permanent enrollment token is returned only to the bootstrap
+process and never appears in the command line.
 
 ## 5. Verify and install inside the air gap
 
@@ -281,7 +281,7 @@ Apply the signed bundle:
 
 ```bash
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.1-COMMIT.tar.gz
 ```
 
 The release is rejected unless its manifest signature chains to

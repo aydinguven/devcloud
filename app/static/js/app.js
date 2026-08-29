@@ -598,27 +598,21 @@ function initDirectorySettings() {
 }
 
 function initNodeManagement() {
-  const form = document.getElementById("node-create-form");
   const tokenBox = document.getElementById("node-enrollment-token");
   const status = document.getElementById("node-create-status");
+  const ticketForm = document.getElementById("worker-bootstrap-ticket-form");
+  const ticketBox = document.getElementById("worker-bootstrap-ticket-box");
+  const ticketStatus = document.getElementById("worker-bootstrap-ticket-status");
 
   function renderWorkerTokenBox(data) {
     if (!tokenBox) return;
     const controllerUrl = window.location.origin;
-    const singleLineCmd = `curl -fsSL '${controllerUrl}/download/install-worker.sh' | sudo DEVCLOUD_NODE_ID='${data.id}' bash`;
 
     tokenBox.style.display = "block";
     tokenBox.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0.5rem;">
         <strong style="color:var(--text-main,#fff);font-size:0.95rem;">✨ Worker Token / Bağlantı Bilgisi: ${data.name}</strong>
         <span style="font-size:0.75rem;color:var(--text-muted,#9ca3af);">Token yalnızca şimdi gösterilir</span>
-      </div>
-      <div style="margin-bottom:0.75rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
-          <span style="font-size:0.85rem;font-weight:600;color:var(--accent,#38bdf8);">🚀 Tek Satırda Kurulum ve Bağlantı Komutu:</span>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-worker-cmd" style="padding:0.25rem 0.65rem;font-size:0.75rem;">Kopyala</button>
-        </div>
-        <pre id="worker-single-line-cmd" style="background:rgba(0,0,0,0.4);padding:0.6rem;border-radius:4px;overflow-x:auto;margin:0;font-size:0.8rem;white-space:pre-wrap;word-break:break-all;color:#a7f3d0;">${singleLineCmd}</pre>
       </div>
       <div style="font-size:0.8rem;color:var(--text-muted,#9ca3af);margin-top:0.75rem;line-height:1.5;">
         <div><strong>Node ID:</strong> <code style="color:#e2e8f0;">${data.id}</code></div>
@@ -631,26 +625,82 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         </div>
       </div>
     `;
+  }
 
-    const copyBtn = document.getElementById("btn-copy-worker-cmd");
-    if (copyBtn) {
-      copyBtn.addEventListener("click", async () => {
+  function renderWorkerBootstrapTicket(data) {
+    if (!ticketBox) return;
+    ticketBox.style.display = "block";
+    ticketBox.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.75rem;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:.5rem;flex-wrap:wrap;">
+        <strong style="color:var(--text-main,#fff);font-size:.95rem;">Worker Kurulum Komutu</strong>
+        <span id="worker-bootstrap-expiry" style="font-size:.75rem;color:var(--text-muted,#9ca3af);"></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.35rem;">
+        <span style="font-size:.85rem;font-weight:600;color:var(--accent,#38bdf8);">Yeni worker üzerinde root olarak çalıştırın:</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-bootstrap-ticket" style="padding:.25rem .65rem;font-size:.75rem;">Kopyala</button>
+      </div>
+      <pre id="worker-bootstrap-ticket-command" style="background:rgba(0,0,0,.4);padding:.65rem;border-radius:4px;overflow-x:auto;margin:0;font-size:.8rem;white-space:pre-wrap;overflow-wrap:anywhere;color:#a7f3d0;"></pre>
+      <p style="margin:.65rem 0 0;font-size:.76rem;color:var(--text-muted,#9ca3af);">Komut yalnızca bir kez kullanılabilir. Script worker adını sorar ve node/token oluşturma işlemini otomatik tamamlar.</p>
+    `;
+    const command = document.getElementById("worker-bootstrap-ticket-command");
+    const expiry = document.getElementById("worker-bootstrap-expiry");
+    const copyButton = document.getElementById("btn-copy-bootstrap-ticket");
+    if (command) command.textContent = data.command;
+    if (expiry) {
+      const expiresAt = new Date(data.expires_at);
+      expiry.textContent = `Geçerlilik: ${expiresAt.toLocaleString()}`;
+    }
+    if (copyButton) {
+      copyButton.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(singleLineCmd);
-          copyBtn.textContent = "Kopyalandı! ✓";
-          setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
-        } catch (e) {
+          await navigator.clipboard.writeText(data.command);
+          copyButton.textContent = "Kopyalandı! ✓";
+        } catch (_) {
           const textarea = document.createElement("textarea");
-          textarea.value = singleLineCmd;
+          textarea.value = data.command;
           document.body.appendChild(textarea);
           textarea.select();
           document.execCommand("copy");
-          document.body.removeChild(textarea);
-          copyBtn.textContent = "Kopyalandı! ✓";
-          setTimeout(() => { copyBtn.textContent = "Kopyala"; }, 2000);
+          textarea.remove();
+          copyButton.textContent = "Kopyalandı! ✓";
         }
+        setTimeout(() => { copyButton.textContent = "Kopyala"; }, 2000);
       });
     }
+  }
+
+  if (ticketForm) {
+    ticketForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = ticketForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      if (ticketStatus) {
+        ticketStatus.textContent = "Tek kullanımlık komut oluşturuluyor...";
+        ticketStatus.className = "quota-form-status";
+      }
+      try {
+        const response = await fetch("/api/admin/worker-bootstrap-tickets", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Kurulum komutu oluşturulamadı (${response.status})`);
+        }
+        renderWorkerBootstrapTicket(data);
+        if (ticketStatus) {
+          ticketStatus.textContent = "Komut hazır. Yeni worker üzerinde çalıştırın.";
+          ticketStatus.className = "quota-form-status quota-status-success";
+        }
+      } catch (error) {
+        if (ticketStatus) {
+          ticketStatus.textContent = error.message;
+          ticketStatus.className = "quota-form-status quota-status-error";
+        }
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   // Real-time SSE Stream for Nodes Telemetry and Status
@@ -712,34 +762,6 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         } catch (_) {}
       };
     } catch (_) {}
-  }
-
-  if (form) {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const button = form.querySelector("button[type=submit]");
-      button.disabled = true;
-      status.textContent = "Worker kaydediliyor...";
-      try {
-        const response = await fetch("/api/admin/nodes", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({name: form.elements.name.value.trim(), schedulable: true, labels: {}}),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.detail || `Worker eklenemedi (${response.status})`);
-
-        renderWorkerTokenBox(data);
-        status.textContent = "Worker kaydedildi. Yukarıdaki tek satırlık komutu kopyalayıp worker makinesinde çalıştırın.";
-        status.className = "quota-form-status quota-status-success";
-        form.reset();
-      } catch (error) {
-        status.textContent = error.message;
-        status.className = "quota-form-status quota-status-error";
-      } finally {
-        button.disabled = false;
-      }
-    });
   }
 
   document.querySelectorAll(".node-toggle-schedule").forEach(button => {
@@ -984,7 +1006,6 @@ function initDownloadSettings() {
   if (!form) return;
   const saveButton = document.getElementById("btn-save-download-settings");
   const status = document.getElementById("download-settings-status");
-  const command = document.getElementById("worker-bootstrap-command");
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1005,9 +1026,6 @@ function initDownloadSettings() {
         throw new Error(data.detail || `Controller URL kaydedilemedi (${response.status})`);
       }
       form.elements.public_base_url.value = data.public_base_url;
-      if (command) {
-        command.textContent = `# Önerilen: Controller'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
-      }
       status.textContent = "Controller URL kaydedildi; yeni bootstrap scriptleri bu adresi kullanacak.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
@@ -1027,7 +1045,6 @@ function initHttpsSettings() {
   const badge = document.getElementById("https-status-badge");
   const summary = document.getElementById("https-certificate-summary");
   const masterForm = document.getElementById("download-settings-form");
-  const command = document.getElementById("worker-bootstrap-command");
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1076,9 +1093,6 @@ function initHttpsSettings() {
         summary.textContent = `Yüklü sertifika: ${data.certificate_subject} · Son geçerlilik: ${data.certificate_not_after} · SHA-256: ${data.certificate_sha256}`;
       }
       if (masterForm) masterForm.elements.public_base_url.value = data.public_base_url;
-      if (command) {
-        command.textContent = `# Önerilen: Controller'dan tek satırda kurun\ncurl -fsSL '${data.worker_bootstrap_url}' | sudo bash`;
-      }
       status.textContent = data.https_enabled
         ? "HTTPS etkinleştirildi. DNS ve istemci TCMB-CA güvenini ayrıca doğrulayın."
         : "HTTPS devre dışı; port 80 HTTP erişimi etkin.";

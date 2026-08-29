@@ -13,7 +13,11 @@ from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import prepare_release
 from app.installer.ui import InstallerUI
 from app.installer.update_source import resolve_update_bundle
-from app.platform_release import load_platform_release, publish_platform_bundle
+from app.platform_release import (
+    load_platform_release,
+    publish_platform_bundle,
+    publish_platform_root,
+)
 from deploy.package_offline import PackageError, verify_staged_bundle
 
 
@@ -196,11 +200,24 @@ def main(argv: list[str] | None = None) -> int:
                     _worker_config_from_environment(role)
                     or ui.collect_install_config(role)
                 )
-            _execute_plan(
+            applied = _execute_plan(
                 engine.build_install_plan(config),
                 ui,
                 assume_yes=args.yes,
             )
+            if (
+                applied
+                and not args.dry_run
+                and config.installs_controller
+                and (engine.project_root / "platform-release.json").is_file()
+            ):
+                published = publish_platform_root(
+                    engine.project_root,
+                    engine.host_path(config.downloads_root),
+                )
+                ui.write(
+                    f"Worker installation artifact published: {published.name}"
+                )
             return 0
 
         if command == "status":

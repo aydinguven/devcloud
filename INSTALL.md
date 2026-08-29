@@ -67,15 +67,16 @@ into the worker container, and does not require a privileged container. This
 mode is intended for dedicated, trusted worker VMs. Existing native/rootless
 worker installations retain their saved runtime during repair and update.
 
-When the worker can reach the controller, publish a worker bundle and run:
+When the worker can reach the controller, open **Admin > Worker Node'ları** and
+select **Yeni Worker Kurulum Komutu Üret**. Run the generated command as root on
+the worker within 10 minutes. The command is single-use. It asks only for the
+worker name, creates the node and enrollment token through the controller, then
+downloads and verifies the controller's current platform release before invoking
+the unified installer. Set `DEVCLOUD_WORKER_NAME` to suppress the only prompt.
 
-    curl -fsSL https://controller.example/download/install-worker.sh | sudo bash
-
-The bootstrap downloads the bundle and checksum from the controller, verifies
-the checksum, asks for the node ID/token through /dev/tty, and invokes the same
-unified installer. Installation succeeds only after the controller accepts the
-credentials and reports the worker tunnel connected. Non-interactive provisioning may set
-DEVCLOUD_CONTROLLER_URL, DEVCLOUD_NODE_ID, and DEVCLOUD_NODE_TOKEN.
+The reusable `/download/install-worker.sh` endpoint is intentionally disabled;
+never place a permanent node token in a URL or shell command. If enrollment is
+interrupted after the ticket is consumed, generate a fresh command in Admin.
 
 A JSON answer file can be applied with:
 
@@ -105,7 +106,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.1-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -130,7 +131,7 @@ it through authenticated release endpoints and use their own root-owned queue.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.4.0-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.4.1-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates are disabled

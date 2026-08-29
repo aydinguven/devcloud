@@ -3,11 +3,12 @@ import hashlib
 import json
 import os
 import secrets
+import shlex
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +35,7 @@ from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.custom_template import CustomTemplate
+from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.agents.manager import agent_manager
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -50,6 +52,7 @@ from app.schemas.workspace_image import (
     WorkspaceImageRegistryImport,
     WorkspaceImageUpdate,
 )
+from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.config import settings
 from app.installer.platform import InstallerError
 from app.installer.update_source import validate_git_source
@@ -76,6 +79,13 @@ from app.workspace_image_service import (
     image_storage_root,
     import_registry_image,
     import_uploaded_archive,
+)
+from app.worker_bootstrap import (
+    WORKER_BOOTSTRAP_TTL_SECONDS,
+    controller_base_url,
+    current_platform_release,
+    new_ticket_token,
+    ticket_hash,
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -366,7 +376,6 @@ def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:
     base_url = record.public_base_url.rstrip("/")
     return DownloadSettingsOut(
         public_base_url=base_url,
-        worker_bootstrap_url=f"{base_url}/download/install-worker.sh",
         https_enabled=record.https_enabled,
         https_hostname=record.https_hostname,
         http_fallback_enabled=record.http_fallback_enabled,
@@ -597,6 +606,39 @@ async def list_nodes(
 ):
     nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
     return [_node_out(node) for node in nodes]
+
+
+@admin_router.post(
+    "/worker-bootstrap-tickets",
+    response_model=WorkerBootstrapTicketCreated,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_worker_bootstrap_ticket(
+    request: Request,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Create a short-lived command that may enroll exactly one worker."""
+    current_platform_release()
+    token = new_ticket_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        seconds=WORKER_BOOTSTRAP_TTL_SECONDS
+    )
+    db.add(
+        WorkerBootstrapTicket(
+            token_hash=ticket_hash(token),
+            created_by_user_id=_admin.id,
+            expires_at=expires_at,
+        )
+    )
+    await db.commit()
+    base_url = await controller_base_url(request, db)
+    install_url = f"{base_url}/api/bootstrap/workers/{token}/install.sh"
+    return WorkerBootstrapTicketCreated(
+        install_url=install_url,
+        command=f"curl -fsSL {shlex.quote(install_url)} | sudo bash",
+        expires_at=expires_at,
+    )
 
 
 @admin_router.post("/nodes", response_model=NodeCreated, status_code=status.HTTP_201_CREATED)

@@ -59,6 +59,18 @@ def test_admin_has_separate_worker_offline_bundle_controls():
     assert "initHttpsSettings()" in javascript
 
 
+def test_admin_generates_single_use_worker_bootstrap_commands():
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+
+    assert 'id="worker-bootstrap-ticket-form"' in template
+    assert 'id="worker-bootstrap-ticket-box"' in template
+    assert "/api/admin/worker-bootstrap-tickets" in javascript
+    assert "renderWorkerBootstrapTicket" in javascript
+    assert "10 dakika" in template
+    assert "download/install-worker.sh' | sudo bash" not in template
+
+
 def test_admin_panel_exposes_category_navigation():
     template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
         encoding="utf-8"
@@ -112,7 +124,7 @@ def test_dense_data_views_have_responsive_overflow_guards():
     assert 'class="worker-sync-item"' in javascript
 
 
-def test_public_download_page_exposes_worker_bootstrap_command():
+def test_worker_bootstrap_uses_one_time_admin_command():
     template = (PROJECT_ROOT / "app/templates/downloads.html").read_text(
         encoding="utf-8"
     )
@@ -120,16 +132,16 @@ def test_public_download_page_exposes_worker_bootstrap_command():
         encoding="utf-8"
     )
 
-    assert "worker_bootstrap_url" in template
-    assert "curl -fsSL" in template
+    assert "Admin &gt; Worker Node'ları" in template
+    assert "worker_bootstrap_url" not in template
     assert "devcloud-setup.sh" in bootstrap
     assert "--yes install worker" in bootstrap
     assert "sha256sum -c" in bootstrap
-    assert "tar -xf" in bootstrap
-    assert "tar -xzf" not in bootstrap
+    assert 'tar -xf "${BUNDLE_PATH}"' in bootstrap
     assert "devcloud-offline-*.tar.gz.sha256" in template
     assert "devcloud-worker-offline-*.tar.gz.sha256" in template
-    assert "read -r -s NODE_TOKEN" in bootstrap
+    assert "Worker name" in bootstrap
+    assert "/api/bootstrap/workers/" not in bootstrap
     assert "DEVCLOUD_NODE_TOKEN" not in template
 
 

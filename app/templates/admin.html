@@ -243,18 +243,7 @@ sha256sum -c devcloud-offline-*.tar.gz.sha256
 tar -xzf devcloud-offline-*.tar.gz
 cd devcloud
   sudo bash deploy/deploy_offline.sh</pre>
-      <p style="margin:.75rem 0 .5rem;"><strong>Worker:</strong> Önce controller panelinden node ID ve token üretin.</p>
-      <pre id="worker-bootstrap-command" class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem;"># Önerilen: Controller'dan tek satırda kurun
-curl -fsSL '{{ download_public_base_url }}/download/install-worker.sh' | sudo bash
-
-# Alternatif: arşivi elle taşıyın
-sha256sum -c devcloud-worker-offline-*.tar.gz.sha256
-tar -xzf devcloud-worker-offline-*.tar.gz
-cd devcloud-worker
-sudo install -d -m 0755 /etc/devcloud
-sudo install -m 0600 deploy/worker.env.example /etc/devcloud/worker.env
-sudo vi /etc/devcloud/worker.env
-sudo bash deploy/deploy_worker_offline.sh</pre>
+      <p style="margin:.75rem 0 .5rem;"><strong>Worker:</strong> Worker Node'ları bölümünden 10 dakika geçerli tek kullanımlık kurulum komutu üretin. Komut node kaydını ve token oluşturmayı otomatik tamamlar.</p>
     </div>
   </details>
 </div>
@@ -276,23 +265,19 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem; color: var(--text-main);">
-        Worker makinesinde aşağıdaki tek satırlık komutu çalıştırarak paketin Controller'dan indirilmesini ve otomatik kurulmasını sağlayabilirsiniz:
+        Aşağıdaki butonla tek kullanımlık komut üretin ve yeni worker üzerinde çalıştırın. Script yalnızca worker adını sorar; node ID ve kalıcı token controller tarafından otomatik oluşturulur.
       </p>
-      <pre class="terminal-window" style="font-size: 0.8rem; padding: 0.75rem; margin-bottom: 0.5rem; background: #0f172a; color: #f8fafc;">curl -fsSL '{{ download_public_base_url }}/download/install-worker.sh' | sudo bash</pre>
       <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
-        <em>İpucu:</em> Yeni bir worker kaydettiğinizde Node ID hazır komuta eklenir; gizli token terminalden istenir ve shell geçmişine yazılmaz.
+        Her komut yalnızca bir worker kaydedebilir ve 10 dakika sonra geçersiz olur. HTTPS kullanılması önerilir.
       </p>
     </div>
   </details>
 
-  <form id="node-create-form" style="display:flex;gap:.75rem;align-items:end;margin-bottom:1.25rem;flex-wrap:wrap;">
-    <label class="form-group" style="margin:0;flex:1;min-width:240px;">
-      <span class="form-label">Worker adı</span>
-      <input class="form-input" name="name" placeholder="cpu-worker-01" pattern="^[a-zA-Z0-9_.-]+$" required>
-    </label>
-    <button class="btn btn-primary" type="submit" style="white-space: nowrap;">Worker Ekle</button>
-    <span id="node-create-status" class="quota-form-status" role="status"></span>
+  <form id="worker-bootstrap-ticket-form" style="display:flex;gap:.75rem;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;">
+    <button class="btn btn-primary" type="submit" style="white-space:nowrap;">Tek Kullanımlık Kurulum Komutu Üret</button>
+    <span id="worker-bootstrap-ticket-status" class="quota-form-status" role="status"></span>
   </form>
+  <div id="worker-bootstrap-ticket-box" class="terminal-window" style="display:none;margin-bottom:1.25rem;padding:1rem;"></div>
   <div id="node-enrollment-token" class="terminal-window" style="display:none;margin-bottom:1.25rem;padding:1rem;"></div>
   
   <div class="data-table-shell">

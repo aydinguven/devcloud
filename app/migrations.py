@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 class MigrationError(RuntimeError):
@@ -248,6 +248,9 @@ async def upgrade() -> None:
         if 4 not in applied:
             # init_db creates the portable workspace_images table.
             await _record_version(conn, 4, "controller-managed workspace images")
+        if 5 not in applied:
+            # init_db creates the portable worker_bootstrap_tickets table.
+            await _record_version(conn, 5, "single-use worker bootstrap tickets")
 
 
 async def current_version() -> int:

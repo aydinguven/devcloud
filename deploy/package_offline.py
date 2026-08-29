@@ -71,6 +71,14 @@ POSTGRESQL_SOURCE_IMAGE = os.getenv(
     "DEVCLOUD_POSTGRES_SOURCE_IMAGE",
     "quay.io/sclorg/postgresql-16-c10s:latest",
 )
+CONTROLLER_SOURCE_IMAGE = os.getenv(
+    "DEVCLOUD_CONTROLLER_SOURCE_IMAGE",
+    "quay.io/aaslangoren/devcloud:controller-{version}",
+)
+WORKER_SOURCE_IMAGE = os.getenv(
+    "DEVCLOUD_WORKER_SOURCE_IMAGE",
+    "quay.io/aaslangoren/devcloud:worker-{version}",
+)
 
 
 class PackageError(RuntimeError):
@@ -109,6 +117,108 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def image_digest(podman_bin: str, image: str) -> str:
+    result = run(
+        [podman_bin, "image", "inspect", "--format", "{{.Id}}", image],
+        capture_output=True,
+    )
+    value = (result.stdout or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", value):
+        value = f"sha256:{value}"
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise PackageError(f"Podman returned an invalid image digest for {image}")
+    return value
+
+
+def write_platform_release(
+    bundle_root: Path,
+    *,
+    version: str,
+    source_commit: str,
+    controller_digest: str,
+    worker_digest: str,
+) -> Path:
+    images = {}
+    for role, digest, archive_path, image, source in (
+        (
+            "controller",
+            controller_digest,
+            bundle_root / f"offline/controller-images/{CONTROLLER_IMAGE_ARCHIVE}.tar",
+            f"localhost/devcloud-controller:{version}",
+            CONTROLLER_SOURCE_IMAGE.format(version=version),
+        ),
+        (
+            "worker",
+            worker_digest,
+            bundle_root / f"offline/worker-images/{WORKER_IMAGE_ARCHIVE}.tar",
+            f"localhost/devcloud-worker:{version}",
+            WORKER_SOURCE_IMAGE.format(version=version),
+        ),
+    ):
+        if not archive_path.is_file() or archive_path.is_symlink():
+            raise PackageError(f"Platform {role} image archive is missing")
+        images[role] = {
+            "image": image,
+            "source": source,
+            "digest": digest,
+            "archive": archive_path.relative_to(bundle_root).as_posix(),
+            "sha256": sha256_file(archive_path),
+            "size": archive_path.stat().st_size,
+        }
+    path = bundle_root / "platform-release.json"
+    path.write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "version": version,
+                "source_commit": source_commit,
+                "workspace_images_included": False,
+                "images": images,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_release_manifest(
+    bundle_root: Path,
+    *,
+    version: str,
+    source_commit: str,
+) -> Path:
+    artifacts = []
+    for path in sorted(item for item in bundle_root.rglob("*") if item.is_file()):
+        relative = path.relative_to(bundle_root).as_posix()
+        if relative in {"release.json", "release.json.asc"}:
+            continue
+        artifacts.append(
+            {
+                "path": relative,
+                "size": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    target = bundle_root / "release.json"
+    target.write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "version": version,
+                "source_commit": source_commit,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "artifacts": artifacts,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return target
 
 
 def normalize_python_version(version: str) -> tuple[str, str]:
@@ -1018,6 +1128,23 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
             bundle_role=bundle_role,
             system_package_profile=system_package_profile,
         )
+        if bundle_role == "server":
+            write_platform_release(
+                bundle_root,
+                version=version,
+                source_commit=commit,
+                controller_digest=image_digest(
+                    args.podman_bin, f"localhost/devcloud-controller:{version}"
+                ),
+                worker_digest=image_digest(
+                    args.podman_bin, f"localhost/devcloud-worker:{version}"
+                ),
+            )
+            write_release_manifest(
+                bundle_root,
+                version=version,
+                source_commit=commit,
+            )
         print("\nVerifying staged artifacts...")
         verify_staged_bundle(bundle_root, expected_role=bundle_role)
         print(f"Creating {output_path.name}...")
