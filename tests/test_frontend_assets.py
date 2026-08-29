@@ -116,12 +116,65 @@ def test_dense_data_views_have_responsive_overflow_guards():
     assert ".responsive-card-table td::before" in corporate_css
     assert "content: attr(data-label)" in corporate_css
     assert ".worker-sync-item" in corporate_css
-    assert 'class="data-table-shell"' in admin
+    assert 'class="data-table-shell' in admin
     assert 'class="table responsive-card-table" id="admin-workspace-table"' in admin
     assert 'data-label="Worker"' in admin
     assert "responsive-card-table-shell image-catalog-shell" in images
     assert 'data-label="Digest / SHA-256"' in javascript
     assert 'class="worker-sync-item"' in javascript
+
+
+def test_worker_inventory_fits_admin_width_and_collapses_to_cards():
+    css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(
+        encoding="utf-8"
+    )
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "responsive-card-table-shell worker-table-shell" in template
+    assert 'class="table responsive-card-table" id="admin-nodes-table"' in template
+    for label in (
+        "Worker",
+        "Durum",
+        "CPU",
+        "RAM",
+        "Disk / Container",
+        "Etiketler",
+        "İşlemler",
+    ):
+        assert f'data-label="{label}"' in template
+    assert "#admin-nodes-table {" in css
+    assert "table-layout: fixed" in css
+    assert "#admin-nodes-table { min-width: 1050px; }" not in css
+    assert "@media (max-width: 1180px)" in css
+    assert ".worker-table-shell" in css
+    assert "content: attr(data-label)" in css
+
+
+def test_platform_update_has_clear_methods_release_summary_and_live_log():
+    css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(
+        encoding="utf-8"
+    )
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
+        encoding="utf-8"
+    )
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'class="card platform-update-card"' in template
+    assert 'class="platform-current-release"' in template
+    assert "platform-update-option--primary" in template
+    assert "Git Kanalından Güncelle" in template
+    assert "Yerel platform bundle" in template
+    assert 'class="platform-update-log"' in template
+    assert 'aria-live="polite"' in template
+    assert ".platform-update-options" in css
+    assert ".platform-git-fields" in css
+    assert ".platform-update-log" in css
+    assert '"badge-error"' in javascript
+    assert '"Kuyruğa alınıyor..."' in javascript
 
 
 def test_worker_bootstrap_uses_one_time_admin_command():

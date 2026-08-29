@@ -733,7 +733,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               }
               const cpuText = row.querySelector(".node-cpu-text");
               const cpuBar = row.querySelector(".node-cpu-bar");
-              if (cpuText) cpuText.innerHTML = `${d.cpu_percent}% <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">(${d.cpu_total}c)</span>`;
+              if (cpuText) cpuText.innerHTML = `${d.cpu_percent}% <span>(${d.cpu_total}c)</span>`;
               if (cpuBar) cpuBar.style.width = `${Math.min(d.cpu_percent, 100)}%`;
 
               const ramText = row.querySelector(".node-ram-text");
@@ -741,7 +741,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               const usedGb = (d.memory_used_mb / 1024).toFixed(1);
               const totalGb = (d.memory_total_mb / 1024).toFixed(1);
               const ramPct = d.memory_total_mb ? Math.min((d.memory_used_mb / d.memory_total_mb) * 100, 100) : 0;
-              if (ramText) ramText.innerHTML = `${usedGb}<span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">/${totalGb}G</span>`;
+              if (ramText) ramText.innerHTML = `${usedGb}<span>/${totalGb}G</span>`;
               if (ramBar) ramBar.style.width = `${ramPct}%`;
 
               const diskCell = row.querySelector(".node-disk-cell span");
@@ -835,7 +835,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         alert(error.message);
       } finally {
         button.disabled = false;
-        button.textContent = "⚡ Güncelle";
+        button.textContent = "Güncelle";
       }
     });
   });
@@ -1724,7 +1724,14 @@ function initAdminPlatformUpdater() {
       succeeded: "Tamamlandı", failed: "Başarısız", unknown: "Bilinmiyor",
     };
     updateState.textContent = labels[value.state] || value.state || "Bilinmiyor";
-    updateState.className = `badge ${value.state === "succeeded" ? "badge-running" : value.state === "failed" ? "badge-stopped" : "badge-neutral"}`;
+    const stateClass = value.state === "succeeded"
+      ? "badge-running"
+      : value.state === "failed"
+        ? "badge-error"
+        : value.state === "queued" || value.state === "running"
+          ? "badge-starting"
+          : "badge-neutral";
+    updateState.className = `badge ${stateClass}`;
     const serialized = JSON.stringify(value);
     if (serialized !== lastUpdateStatus && updateTerminal) {
       lastUpdateStatus = serialized;
@@ -1747,7 +1754,9 @@ function initAdminPlatformUpdater() {
   const submitQueuedUpdate = async (form, endpoint, confirmation) => {
     if (!confirm(confirmation)) return;
     const button = form.querySelector('button[type="submit"]');
+    const defaultButtonText = button.textContent;
     button.disabled = true;
+    button.textContent = "Kuyruğa alınıyor...";
     try {
       const response = await fetch(endpoint, { method: "POST", body: new FormData(form) });
       const data = await response.json().catch(() => ({}));
@@ -1757,6 +1766,7 @@ function initAdminPlatformUpdater() {
       renderQueuedUpdateStatus({ state: "failed", error: error.message });
     } finally {
       button.disabled = false;
+      button.textContent = defaultButtonText;
     }
   };
 
