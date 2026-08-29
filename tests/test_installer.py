@@ -612,6 +612,15 @@ def test_connected_container_worker_pulls_versioned_quay_image(tmp_path):
     assert ["podman", "tag", source, target] in runner.commands
 
 
+def test_platform_image_identity_accepts_podman_5_bare_image_id():
+    digest = "a" * 64
+
+    assert InstallerEngine._normalize_image_id(digest) == f"sha256:{digest}"
+    assert InstallerEngine._normalize_image_id(f"sha256:{digest}") == (
+        f"sha256:{digest}"
+    )
+
+
 def test_ui_collects_worker_connection_details():
     answers = iter(
         [

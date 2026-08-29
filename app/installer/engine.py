@@ -1339,6 +1339,13 @@ class InstallerEngine:
             f"quay.io/aaslangoren/devcloud:worker-{self.release_version}",
         )
 
+    @staticmethod
+    def _normalize_image_id(value: str) -> str:
+        image_id = value.strip().lower()
+        if re.fullmatch(r"[0-9a-f]{64}", image_id):
+            return f"sha256:{image_id}"
+        return image_id
+
     def _verify_platform_image(
         self,
         config: InstallConfig,
@@ -1359,7 +1366,8 @@ class InstallerEngine:
             ["podman", "image", "inspect", "--format", "{{.Id}}", image],
             capture_output=True,
         )
-        if not self.runner.dry_run and inspected.stdout.strip() != expected:
+        actual = self._normalize_image_id(inspected.stdout)
+        if not self.runner.dry_run and actual != expected:
             raise InstallerError(
                 f"Loaded {role} image identity does not match the signed platform manifest"
             )
