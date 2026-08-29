@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from app.installer import queued_update
 from app.installer.backup import (
     _postgres_cli_connection,
     create_backup,
@@ -63,6 +64,37 @@ def test_root_queued_updater_imports_with_system_python_only():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
+    tmp_path, monkeypatch
+):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    (queue / "pending.json").write_text(
+        json.dumps(
+            {
+                "source_type": "git",
+                "repository": "https://github.com/aydinguven/devcloud.git",
+                "ref": "stable",
+                "filename": "devcloud@stable",
+                "allow_unsigned": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_run(command, *, text, capture_output):
+        captured["command"] = command
+        return subprocess.CompletedProcess(command, 0, "updated", "")
+
+    monkeypatch.setenv("UPDATE_QUEUE_ROOT", str(queue))
+    monkeypatch.setattr(queued_update.subprocess, "run", fake_run)
+
+    assert queued_update.main() == 0
+    assert captured["command"][-1] == "--allow-unsigned"
+    assert "--source-type" in captured["command"]
 
 
 def test_install_plans_share_one_role_aware_engine(tmp_path):

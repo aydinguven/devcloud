@@ -281,13 +281,15 @@ Apply the signed bundle:
 
 ```bash
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.3-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.4-COMMIT.tar.gz
 ```
 
 The release is rejected unless its manifest signature chains to
 `/etc/devcloud/release-keyring.gpg`. It may alternatively be uploaded from
-**Admin > System > Platform Güncelleme**. Workers only need connectivity to the
-controller; they download the published bundle through authenticated endpoints.
+**Admin > System > Platform Güncelleme**. For an operator-reviewed unsigned
+bundle, select **İmzasız güncellemeye izin ver** and accept the additional
+warning. Workers only need connectivity to the controller; they download the
+published bundle through authenticated endpoints.
 
 ## 6. Enable HTTPS from Admin
 

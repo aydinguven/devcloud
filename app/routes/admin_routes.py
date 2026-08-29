@@ -1194,8 +1194,9 @@ async def queue_git_release_update(
     repository: Annotated[str, Form()],
     ref: Annotated[str, Form()],
     _admin: Annotated[User, Depends(get_current_admin_user)],
+    allow_unsigned: Annotated[bool, Form()] = False,
 ):
-    """Queue a signed platform release selected through a Git channel file."""
+    """Queue a platform release selected through a Git channel file."""
     if not settings.UPDATES_ENABLED:
         raise HTTPException(status_code=503, detail="Release updates are disabled.")
     try:
@@ -1216,7 +1217,7 @@ async def queue_git_release_update(
         "repository": repository,
         "ref": ref,
         "filename": f"{repository}@{ref}",
-        "allow_unsigned": False,
+        "allow_unsigned": allow_unsigned,
     }
     marker_tmp = root / "pending.tmp"
     marker_tmp.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
@@ -1227,6 +1228,7 @@ async def queue_git_release_update(
         "source_type": "git",
         "repository": repository,
         "ref": ref,
+        "allow_unsigned": allow_unsigned,
     }
 
 
@@ -1239,14 +1241,9 @@ async def upload_release_update(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     allow_unsigned: Annotated[bool, Form()] = False,
 ):
-    """Stage a signed platform release for the root-owned systemd updater."""
+    """Stage a platform release for the root-owned systemd updater."""
     if not settings.UPDATES_ENABLED:
         raise HTTPException(status_code=503, detail="Release updates are disabled.")
-    if allow_unsigned and not settings.ALLOW_UNSIGNED_UPDATES:
-        raise HTTPException(
-            status_code=403,
-            detail="Unsigned platform updates are disabled on this controller.",
-        )
     filename = Path(release.filename or "").name
     if not filename.lower().endswith((".zip", ".tar", ".tar.gz", ".tgz")):
         raise HTTPException(

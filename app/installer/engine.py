@@ -1215,7 +1215,6 @@ class InstallerEngine:
                 "DEVCLOUD_DEPLOYMENT_ROLE": config.role.value,
                 "DEVCLOUD_REGISTRY_MODE": config.registry_mode.value,
                 "DEVCLOUD_REGISTRY_URL": config.registry_url,
-                "ALLOW_UNSIGNED_UPDATES": "False",
                 "UPDATE_SOURCE_TYPE": config.update_source_type.value,
                 "UPDATE_SOURCE": config.update_source,
                 "UPDATE_REF": config.update_ref,

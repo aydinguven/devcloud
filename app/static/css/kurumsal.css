@@ -814,6 +814,42 @@ code { color: #8d0022; }
   margin: 0;
   min-width: 0;
 }
+.unsigned-update-control {
+  align-items: flex-start;
+  background: var(--warning-bg);
+  border: 1px solid #ded49a;
+  color: #665d25;
+  cursor: pointer;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0.75rem;
+}
+.unsigned-update-control input {
+  accent-color: var(--warning);
+  height: 1rem;
+  margin: 0.1rem 0 0;
+  width: 1rem;
+}
+.unsigned-update-control strong {
+  color: #514918;
+  display: block;
+  font-size: 0.74rem;
+}
+.unsigned-update-control small {
+  display: block;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  margin-top: 0.12rem;
+}
+.unsigned-update-control:has(input:checked) {
+  background: var(--danger-bg);
+  border-color: #e1a5af;
+  color: #873041;
+}
+.unsigned-update-control:has(input:checked) strong {
+  color: var(--danger);
+}
 .platform-update-option > .btn {
   justify-self: start;
 }

@@ -1751,7 +1751,11 @@ function initAdminPlatformUpdater() {
     }
   };
 
-  const submitQueuedUpdate = async (form, endpoint, confirmation) => {
+  const submitQueuedUpdate = async (form, endpoint, signedConfirmation) => {
+    const allowUnsigned = form.elements.namedItem("allow_unsigned")?.checked === true;
+    const confirmation = allowUnsigned
+      ? "DİKKAT: Release imzası doğrulanmayacak. Kaynağa güvendiğinizi onaylıyor ve güncellemeyi başlatmak istiyor musunuz?"
+      : signedConfirmation;
     if (!confirm(confirmation)) return;
     const button = form.querySelector('button[type="submit"]');
     const defaultButtonText = button.textContent;
@@ -1775,7 +1779,7 @@ function initAdminPlatformUpdater() {
     submitQueuedUpdate(
       gitUpdateForm,
       "/api/admin/system/release-source",
-      "Git kanalındaki imzalı platform release'i uygulansın mı?",
+      "Git kanalındaki imzalı platform release'i doğrulanıp uygulansın mı?",
     );
   });
   bundleUpdateForm?.addEventListener("submit", (event) => {
@@ -1783,7 +1787,7 @@ function initAdminPlatformUpdater() {
     submitQueuedUpdate(
       bundleUpdateForm,
       "/api/admin/system/release-upload",
-      "Seçilen imzalı platform bundle uygulansın mı?",
+      "Seçilen platform bundle imzası doğrulanıp uygulansın mı?",
     );
   });
   if (gitUpdateForm || bundleUpdateForm) {

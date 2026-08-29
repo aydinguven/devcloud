@@ -48,10 +48,6 @@ class Settings(BaseSettings):
     DOWNLOAD_TARGET_PYTHON_VERSION: str = ""
     DOWNLOAD_PUBLIC_BASE_URL: str = "http://10.253.6.189"
     UPDATES_ENABLED: bool = True
-    # Unsigned releases are a break-glass development option. Keep this false
-    # on installed systems so the unprivileged controller cannot authorize
-    # arbitrary code execution by the root-owned updater.
-    ALLOW_UNSIGNED_UPDATES: bool = False
     UPDATE_SOURCE_TYPE: str = "bundle"
     UPDATE_SOURCE: str = ""
     UPDATE_REF: str = "stable"

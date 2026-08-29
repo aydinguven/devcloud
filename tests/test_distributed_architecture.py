@@ -89,7 +89,6 @@ async def test_admin_release_upload_creates_atomic_root_updater_request(
     headers = await _admin_headers(client)
     queue = tmp_path / "update-queue"
     monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
-    monkeypatch.setattr(settings, "ALLOW_UNSIGNED_UPDATES", True)
 
     response = await client.post(
         "/api/admin/system/release-upload",
@@ -108,22 +107,22 @@ async def test_admin_release_upload_creates_atomic_root_updater_request(
 
 
 @pytest.mark.asyncio
-async def test_admin_release_upload_rejects_unsigned_by_default(
+async def test_admin_release_upload_requires_explicit_unsigned_opt_in(
     client: AsyncClient, tmp_path, monkeypatch
 ):
     headers = await _admin_headers(client)
-    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(tmp_path / "update-queue"))
-    monkeypatch.setattr(settings, "ALLOW_UNSIGNED_UPDATES", False)
+    queue = tmp_path / "update-queue"
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
 
     response = await client.post(
         "/api/admin/system/release-upload",
         headers=headers,
         files={"release": ("untrusted.zip", b"source-zip", "application/zip")},
-        data={"allow_unsigned": "true"},
     )
 
-    assert response.status_code == 403
-    assert not (tmp_path / "update-queue" / "pending.json").exists()
+    assert response.status_code == 202
+    marker = json.loads((queue / "pending.json").read_text(encoding="utf-8"))
+    assert marker["allow_unsigned"] is False
 
 
 @pytest.mark.asyncio
@@ -149,6 +148,30 @@ async def test_admin_git_release_channel_creates_root_updater_request(
     assert marker["repository"] == "https://git.aydin.cloud/platform/devcloud.git"
     assert marker["ref"] == "stable"
     assert marker["allow_unsigned"] is False
+
+
+@pytest.mark.asyncio
+async def test_admin_git_release_channel_accepts_explicit_unsigned_opt_in(
+    client: AsyncClient, tmp_path, monkeypatch
+):
+    headers = await _admin_headers(client)
+    queue = tmp_path / "update-queue"
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+
+    response = await client.post(
+        "/api/admin/system/release-source",
+        headers=headers,
+        data={
+            "repository": "https://github.com/aydinguven/devcloud.git",
+            "ref": "stable",
+            "allow_unsigned": "true",
+        },
+    )
+
+    assert response.status_code == 202
+    marker = json.loads((queue / "pending.json").read_text(encoding="utf-8"))
+    assert marker["source_type"] == "git"
+    assert marker["allow_unsigned"] is True
 
 
 @pytest.mark.asyncio

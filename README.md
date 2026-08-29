@@ -170,15 +170,18 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.3-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.4-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
-Güncelleme**. The web container only queues the request. A root-owned systemd
-service verifies the signature, creates a pre-update backup, loads immutable
-OCI archives, applies migrations, and restarts Quadlet services. The controller
-then publishes the same release to enrolled workers for authenticated OTA.
-Workspace images remain independently managed in the image catalogue.
+Güncelleme**. Signature verification remains the default. An administrator can
+explicitly select **İmzasız güncellemeye izin ver** for a trusted internal Git
+channel or reviewed local bundle; the UI presents a second warning before the
+request is queued. A root-owned systemd service creates a pre-update backup,
+loads immutable OCI archives, applies migrations, and restarts Quadlet
+services. The controller then publishes the same release to enrolled workers
+for authenticated OTA. Workspace images remain independently managed in the
+image catalogue.
 
 Verify the result:
 

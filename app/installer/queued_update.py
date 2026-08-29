@@ -11,13 +11,6 @@ from pathlib import Path
 from app.installer.update_source import validate_git_source
 
 
-def _environment_bool(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _write_json(path: Path, value: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -64,12 +57,10 @@ def main() -> int:
             command = [
                 "bash", str(setup), "--yes", "update", "--bundle", str(bundle)
             ]
-            if request.get("allow_unsigned") and _environment_bool(
-                "ALLOW_UNSIGNED_UPDATES"
-            ):
-                command.append("--allow-unsigned")
         else:
             raise RuntimeError("Queued update source type is unsupported")
+        if request.get("allow_unsigned") is True:
+            command.append("--allow-unsigned")
         _write_json(
             status,
             {

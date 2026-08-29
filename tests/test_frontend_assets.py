@@ -173,6 +173,11 @@ def test_platform_update_has_clear_methods_release_summary_and_live_log():
     assert ".platform-update-options" in css
     assert ".platform-git-fields" in css
     assert ".platform-update-log" in css
+    assert template.count('name="allow_unsigned"') == 2
+    assert template.count('class="unsigned-update-control"') == 2
+    assert ".unsigned-update-control:has(input:checked)" in css
+    assert 'form.elements.namedItem("allow_unsigned")' in javascript
+    assert "Release imzası doğrulanmayacak" in javascript
     assert '"badge-error"' in javascript
     assert '"Kuyruğa alınıyor..."' in javascript
 

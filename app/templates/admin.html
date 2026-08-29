@@ -73,7 +73,7 @@
         <span class="section-eyebrow">Sürüm Yönetimi</span>
         <h2 class="card-title">Platform Güncelleme</h2>
         <p class="admin-section-description">
-          Doğrulanmış controller ve worker imajlarını tek işlemde dağıtın.
+          Controller ve worker imajlarını tek işlemde dağıtın; imza doğrulamasını varsayılan olarak açık tutun.
         </p>
       </div>
       <span id="admin-update-state" class="badge badge-neutral">Durum yükleniyor</span>
@@ -93,7 +93,7 @@
           <span class="platform-option-index" aria-hidden="true">01</span>
           <div>
             <strong>Git release kanalı</strong>
-            <small>Önerilen yöntem · İmzalı stable kanalını takip eder</small>
+            <small>Önerilen yöntem · Stable kanalını takip eder ve varsayılan olarak imzayı doğrular</small>
           </div>
         </div>
         <div class="platform-git-fields">
@@ -106,6 +106,13 @@
             <input class="form-input" id="platform-update-ref" name="ref" type="text" required value="stable">
           </label>
         </div>
+        <label class="unsigned-update-control">
+          <input name="allow_unsigned" type="checkbox" value="true">
+          <span>
+            <strong>İmzasız güncellemeye izin ver</strong>
+            <small>Yalnızca kaynağa güvendiğinizde kullanın; release imzası denetlenmez.</small>
+          </span>
+        </label>
         <button class="btn btn-primary" type="submit">Git Kanalından Güncelle</button>
       </form>
 
@@ -114,12 +121,19 @@
           <span class="platform-option-index" aria-hidden="true">02</span>
           <div>
             <strong>Yerel platform bundle</strong>
-            <small>Air-gapped ağlar için doğrulanmış arşiv yükleyin</small>
+            <small>Air-gapped ağlar için platform release arşivi yükleyin</small>
           </div>
         </div>
         <label class="form-group">
-          <span class="form-label">İmzalı release arşivi</span>
+          <span class="form-label">Release arşivi</span>
           <input class="form-input" name="release" type="file" required accept=".tar,.tar.gz,.tgz,.zip">
+        </label>
+        <label class="unsigned-update-control">
+          <input name="allow_unsigned" type="checkbox" value="true">
+          <span>
+            <strong>İmzasız güncellemeye izin ver</strong>
+            <small>Yalnızca bundle kaynağına güvendiğinizde kullanın.</small>
+          </span>
         </label>
         <button class="btn btn-secondary" type="submit">Bundle Yükle ve Güncelle</button>
       </form>
