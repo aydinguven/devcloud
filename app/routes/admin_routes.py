@@ -54,6 +54,7 @@ from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.config import settings
 from app.installer.platform import InstallerError
 from app.installer.update_source import validate_git_source
+from app.release_catalog import semantic_version
 from app.ingress_settings import (
     MAX_CERTIFICATE_BYTES,
     MAX_PRIVATE_KEY_BYTES,
@@ -721,12 +722,37 @@ async def upgrade_node(
         raise HTTPException(
             status_code=400, detail="Worker çevrimdışı; yükseltme komutu gönderilemez."
         )
+    release = current_platform_release()
+    current_semantic = semantic_version(node.agent_version)
+    target_semantic = semantic_version(release.version)
+    if node.agent_version == release.version:
+        return {
+            "message": f"Worker '{node.name}' zaten v{release.version} sürümünde.",
+            "detail": {
+                "status": "already_current",
+                "current_version": node.agent_version,
+                "target_version": release.version,
+                "message": "İndirme veya güncelleme kuyruğu oluşturulmadı.",
+            },
+        }
+    if (
+        current_semantic is not None
+        and target_semantic is not None
+        and target_semantic < current_semantic
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Yayımlanan worker release v{release.version}, kurulu "
+                f"v{node.agent_version} sürümünden eski. Sürüm düşürme engellendi."
+            ),
+        )
     connection = agent_manager.get(node.id)
     try:
         resp = await connection.request("system.upgrade", {}, timeout=15)
         return {
             "message": f"Worker '{node.name}' yükseltme işlemi başlatıldı.",
-            "detail": resp,
+            "detail": {**resp, "target_version": release.version},
         }
     except Exception as exc:
         raise HTTPException(
@@ -750,6 +776,8 @@ def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
         username_attribute=record.username_attribute,
         email_attribute=record.email_attribute,
         display_name_attribute=record.display_name_attribute,
+        team_attribute=record.team_attribute,
+        directorate_attribute=record.directorate_attribute,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,

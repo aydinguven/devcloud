@@ -43,6 +43,8 @@ class DirectoryConfig:
     username_attribute: str
     email_attribute: str
     display_name_attribute: str
+    team_attribute: str
+    directorate_attribute: str
     group_membership_attribute: str
     required_group_dn: str
     admin_group_dn: str
@@ -54,6 +56,8 @@ class DirectoryIdentity:
     username: str
     email: str
     full_name: str
+    team: str
+    directorate: str
     user_dn: str
     groups: tuple[str, ...]
     is_admin: bool
@@ -87,6 +91,8 @@ def config_from_record(record: DirectorySettings) -> DirectoryConfig:
         username_attribute=record.username_attribute,
         email_attribute=record.email_attribute,
         display_name_attribute=record.display_name_attribute,
+        team_attribute=record.team_attribute,
+        directorate_attribute=record.directorate_attribute,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -115,6 +121,8 @@ def config_from_update(
         username_attribute=update.username_attribute,
         email_attribute=update.email_attribute,
         display_name_attribute=update.display_name_attribute,
+        team_attribute=update.team_attribute,
+        directorate_attribute=update.directorate_attribute,
         group_membership_attribute=update.group_membership_attribute,
         required_group_dn=update.required_group_dn,
         admin_group_dn=update.admin_group_dn,
@@ -282,6 +290,8 @@ def authenticate_directory_user(
                     config.username_attribute,
                     config.email_attribute,
                     config.display_name_attribute,
+                    config.team_attribute,
+                    config.directorate_attribute,
                     config.group_membership_attribute,
                 ]
             )
@@ -301,6 +311,8 @@ def authenticate_directory_user(
         directory_username = _entry_value(entry, config.username_attribute) or username.strip()
         email = _entry_value(entry, config.email_attribute)
         full_name = _entry_value(entry, config.display_name_attribute) or directory_username
+        team = _entry_value(entry, config.team_attribute)
+        directorate = _entry_value(entry, config.directorate_attribute)
         groups = _entry_values(entry, config.group_membership_attribute)
 
         if config.required_group_dn and not _is_group_member(
@@ -335,6 +347,8 @@ def authenticate_directory_user(
         username=directory_username,
         email=email,
         full_name=full_name,
+        team=team,
+        directorate=directorate,
         user_dn=user_dn,
         groups=tuple(groups),
         is_admin=is_admin,
@@ -388,6 +402,20 @@ class HybridAuthProvider(AuthProvider):
         role = UserRole.ADMIN if identity.is_admin else UserRole.USER
         if existing:
             existing.full_name = identity.full_name
+            directory_email = identity.email.strip().lower()
+            if directory_email and directory_email != existing.email:
+                email_owner = (
+                    await db.execute(
+                        select(User).where(
+                            User.email == directory_email,
+                            User.id != existing.id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if not email_owner:
+                    existing.email = directory_email
+            existing.team = identity.team
+            existing.directorate = identity.directorate
             existing.role = role
             existing.is_active = True
             user = existing
@@ -405,6 +433,8 @@ class HybridAuthProvider(AuthProvider):
                 email=email,
                 hashed_password=hash_password(secrets.token_urlsafe(48)),
                 full_name=identity.full_name,
+                team=identity.team,
+                directorate=identity.directorate,
                 role=role,
                 auth_source="active_directory",
                 is_active=True,

@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from app import __version__
 from app.config import settings
 from app.worker_agent import WorkerAgent
 
@@ -99,4 +100,50 @@ def test_worker_reports_durable_upgrade_queue_status(tmp_path, monkeypatch):
 
     assert status["state"] == "queued"
     assert status["target_version"] == "3.4.5"
+
+
+def test_worker_reports_root_updater_failure_output(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+    (queue / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "failed",
+                "target_version": "99.0.0",
+                "return_code": 1,
+                "output": "setup started\nimage archive missing\n",
+                "finished_at": "2026-08-30T10:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = WorkerAgent()._reported_upgrade_status()
+
+    assert status["state"] == "failed"
+    assert status["return_code"] == "1"
+    assert "image archive missing" in status["message"]
+
+
+def test_worker_closes_stale_same_version_failure(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+    (queue / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "failed",
+                "target_version": __version__,
+                "return_code": 1,
+                "output": "old same-version error",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = WorkerAgent()._reported_upgrade_status()
+
+    assert status["state"] == "succeeded"
+    assert "zaten hedef sürümde" in status["message"]
 

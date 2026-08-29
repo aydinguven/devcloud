@@ -135,6 +135,11 @@ async def update_profile(
     auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
 ):
     """Update current user profile information."""
+    if current_user.auth_source != "internal":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kurumsal dizin profilleri DevCloud üzerinden değiştirilemez.",
+        )
     if update_data.email:
         stmt = select(User).where(User.email == update_data.email.lower(), User.id != current_user.id)
         if (await db.execute(stmt)).scalar_one_or_none():

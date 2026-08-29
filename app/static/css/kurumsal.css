@@ -991,6 +991,17 @@ code { color: #8d0022; }
   padding: 0.15rem 0.32rem;
   text-transform: none;
 }
+.node-upgrade-detail {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+  margin-top: 0.3rem;
+  max-height: 5.5rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.node-upgrade-detail.is-error { color: var(--danger); }
+.node-upgrade-detail.is-hidden { display: none; }
 .node-status-cell { text-align: center !important; }
 .node-resource-cell {
   font-size: 0.73rem;

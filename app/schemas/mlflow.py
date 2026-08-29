@@ -40,5 +40,6 @@ class MlflowTestResult(BaseModel):
     success: bool
     message: str
     response_time_ms: int
-    model_count: int
+    experiment_count: int
+    model_count: int = 0
 

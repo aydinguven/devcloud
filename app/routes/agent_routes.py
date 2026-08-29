@@ -22,6 +22,34 @@ from app.workspace_image_service import image_archive_path
 agent_router = APIRouter(prefix="/api/agent", tags=["Worker Agent"])
 
 
+def normalize_worker_capabilities(
+    capabilities: dict,
+    agent_version: str,
+) -> dict:
+    """Close stale failed OTA state once the worker reports the target version."""
+    normalized = dict(capabilities)
+    raw_upgrade = normalized.get("upgrade")
+    if not isinstance(raw_upgrade, dict):
+        return normalized
+    upgrade = dict(raw_upgrade)
+    if (
+        upgrade.get("state") == "failed"
+        and agent_version
+        and str(upgrade.get("target_version") or "") == agent_version
+    ):
+        upgrade.update(
+            {
+                "state": "succeeded",
+                "message": (
+                    f"Worker hedef sürümü çalıştırıyor (v{agent_version}); "
+                    "önceki aynı-sürüm hata kaydı kapatıldı."
+                ),
+            }
+        )
+    normalized["upgrade"] = upgrade
+    return normalized
+
+
 async def reconcile_worker_inventory(
     db: AsyncSession,
     node: Node,
@@ -255,7 +283,11 @@ async def connect_agent(
                 node.memory_used_mb = heartbeat.memory_used_mb
                 node.disk_used_mb = heartbeat.disk_used_mb
                 node.active_containers_count = heartbeat.active_containers_count
-                node.capabilities_json = json.dumps(heartbeat.capabilities, ensure_ascii=False)
+                capabilities = normalize_worker_capabilities(
+                    heartbeat.capabilities,
+                    heartbeat.agent_version,
+                )
+                node.capabilities_json = json.dumps(capabilities, ensure_ascii=False)
                 inventory = [
                     item.model_dump() for item in heartbeat.inventory
                 ]
@@ -283,7 +315,7 @@ async def connect_agent(
                         "disk_used_mb": node.disk_used_mb,
                         "active_containers_count": node.active_containers_count,
                         "agent_version": node.agent_version,
-                        "upgrade_status": heartbeat.capabilities.get("upgrade", {}),
+                        "upgrade_status": capabilities.get("upgrade", {}),
                         "last_seen_at": node.last_seen_at.isoformat() if node.last_seen_at else None,
                     },
                 )

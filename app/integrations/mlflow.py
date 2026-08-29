@@ -108,14 +108,27 @@ class MlflowClient:
             follow_redirects=False,
         )
 
-    async def _get(self, path: str, params: dict | None = None) -> dict:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        json: dict | None = None,
+    ) -> dict:
         try:
             async with self._client() as client:
-                response = await client.get(path, params=params)
+                response = await client.request(method, path, params=params, json=json)
                 response.raise_for_status()
                 return response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise MlflowConnectionError(f"MLflow API isteği başarısız: {exc}") from exc
+
+    async def _get(self, path: str, params: dict | None = None) -> dict:
+        return await self._request("GET", path, params=params)
+
+    async def _post(self, path: str, payload: dict) -> dict:
+        return await self._request("POST", path, json=payload)
 
     async def search_registered_models(
         self,
@@ -140,23 +153,86 @@ class MlflowClient:
             {"name": name},
         )
 
-    async def search_model_versions(self, name: str, max_results: int = 200) -> dict:
+    async def search_model_versions(
+        self,
+        name: str = "",
+        max_results: int = 200,
+    ) -> dict:
         if "'" in name:
             raise MlflowConfigurationError("Model adındaki tek tırnak API filtresiyle kullanılamıyor.")
+        params: dict[str, str | int | list[str]] = {
+            "max_results": max(1, min(max_results, 1000)),
+            "order_by": ["version DESC"],
+        }
+        if name:
+            params["filter"] = f"name='{name}'"
         return await self._get(
             "/api/2.0/mlflow/model-versions/search",
-            {
-                "filter": f"name='{name}'",
-                "max_results": max(1, min(max_results, 1000)),
-                "order_by": ["version DESC"],
-            },
+            params,
         )
+
+    async def search_experiments(
+        self,
+        page_token: str = "",
+        max_results: int = 100,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "max_results": max(1, min(max_results, 1000)),
+            "view_type": "ACTIVE_ONLY",
+            "order_by": ["last_update_time DESC"],
+        }
+        if page_token:
+            payload["page_token"] = page_token
+        return await self._post("/api/2.0/mlflow/experiments/search", payload)
+
+    async def get_experiment(self, experiment_id: str) -> dict:
+        return await self._get(
+            "/api/2.0/mlflow/experiments/get",
+            {"experiment_id": experiment_id},
+        )
+
+    async def search_runs(
+        self,
+        experiment_ids: list[str],
+        filter_string: str = "",
+        page_token: str = "",
+        max_results: int = 100,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "experiment_ids": experiment_ids,
+            "filter": filter_string,
+            "run_view_type": "ACTIVE_ONLY",
+            "max_results": max(1, min(max_results, 1000)),
+            "order_by": ["attributes.start_time DESC"],
+        }
+        if page_token:
+            payload["page_token"] = page_token
+        return await self._post("/api/2.0/mlflow/runs/search", payload)
+
+    async def get_run(self, run_id: str) -> dict:
+        return await self._get(
+            "/api/2.0/mlflow/runs/get",
+            {"run_id": run_id},
+        )
+
+    async def list_artifacts(
+        self,
+        run_id: str,
+        path: str = "",
+        page_token: str = "",
+    ) -> dict:
+        params = {"run_id": run_id}
+        if path:
+            params["path"] = path
+        if page_token:
+            params["page_token"] = page_token
+        return await self._get("/api/2.0/mlflow/artifacts/list", params)
 
     async def test(self) -> tuple[int, int]:
         started = time.monotonic()
-        payload = await self.search_registered_models(max_results=1)
+        payload = await self.search_experiments(max_results=1)
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        return len(payload.get("registered_models") or []), elapsed_ms
+        return len(payload.get("experiments") or []), elapsed_ms
 
 
 def normalize_model(model: dict) -> dict:
@@ -176,5 +252,40 @@ def normalize_model(model: dict) -> dict:
         "aliases_list": aliases,
         "latest_version": latest,
         "version_count": len(versions),
+    }
+
+
+def _key_value_map(items: list[dict] | None) -> dict[str, object]:
+    return {
+        str(item.get("key", "")): item.get("value", "")
+        for item in items or []
+        if item.get("key") is not None
+    }
+
+
+def normalize_experiment(experiment: dict) -> dict:
+    return {
+        **experiment,
+        "tags_map": _key_value_map(experiment.get("tags")),
+    }
+
+
+def normalize_run(run: dict) -> dict:
+    info = run.get("info") or {}
+    data = run.get("data") or {}
+    tags_map = _key_value_map(data.get("tags"))
+    return {
+        **run,
+        "info": info,
+        "run_id": info.get("run_id") or info.get("run_uuid") or "",
+        "experiment_id": info.get("experiment_id") or "",
+        "run_name": tags_map.get("mlflow.runName") or info.get("run_name") or info.get("run_id") or "",
+        "status": info.get("status") or "",
+        "start_time": info.get("start_time"),
+        "end_time": info.get("end_time"),
+        "artifact_uri": info.get("artifact_uri") or "",
+        "params_map": _key_value_map(data.get("params")),
+        "metrics_map": _key_value_map(data.get("metrics")),
+        "tags_map": tags_map,
     }
 

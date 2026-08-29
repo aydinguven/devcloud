@@ -10,7 +10,7 @@ from app.database import (
     ensure_user_quota_columns,
     ensure_workspace_columns,
 )
-from app.migrations import _make_mlflow_settings_per_user
+from app.migrations import _add_directory_profile_fields, _make_mlflow_settings_per_user
 
 
 @pytest.mark.asyncio
@@ -177,3 +177,33 @@ async def test_legacy_mlflow_settings_receive_user_ownership(tmp_path):
     assert "user_id" in columns
     assert ("user_id",) in unique_sets
     assert legacy_user_id is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_database_receives_directory_profile_fields(tmp_path):
+    database_path = (tmp_path / "legacy-directory-profile.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+            await conn.execute(
+                text("CREATE TABLE directory_settings (id INTEGER PRIMARY KEY)")
+            )
+            await _add_directory_profile_fields(conn)
+            await _add_directory_profile_fields(conn)
+            user_columns = await conn.run_sync(
+                lambda sync_conn: {
+                    column["name"]
+                    for column in inspect(sync_conn).get_columns("users")
+                }
+            )
+            directory_columns = await conn.run_sync(
+                lambda sync_conn: {
+                    column["name"]
+                    for column in inspect(sync_conn).get_columns("directory_settings")
+                }
+            )
+    finally:
+        await engine.dispose()
+    assert {"team", "directorate"} <= user_columns
+    assert {"team_attribute", "directorate_attribute"} <= directory_columns

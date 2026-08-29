@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -7,12 +8,14 @@ from httpx import AsyncClient
 from sqlalchemy import update
 
 from app.models.node import Node, NodeStatus
+from app import __version__
+from app.config import settings
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
 from tests.conftest import TEST_WORKER_ID
-from app.routes.agent_routes import connect_agent
+from app.routes.agent_routes import connect_agent, normalize_worker_capabilities
 from tests.conftest import TestingSessionLocal
 
 
@@ -155,6 +158,23 @@ async def test_agent_heartbeat_preserves_admin_drain_change(db_session):
         assert fresh.agent_version == "3.4.4"
         assert capabilities["upgrade"]["state"] == "downloading"
         assert capabilities["upgrade"]["target_version"] == "3.4.5"
+
+
+def test_controller_closes_stale_same_version_worker_error():
+    capabilities = normalize_worker_capabilities(
+        {
+            "runtime": "podman",
+            "upgrade": {
+                "state": "failed",
+                "target_version": "3.4.5",
+                "message": "legacy updater error",
+            },
+        },
+        "3.4.5",
+    )
+
+    assert capabilities["upgrade"]["state"] == "succeeded"
+    assert "hedef sürümü çalıştırıyor" in capabilities["upgrade"]["message"]
 
 
 @pytest.mark.asyncio
@@ -425,6 +445,35 @@ async def test_admin_upgrade_node_offline_error(client: AsyncClient, db_session)
     res = await client.post(f"/api/admin/nodes/{n.id}/upgrade", headers=headers)
     assert res.status_code == 400
     assert "çevrimdışı" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_worker_upgrade_skips_same_version(
+    client: AsyncClient,
+    db_session,
+    tmp_path: Path,
+    monkeypatch,
+):
+    headers = await _admin_headers(client)
+    releases = tmp_path / "releases"
+    releases.mkdir()
+    bundle = releases / f"devcloud-platform-update-v{__version__}-abcdef1.tar.gz"
+    bundle.write_bytes(b"same-version-release")
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(tmp_path))
+    worker = await db_session.get(Node, TEST_WORKER_ID)
+    worker.agent_version = __version__
+    db_session.add(worker)
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/admin/nodes/{TEST_WORKER_ID}/upgrade",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["detail"]["status"] == "already_current"
+    assert response.json()["detail"]["target_version"] == __version__
+    assert "kuyruğu oluşturulmadı" in response.json()["detail"]["message"]
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(256), nullable=False)
     full_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    team: Mapped[str] = mapped_column(
+        String(255), default="", server_default="", nullable=False
+    )
+    directorate: Mapped[str] = mapped_column(
+        String(255), default="", server_default="", nullable=False
+    )
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER, nullable=False)
     auth_source: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

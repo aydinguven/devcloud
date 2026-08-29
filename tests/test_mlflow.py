@@ -79,6 +79,7 @@ async def test_user_mlflow_secret_is_write_only_and_connection_can_be_tested(
     )
     assert tested.status_code == 200
     assert tested.json()["response_time_ms"] == 12
+    assert tested.json()["experiment_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -143,3 +144,150 @@ async def test_user_without_mlflow_settings_gets_setup_guidance(client: AsyncCli
     assert settings.json()["has_secret"] is False
     assert models.status_code == 503
     assert "ML Modelleri" in models.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mlflow_experiments_and_runs_include_tracking_data_and_links(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, _ = await _user_headers(client, "mlflow_tracking")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload("tracking-token", "https://tracking.internal"),
+    )
+
+    async def fake_experiments(self, page_token="", max_results=100):
+        assert self.config.secret == "tracking-token"
+        return {
+            "experiments": [
+                {
+                    "experiment_id": "42",
+                    "name": "Fraud Detection",
+                    "tags": [{"key": "owner", "value": "risk"}],
+                }
+            ]
+        }
+
+    async def fake_runs(
+        self,
+        experiment_ids,
+        filter_string="",
+        page_token="",
+        max_results=100,
+    ):
+        assert experiment_ids == ["42"]
+        assert filter_string == "metrics.accuracy > 0.9"
+        return {
+            "runs": [
+                {
+                    "info": {
+                        "run_id": "run-1",
+                        "experiment_id": "42",
+                        "status": "FINISHED",
+                    },
+                    "data": {
+                        "params": [{"key": "depth", "value": "8"}],
+                        "metrics": [{"key": "accuracy", "value": 0.97}],
+                        "tags": [{"key": "mlflow.runName", "value": "baseline"}],
+                    },
+                }
+            ]
+        }
+
+    monkeypatch.setattr(MlflowClient, "search_experiments", fake_experiments)
+    monkeypatch.setattr(MlflowClient, "search_runs", fake_runs)
+
+    experiments = await client.get("/api/mlflow/experiments", headers=headers)
+    runs = await client.get(
+        "/api/mlflow/runs",
+        headers=headers,
+        params={"experiment_id": "42", "filter_string": "metrics.accuracy > 0.9"},
+    )
+    assert experiments.status_code == 200, experiments.text
+    assert experiments.json()["experiments"][0]["tags_map"] == {"owner": "risk"}
+    assert experiments.json()["experiments"][0]["mlflow_url"] == (
+        "https://tracking.internal/#/experiments/42"
+    )
+    assert runs.status_code == 200, runs.text
+    run = runs.json()["runs"][0]
+    assert run["run_name"] == "baseline"
+    assert run["params_map"] == {"depth": "8"}
+    assert run["metrics_map"] == {"accuracy": 0.97}
+    assert run["mlflow_url"].endswith("/#/experiments/42/runs/run-1")
+
+    for path, expected in (
+        ("/experiments", "Deneyler ve Run'lar"),
+        ("/experiments/42", "MLflow Experiment"),
+        ("/runs/run-1", "Model Soy Ağacı"),
+        ("/runs/compare?run_ids=run-1&run_ids=run-2", "Run Karşılaştırma"),
+    ):
+        page = await client.get(path, headers=headers)
+        assert page.status_code == 200, page.text
+        assert expected in page.text
+
+
+@pytest.mark.asyncio
+async def test_mlflow_run_detail_artifacts_lineage_and_comparison(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, _ = await _user_headers(client, "mlflow_lineage")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload("lineage-token", "https://lineage.internal"),
+    )
+
+    async def fake_get_run(self, run_id):
+        return {
+            "run": {
+                "info": {"run_id": run_id, "experiment_id": "7", "status": "FINISHED"},
+                "data": {
+                    "params": [{"key": "seed", "value": run_id[-1]}],
+                    "metrics": [{"key": "loss", "value": 0.1 if run_id == "run-1" else 0.2}],
+                    "tags": [{"key": "mlflow.runName", "value": f"name-{run_id}"}],
+                },
+            }
+        }
+
+    async def fake_artifacts(self, run_id, path="", page_token=""):
+        assert run_id == "run-1"
+        return {"files": [{"path": "model/model.pkl", "is_dir": False, "file_size": 123}]}
+
+    async def fake_versions(self, name="", max_results=200):
+        assert name == ""
+        return {
+            "model_versions": [
+                {"name": "fraud-model", "version": "3", "run_id": "run-1"},
+                {"name": "other-model", "version": "1", "run_id": "other-run"},
+            ]
+        }
+
+    monkeypatch.setattr(MlflowClient, "get_run", fake_get_run)
+    monkeypatch.setattr(MlflowClient, "list_artifacts", fake_artifacts)
+    monkeypatch.setattr(MlflowClient, "search_model_versions", fake_versions)
+
+    detail = await client.get("/api/mlflow/runs/run-1", headers=headers)
+    compare = await client.get(
+        "/api/mlflow/runs/compare",
+        headers=headers,
+        params=[("run_ids", "run-1"), ("run_ids", "run-2")],
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["artifacts"][0]["path"] == "model/model.pkl"
+    assert detail.json()["artifacts"][0]["mlflow_url"].endswith(
+        "/runs/run-1/artifacts/model/model.pkl"
+    )
+    assert detail.json()["registered_model_versions"] == [
+        {
+            "name": "fraud-model",
+            "version": "3",
+            "run_id": "run-1",
+            "mlflow_url": "https://lineage.internal/#/models/fraud-model",
+        }
+    ]
+    assert compare.status_code == 200, compare.text
+    assert [run["run_id"] for run in compare.json()["runs"]] == ["run-1", "run-2"]
+    assert compare.json()["runs"][0]["metrics_map"]["loss"] == 0.1

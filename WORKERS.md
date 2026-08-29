@@ -25,5 +25,11 @@ the controller applies a signed platform bundle, it publishes that bundle to
 enrolled workers; workers verify its SHA-256 and apply it through their
 root-owned update queue.
 
+The worker inventory displays each OTA phase and its detailed result. Selecting
+**Güncelle** for a worker that already matches the published release reports
+that it is current without downloading or queuing the bundle. Downgrades are
+blocked. If the root updater fails, the inventory shows its final message and a
+bounded tail of the installer output instead of only a generic error badge.
+
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.

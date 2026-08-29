@@ -11,11 +11,13 @@
   </div>
 </div>
 
+{% include "partials/mlflow_nav.html" %}
+
 <section class="card" style="margin-bottom: 1rem; border-top: 3px solid var(--gold);">
   <div class="card-header">
     <div>
       <h2 class="card-title">MLflow Bağlantınız</h2>
-      <p class="admin-section-description">MLflow; makine öğrenmesi deneylerini, çalıştırmaları ve eğitilmiş model sürümlerini takip eden ayrı bir servistir. DevCloud burada yalnızca Model Registry bilgilerini okur; model eğitmez, çalıştırmaz veya değiştirmez.</p>
+      <p class="admin-section-description">MLflow; deneyleri, run'ları, parametreleri, metrikleri, artifact'ları ve eğitilmiş model sürümlerini takip eden ayrı bir servistir. DevCloud bilgileri salt okunur gösterir; model eğitmez, çalıştırmaz veya değiştirmez.</p>
     </div>
     <span id="mlflow-status-badge" class="badge {% if mlflow_enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Bağlı' if mlflow_enabled else 'Yapılandırılmadı' }}</span>
   </div>
@@ -92,7 +94,7 @@
         <p class="admin-section-description">${escapeHtml(model.description || "Açıklama girilmemiş")}</p>
         <div style="display:flex;gap:.35rem;flex-wrap:wrap;">${aliases}</div>
       </div>
-      <div style="text-align:right;"><strong>${version}</strong><br><span class="text-muted">${escapeHtml(latest.status || "")}</span></div>
+      <div style="text-align:right;"><strong>${version}</strong><br><span class="text-muted">${escapeHtml(latest.status || "")}</span><br><a href="${escapeHtml(model.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div>
     </article>`;
   };
 

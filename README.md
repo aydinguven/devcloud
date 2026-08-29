@@ -26,13 +26,14 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - Internal Database Auth (Argon2 / Bcrypt + JWT + HTTP-only cookies).
   - Runtime-configured LDAPS / Active Directory authentication with encrypted bind credentials.
   - Allowed-user and administrator group mapping, including nested AD groups.
+  - Read-only user profiles synchronized from AD: username, full name, email, team, and directorate.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
 - **Outbound-Only CPU Workers**: Schedule workspaces across worker nodes without opening inbound worker or container ports.
-- **Per-User MLflow Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse that registry's models, versions, aliases, and tags. DevCloud reads registry metadata; model training and serving remain in MLflow and the user's ML tooling.
+- **Per-User MLflow Tracking & Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage. DevCloud provides direct links into MLflow and keeps training, serving, and metadata changes in MLflow and the user's ML tooling.
 
 ---
 
@@ -110,6 +111,11 @@ before enabling directory login.
   Other directory users receive the standard user role.
 - Nested group lookup uses Active Directory matching-rule-in-chain and can be
   disabled for non-AD LDAP servers.
+- Profile fields are synchronized on successful directory login and are
+  read-only in DevCloud. The default AD mappings are `sAMAccountName` for the
+  username, `displayName` for full name, `mail` for email, `department` for
+  team, and `division` for directorate; administrators can change these
+  attribute names in the directory settings form.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 
@@ -171,7 +177,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.6-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.7-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -182,7 +188,10 @@ The UI presents a second warning before an unsigned request is queued. A
 root-owned systemd service creates a pre-update backup, loads immutable OCI
 archives, applies migrations, and restarts Quadlet services. Worker inventory
 shows each running agent version and its latest OTA state. Workspace images
-remain independently managed in the image catalogue.
+remain independently managed in the image catalogue. Worker OTA refuses
+downgrades, skips downloads when the worker already matches the published
+release, and shows the final updater message or bounded command-output tail
+directly below the version badge when an update fails.
 
 Verify the result:
 

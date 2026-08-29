@@ -24,6 +24,7 @@ import websockets
 from app import __version__
 from app.config import settings
 from app.orchestrator.podman_service import podman_service
+from app.release_catalog import semantic_version
 
 logger = logging.getLogger("devcloud.worker")
 
@@ -159,10 +160,27 @@ class WorkerAgent:
                 continue
             if not isinstance(value, dict):
                 continue
+            state = str(value.get("state") or fallback_state)
+            target_version = str(value.get("target_version") or "")
+            message = str(value.get("error") or value.get("message") or "").strip()
+            if not message and state == "failed":
+                output_lines = [
+                    line.strip()
+                    for line in str(value.get("output") or "").splitlines()
+                    if line.strip()
+                ]
+                message = "\n".join(output_lines[-12:])[-2000:]
+            if state == "failed" and target_version == __version__:
+                state = "succeeded"
+                message = (
+                    f"Worker zaten hedef sürümde (v{__version__}). "
+                    "Önceki aynı-sürüm güncelleme hatası kapatıldı."
+                )
             return {
-                "state": str(value.get("state") or fallback_state),
-                "target_version": str(value.get("target_version") or ""),
-                "message": str(value.get("error") or value.get("message") or ""),
+                "state": state,
+                "target_version": target_version,
+                "message": message,
+                "return_code": str(value.get("return_code") or ""),
                 "updated_at": str(
                     value.get("finished_at")
                     or value.get("started_at")
@@ -813,6 +831,24 @@ class WorkerAgent:
                 metadata_response.raise_for_status()
                 metadata = metadata_response.json()
                 target_version = str(metadata.get("version") or "")
+                current_semantic = semantic_version(__version__)
+                target_semantic = semantic_version(target_version)
+                if target_version == __version__:
+                    self._set_upgrade_status(
+                        "succeeded",
+                        target_version=target_version,
+                        message=f"Worker zaten güncel (v{__version__}).",
+                    )
+                    return
+                if (
+                    current_semantic is not None
+                    and target_semantic is not None
+                    and target_semantic < current_semantic
+                ):
+                    raise RuntimeError(
+                        f"Yayımlanan v{target_version}, worker sürümü "
+                        f"v{__version__}'dan eski; sürüm düşürme engellendi."
+                    )
                 self._set_upgrade_status(
                     "downloading",
                     target_version=target_version,

@@ -203,6 +203,10 @@ def test_worker_inventory_shows_version_and_live_upgrade_state():
     assert "d.upgrade_status" in javascript
     assert "Object.keys(d.upgrade_status).length" in javascript
     assert ".node-release-line" in css
+    assert 'class="node-upgrade-detail' in template
+    assert "upgrade.message" in javascript
+    assert 'result.status === "already_current"' in javascript
+    assert ".node-upgrade-detail.is-error" in css
 
 
 def test_mlflow_connection_is_configured_per_user_from_models_page():
@@ -222,6 +226,23 @@ def test_mlflow_connection_is_configured_per_user_from_models_page():
     assert 'id="mlflow-settings-form"' not in admin_template
     assert 'send("/api/mlflow/settings/test", "POST")' in javascript
     assert 'send("/api/mlflow/settings", "PUT")' in javascript
+
+
+def test_mlflow_tracking_pages_cover_runs_artifacts_comparison_and_lineage():
+    experiments = (PROJECT_ROOT / "app/templates/experiments.html").read_text(encoding="utf-8")
+    detail = (PROJECT_ROOT / "app/templates/experiment_detail.html").read_text(encoding="utf-8")
+    run = (PROJECT_ROOT / "app/templates/run_detail.html").read_text(encoding="utf-8")
+    compare = (PROJECT_ROOT / "app/templates/run_compare.html").read_text(encoding="utf-8")
+    nav = (PROJECT_ROOT / "app/templates/partials/mlflow_nav.html").read_text(encoding="utf-8")
+
+    assert "Deneyler ve Run'lar" in experiments
+    assert "filter_string" in detail
+    assert "data-run-select" in detail
+    assert "Artifact'lar" in run
+    assert "Model Soy Ağacı" in run
+    assert "params_map" in compare
+    assert 'href="/experiments"' in nav
+    assert 'href="/models"' in nav
 
 
 def test_worker_bootstrap_uses_one_time_admin_command():

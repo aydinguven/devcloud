@@ -30,6 +30,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def semantic_version(value: str) -> tuple[int, int, int] | None:
+    """Parse the strict release version used by controller and worker bundles."""
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
+        return None
+    major, minor, patch = value.split(".")
+    return int(major), int(minor), int(patch)
+
+
 def latest_release(downloads_root: Path) -> PublishedRelease | None:
     root = (downloads_root / "releases").resolve()
     if not root.is_dir():
@@ -46,7 +54,8 @@ def latest_release(downloads_root: Path) -> PublishedRelease | None:
     def release_key(item: Path) -> tuple[tuple[int, int, int], int, str]:
         match = RELEASE_PATTERN.fullmatch(item.name)
         assert match is not None
-        semantic = tuple(int(part) for part in match.group("version").split("."))
+        semantic = semantic_version(match.group("version"))
+        assert semantic is not None
         return semantic, item.stat().st_mtime_ns, item.name
 
     path = max(candidates, key=release_key)

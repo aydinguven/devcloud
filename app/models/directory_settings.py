@@ -40,6 +40,12 @@ class DirectorySettings(Base):
     display_name_attribute: Mapped[str] = mapped_column(
         String(128), default="displayName", nullable=False
     )
+    team_attribute: Mapped[str] = mapped_column(
+        String(128), default="department", server_default="department", nullable=False
+    )
+    directorate_attribute: Mapped[str] = mapped_column(
+        String(128), default="division", server_default="division", nullable=False
+    )
     group_membership_attribute: Mapped[str] = mapped_column(
         String(128), default="memberOf", nullable=False
     )

@@ -272,6 +272,7 @@ async def models_page(
             "app_name": settings.APP_NAME,
             "user": current_user,
             "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+            "mlflow_settings": mlflow_settings,
             "mlflow_base_url": mlflow_settings.base_url if mlflow_settings else "",
         },
     )
@@ -293,6 +294,82 @@ async def model_detail_page(
             "app_name": settings.APP_NAME,
             "user": current_user,
             "model_name": model_name,
+        },
+    )
+
+
+@view_router.get("/experiments", response_class=HTMLResponse)
+async def experiments_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    mlflow_settings = (
+        await db.execute(
+            select(MlflowSettings).where(MlflowSettings.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    return templates.TemplateResponse(
+        request=request,
+        name="experiments.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+        },
+    )
+
+
+@view_router.get("/experiments/{experiment_id}", response_class=HTMLResponse)
+async def experiment_detail_page(
+    experiment_id: str,
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="experiment_detail.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "experiment_id": experiment_id,
+        },
+    )
+
+
+@view_router.get("/runs/compare", response_class=HTMLResponse)
+async def run_compare_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="run_compare.html",
+        context={"app_name": settings.APP_NAME, "user": current_user},
+    )
+
+
+@view_router.get("/runs/{run_id}", response_class=HTMLResponse)
+async def run_detail_page(
+    run_id: str,
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="run_detail.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "run_id": run_id,
         },
     )
 

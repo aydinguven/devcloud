@@ -532,6 +532,8 @@ function initDirectorySettings() {
       username_attribute: String(data.get("username_attribute") || "").trim(),
       email_attribute: String(data.get("email_attribute") || "").trim(),
       display_name_attribute: String(data.get("display_name_attribute") || "").trim(),
+      team_attribute: String(data.get("team_attribute") || "").trim(),
+      directorate_attribute: String(data.get("directorate_attribute") || "").trim(),
       group_membership_attribute: String(data.get("group_membership_attribute") || "").trim(),
       required_group_dn: String(data.get("required_group_dn") || "").trim(),
       admin_group_dn: String(data.get("admin_group_dn") || "").trim(),
@@ -729,6 +731,15 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
     badge.dataset.state = state;
     badge.textContent = `${labels[state] || state}${target}`;
     badge.title = upgrade.message || "";
+    const detail = row?.querySelector(".node-upgrade-detail");
+    if (detail) {
+      const timestamp = upgrade.updated_at
+        ? new Date(upgrade.updated_at).toLocaleString("tr-TR")
+        : "";
+      const message = upgrade.message || "";
+      detail.textContent = [message, timestamp].filter(Boolean).join(" · ");
+      detail.className = `node-upgrade-detail${message ? "" : " is-hidden"}${state === "failed" ? " is-error" : ""}`;
+    }
   };
 
   const nodesTable = document.getElementById("admin-nodes-table");
@@ -865,9 +876,12 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || "Yükseltme başlatılamadı.");
+        const result = data.detail || {};
         renderWorkerUpgradeState(row, {
-          state: "preparing",
-          message: data.message,
+          state: result.status === "already_current" ? "succeeded" : "preparing",
+          target_version: result.target_version || "",
+          message: result.message || data.message,
+          updated_at: new Date().toISOString(),
         });
       } catch (error) {
         renderWorkerUpgradeState(row, {
@@ -1011,7 +1025,7 @@ function initMlflowSettings() {
     status.className = "quota-form-status";
     try {
       const result = await send("/api/mlflow/settings/test", "POST");
-      status.textContent = `${result.message} ${result.model_count} model görüldü · ${result.response_time_ms} ms`;
+      status.textContent = `${result.message} ${result.experiment_count} deney görüldü · ${result.response_time_ms} ms`;
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;

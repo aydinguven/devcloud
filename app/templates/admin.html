@@ -368,6 +368,10 @@ cd devcloud
               {% if upgrade_status.get('target_version') %} · v{{ upgrade_status.get('target_version') }}{% endif %}
             </span>
           </div>
+          <div
+            class="node-upgrade-detail {% if not upgrade_status.get('message') %}is-hidden{% elif upgrade_state == 'failed' %}is-error{% endif %}"
+            aria-live="polite"
+          >{{ upgrade_status.get('message', '') }}</div>
           <div class="node-last-seen-cell">{{ node.last_seen_at or '' }}</div>
         </td>
         <td class="node-status-cell" data-label="Durum">
@@ -431,7 +435,7 @@ cd devcloud
     </div>
     <span class="badge badge-running">Kullanıcı Bazlı</span>
   </div>
-  <p class="text-muted">Her kullanıcı kendi MLflow URL'sini ve kimlik bilgilerini <strong>ML Modelleri</strong> sayfasında kaydeder. Şifreler ve token'lar şifreli saklanır; bir kullanıcının bağlantısı veya modelleri başka kullanıcılara gösterilmez.</p>
+  <p class="text-muted">Her kullanıcı kendi MLflow URL'sini ve kimlik bilgilerini <strong>MLflow</strong> alanında kaydeder. Şifreler ve token'lar şifreli saklanır; bir kullanıcının bağlantısı, deneyleri, run'ları veya modelleri başka kullanıcılara gösterilmez.</p>
   <a class="btn btn-primary" href="/models">Kişisel MLflow Ayarlarını Aç</a>
 </section>
 {% endif %}
@@ -521,6 +525,14 @@ cd devcloud
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Görünen ad özniteliği</span>
           <input class="form-input" name="display_name_attribute" value="{{ directory_settings.display_name_attribute if directory_settings else 'displayName' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Takım özniteliği</span>
+          <input class="form-input" name="team_attribute" value="{{ directory_settings.team_attribute if directory_settings else 'department' }}" required>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Müdürlük özniteliği</span>
+          <input class="form-input" name="directorate_attribute" value="{{ directory_settings.directorate_attribute if directory_settings else 'division' }}" required>
         </label>
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Grup üyeliği özniteliği</span>

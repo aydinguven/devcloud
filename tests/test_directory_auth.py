@@ -46,6 +46,8 @@ def _settings_payload(**overrides):
         "username_attribute": "sAMAccountName",
         "email_attribute": "mail",
         "display_name_attribute": "displayName",
+        "team_attribute": "department",
+        "directorate_attribute": "division",
         "group_membership_attribute": "memberOf",
         "required_group_dn": "CN=DevCloud,OU=Groups,DC=example,DC=com",
         "admin_group_dn": "CN=DevCloud-Admins,OU=Groups,DC=example,DC=com",
@@ -76,6 +78,8 @@ async def test_admin_can_save_directory_settings_without_password_disclosure(
     assert data["server_host"] == "ldaps.tcmb.gov.tr"
     assert data["server_port"] == 686
     assert data["has_bind_password"] is True
+    assert data["team_attribute"] == "department"
+    assert data["directorate_attribute"] == "division"
     assert "bind_password" not in data
 
     async with TestingSessionLocal() as session:
@@ -150,6 +154,8 @@ async def test_successful_directory_login_provisions_admin_user(
             username="aydin",
             email="aydin@example.com",
             full_name="Aydin Example",
+            team="AI Platform",
+            directorate="Data Technologies",
             user_dn="CN=Aydin,OU=Users,DC=example,DC=com",
             groups=("CN=DevCloud-Admins,DC=example,DC=com",),
             is_admin=True,
@@ -174,6 +180,8 @@ async def test_successful_directory_login_provisions_admin_user(
         ).scalar_one()
         assert user.role == UserRole.ADMIN
         assert user.auth_source == "active_directory"
+        assert user.team == "AI Platform"
+        assert user.directorate == "Data Technologies"
 
 
 @pytest.mark.asyncio

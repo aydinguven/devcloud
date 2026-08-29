@@ -18,6 +18,8 @@ class DirectorySettingsUpdate(BaseModel):
     username_attribute: str = Field(default="sAMAccountName", max_length=128)
     email_attribute: str = Field(default="mail", max_length=128)
     display_name_attribute: str = Field(default="displayName", max_length=128)
+    team_attribute: str = Field(default="department", max_length=128)
+    directorate_attribute: str = Field(default="division", max_length=128)
     group_membership_attribute: str = Field(default="memberOf", max_length=128)
     required_group_dn: str = Field(default="", max_length=512)
     admin_group_dn: str = Field(default="", max_length=512)
@@ -32,6 +34,8 @@ class DirectorySettingsUpdate(BaseModel):
         "username_attribute",
         "email_attribute",
         "display_name_attribute",
+        "team_attribute",
+        "directorate_attribute",
         "group_membership_attribute",
         "required_group_dn",
         "admin_group_dn",
@@ -64,6 +68,8 @@ class DirectorySettingsOut(BaseModel):
     username_attribute: str
     email_attribute: str
     display_name_attribute: str
+    team_attribute: str
+    directorate_attribute: str
     group_membership_attribute: str
     required_group_dn: str
     admin_group_dn: str

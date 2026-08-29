@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 
 class MigrationError(RuntimeError):
@@ -265,6 +265,47 @@ async def _make_mlflow_settings_per_user(conn) -> None:
         )
 
 
+async def _add_directory_profile_fields(conn) -> None:
+    """Add LDAP-backed organization fields to legacy databases idempotently."""
+    user_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("users")
+        }
+    )
+    if "team" not in user_columns:
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN team VARCHAR(255) NOT NULL DEFAULT ''")
+        )
+    if "directorate" not in user_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN directorate "
+                "VARCHAR(255) NOT NULL DEFAULT ''"
+            )
+        )
+
+    directory_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("directory_settings")
+        }
+    )
+    if "team_attribute" not in directory_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE directory_settings ADD COLUMN team_attribute "
+                "VARCHAR(128) NOT NULL DEFAULT 'department'"
+            )
+        )
+    if "directorate_attribute" not in directory_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE directory_settings ADD COLUMN directorate_attribute "
+                "VARCHAR(128) NOT NULL DEFAULT 'division'"
+            )
+        )
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -288,6 +329,9 @@ async def upgrade() -> None:
         if 6 not in applied:
             await _make_mlflow_settings_per_user(conn)
             await _record_version(conn, 6, "per-user MLflow settings")
+        if 7 not in applied:
+            await _add_directory_profile_fields(conn)
+            await _record_version(conn, 7, "LDAP profile organization fields")
 
 
 async def current_version() -> int:

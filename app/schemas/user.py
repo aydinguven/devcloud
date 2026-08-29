@@ -20,6 +20,8 @@ class UserOut(BaseModel):
     username: str
     email: str
     full_name: str
+    team: str
+    directorate: str
     role: UserRole
     auth_source: str
     is_active: bool

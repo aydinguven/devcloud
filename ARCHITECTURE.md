@@ -106,7 +106,9 @@ root.
 - Worker to controller: TCP 443 outbound.
 - Controller to PostgreSQL, LDAP, each user's configured MLflow server, and
   registry as configured. MLflow credentials are encrypted and resolved only
-  for the authenticated user making the model request.
+  for the authenticated user making tracking or registry requests. The
+  controller reads experiments, runs, parameters, metrics, artifact metadata,
+  and model-version lineage; write operations remain in MLflow.
 - Worker to image registry and package repositories as configured.
 
 Do not expose Podman sockets, worker workspace ports, or worker management
