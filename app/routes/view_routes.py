@@ -258,7 +258,13 @@ async def models_page(
 ):
     if not current_user:
         return RedirectResponse(url="/login", status_code=302)
-    mlflow_settings = await db.get(MlflowSettings, 1)
+    mlflow_settings = (
+        await db.execute(
+            select(MlflowSettings).where(
+                MlflowSettings.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
     return templates.TemplateResponse(
         request=request,
         name="models.html",
@@ -426,8 +432,6 @@ async def admin_page(
             if download_settings and download_settings.public_base_url
             else (settings.DOWNLOAD_PUBLIC_BASE_URL or str(request.base_url).rstrip("/"))
         )
-    elif section == "integrations":
-        context["mlflow_settings"] = await db.get(MlflowSettings, 1)
     elif section == "system":
         download_settings = await db.get(DownloadSettings, 1)
         context.update(

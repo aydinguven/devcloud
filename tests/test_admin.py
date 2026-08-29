@@ -93,7 +93,8 @@ async def test_admin_access_controls(client: AsyncClient):
     )
     assert integrations_page.status_code == 200
     assert "MLflow Model Registry" in integrations_page.text
-    assert 'id="mlflow-settings-form"' in integrations_page.text
+    assert "MLflow bağlantıları artık kullanıcıya özeldir" in integrations_page.text
+    assert 'id="mlflow-settings-form"' not in integrations_page.text
 
     workspaces_page = await client.get("/admin/workspaces", headers=admin_headers)
     assert workspaces_page.status_code == 200
@@ -105,4 +106,6 @@ async def test_admin_access_controls(client: AsyncClient):
 
     models_page = await client.get("/models", headers=admin_headers)
     assert models_page.status_code == 200
-    assert "MLflow henüz etkin değil" in models_page.text
+    assert "MLflow Bağlantınız" in models_page.text
+    assert 'id="mlflow-settings-form"' in models_page.text
+    assert "Bağlantı bekleniyor" in models_page.text

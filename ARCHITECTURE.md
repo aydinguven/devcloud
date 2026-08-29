@@ -104,7 +104,9 @@ root.
 
 - Browser to controller: TCP 443, and optionally 80 for redirect/fallback.
 - Worker to controller: TCP 443 outbound.
-- Controller to PostgreSQL, LDAP, MLflow, and registry as configured.
+- Controller to PostgreSQL, LDAP, each user's configured MLflow server, and
+  registry as configured. MLflow credentials are encrypted and resolved only
+  for the authenticated user making the model request.
 - Worker to image registry and package repositories as configured.
 
 Do not expose Podman sockets, worker workspace ports, or worker management

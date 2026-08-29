@@ -205,6 +205,25 @@ def test_worker_inventory_shows_version_and_live_upgrade_state():
     assert ".node-release-line" in css
 
 
+def test_mlflow_connection_is_configured_per_user_from_models_page():
+    template = (PROJECT_ROOT / "app/templates/models.html").read_text(
+        encoding="utf-8"
+    )
+    admin_template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
+        encoding="utf-8"
+    )
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="mlflow-settings-form"' in template
+    assert "Bu ayarlar yalnızca hesabınıza aittir" in template
+    assert "model eğitmez, çalıştırmaz veya değiştirmez" in template
+    assert 'id="mlflow-settings-form"' not in admin_template
+    assert 'send("/api/mlflow/settings/test", "POST")' in javascript
+    assert 'send("/api/mlflow/settings", "PUT")' in javascript
+
+
 def test_worker_bootstrap_uses_one_time_admin_command():
     template = (PROJECT_ROOT / "app/templates/downloads.html").read_text(
         encoding="utf-8"

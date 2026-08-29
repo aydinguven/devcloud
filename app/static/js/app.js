@@ -1010,8 +1010,8 @@ function initMlflowSettings() {
     status.textContent = "MLflow bağlantısı test ediliyor...";
     status.className = "quota-form-status";
     try {
-      const result = await send("/api/admin/mlflow-settings/test", "POST");
-      status.textContent = `${result.message} ${result.response_time_ms} ms`;
+      const result = await send("/api/mlflow/settings/test", "POST");
+      status.textContent = `${result.message} ${result.model_count} model görüldü · ${result.response_time_ms} ms`;
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;
@@ -1026,13 +1026,14 @@ function initMlflowSettings() {
     testButton.disabled = saveButton.disabled = true;
     status.textContent = "Kaydediliyor...";
     try {
-      const result = await send("/api/admin/mlflow-settings", "PUT");
+      const result = await send("/api/mlflow/settings", "PUT");
       form.elements.secret.value = "";
       form.elements.secret.placeholder = "Kayıtlı değeri korumak için boş bırakın";
       badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
-      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
-      status.textContent = "MLflow ayarları kaydedildi.";
+      badge.textContent = result.enabled ? "Bağlı" : "Devre Dışı";
+      status.textContent = "Kişisel MLflow bağlantınız kaydedildi.";
       status.className = "quota-form-status quota-status-success";
+      window.setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       status.textContent = error.message;
       status.className = "quota-form-status quota-status-error";

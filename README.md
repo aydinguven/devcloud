@@ -32,7 +32,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
 - **Outbound-Only CPU Workers**: Schedule workspaces across worker nodes without opening inbound worker or container ports.
-- **MLflow Registry View**: Configure a server-side, read-only MLflow API connection and browse registered models, versions, aliases, and tags.
+- **Per-User MLflow Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse that registry's models, versions, aliases, and tags. DevCloud reads registry metadata; model training and serving remain in MLflow and the user's ML tooling.
 
 ---
 
@@ -95,8 +95,9 @@ Visit `http://127.0.0.1:8000` in your browser.
 ### LDAPS / Active Directory
 
 Sign in with the local administrator and open **Yönetim Paneli → Kurumsal
-Dizin**. The form defaults to `ldaps.tcmb.gov.tr:686` and supports testing the
-bind and user search before enabling directory login.
+Dizin**. Enter the organization LDAP endpoint, such as
+`ldaps.example.com:636`. The form supports testing the bind and user search
+before enabling directory login.
 
 - Set a strong, persistent `SECRET_KEY` before saving the bind password. The
   application derives a Fernet key from it and never returns the saved password
@@ -153,7 +154,7 @@ Verify the clean installation:
 ```bash
 systemctl status devcloud nginx devcloud-ingress.path --no-pager
 curl -I http://127.0.0.1:8000/login
-curl -I http://aifactory.tcmb.gov.tr/login
+curl -I http://devcloud.example.com/login
 ```
 
 ### 2. Update a managed installation
@@ -170,7 +171,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.5-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.6-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -358,9 +359,10 @@ ingress directory and is never returned by the API.
 
 For the planned deployment, the certificate SAN must contain
 devcloud.example.com, DNS must resolve that name to the controller, and clients
-and workers must trust TCMB-CA. Keep **Port 80 HTTP fallback** enabled while
-that trust is being rolled out. The fallback deliberately does not enable HSTS.
-Disabling fallback changes port 80 to a permanent redirect to HTTPS.
+and workers must trust the organization CA. Keep **Port 80 HTTP fallback**
+enabled while that trust is being rolled out. The fallback deliberately does
+not enable HSTS. Disabling fallback changes port 80 to a permanent redirect to
+HTTPS.
 
 The generated Nginx configuration preserves the /proxy/... path, WebSocket
 upgrade headers, and long-lived workspace sessions. Git-based updates install
@@ -370,8 +372,8 @@ section is only needed if the host was upgraded using an older updater.
 Verify both the application and the workspace proxy after applying a
 certificate:
 
-    curl -I http://aifactory.tcmb.gov.tr/login
-    curl --cacert /path/to/tcmb-ca.pem -I https://aifactory.tcmb.gov.tr/login
+    curl -I http://devcloud.example.com/login
+    curl --cacert /path/to/internal-ca.pem -I https://devcloud.example.com/login
     sudo nginx -t
     sudo systemctl status nginx devcloud-ingress.path --no-pager
 

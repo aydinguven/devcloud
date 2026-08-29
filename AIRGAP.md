@@ -281,7 +281,7 @@ Apply the signed bundle:
 
 ```bash
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.5-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.6-COMMIT.tar.gz
 ```
 
 The release is rejected unless its manifest signature chains to
@@ -296,10 +296,10 @@ published bundle through authenticated endpoints.
 The controller remains usable over HTTP when no certificate exists. To enable TLS,
 open **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**:
 
-1. set the hostname to aifactory.tcmb.gov.tr;
+1. set the hostname to devcloud.example.com;
 2. upload the CA-issued certificate chain in PEM format;
 3. upload the matching, unencrypted PEM private key;
-4. leave HTTP fallback enabled until DNS and TCMB-CA trust are confirmed;
+4. leave HTTP fallback enabled until DNS and internal CA trust are confirmed;
 5. select **Kaydet ve Nginx'e Uygula**.
 
 The panel rejects expired/not-yet-valid certificates, SAN mismatches, non-server
@@ -310,6 +310,6 @@ root-owned devcloud-ingress.path unit handles only fixed files under
 sudo.
 
 The application URL used by worker bootstrap changes to
-https://aifactory.tcmb.gov.tr when HTTPS is enabled. Before using the one-line
-worker installer over HTTPS, ensure the worker trusts TCMB-CA and can resolve
-the hostname. No HSTS header is emitted while fallback is supported.
+https://devcloud.example.com when HTTPS is enabled. Before using the one-line
+worker installer over HTTPS, ensure the worker trusts the internal CA and can
+resolve the hostname. No HSTS header is emitted while fallback is supported.

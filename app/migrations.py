@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 class MigrationError(RuntimeError):
@@ -231,6 +231,40 @@ async def _worker_only_constraints(conn) -> None:
         )
 
 
+async def _make_mlflow_settings_per_user(conn) -> None:
+    """Add user ownership without assigning the legacy shared credential."""
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("mlflow_settings")
+        }
+    )
+    if "user_id" not in columns:
+        await conn.execute(
+            text("ALTER TABLE mlflow_settings ADD COLUMN user_id INTEGER")
+        )
+    unique_sets = await conn.run_sync(
+        lambda sync_conn: {
+            tuple(item.get("column_names") or ())
+            for item in (
+                inspect(sync_conn).get_unique_constraints("mlflow_settings")
+                + [
+                    index
+                    for index in inspect(sync_conn).get_indexes("mlflow_settings")
+                    if index.get("unique")
+                ]
+            )
+        }
+    )
+    if ("user_id",) not in unique_sets:
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX uq_mlflow_settings_user_id "
+                "ON mlflow_settings (user_id)"
+            )
+        )
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -251,6 +285,9 @@ async def upgrade() -> None:
         if 5 not in applied:
             # init_db creates the portable worker_bootstrap_tickets table.
             await _record_version(conn, 5, "single-use worker bootstrap tickets")
+        if 6 not in applied:
+            await _make_mlflow_settings_per_user(conn)
+            await _record_version(conn, 6, "per-user MLflow settings")
 
 
 async def current_version() -> int:

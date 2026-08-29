@@ -31,7 +31,6 @@ from app.models.user import User
 from app.models.directory_settings import DirectorySettings
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
-from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.custom_template import CustomTemplate
@@ -45,7 +44,6 @@ from app.schemas.directory import (
 )
 from app.schemas.workspace import WorkspaceOut
 from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate, NodeLabelsUpdate
-from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
 from app.schemas.workspace_image import (
     WorkspaceImageOut,
@@ -63,14 +61,6 @@ from app.ingress_settings import (
     IngressConfigurationError,
     ingress_manager,
     normalize_https_hostname,
-)
-from app.security.secrets import encrypt_secret
-from app.integrations.mlflow import (
-    MlflowClient,
-    MlflowConfigurationError,
-    MlflowConnectionError,
-    config_from_update as mlflow_config_from_update,
-    validate_config as validate_mlflow_config,
 )
 from app.orchestrator.templates import BUILTIN_TEMPLATE_IDS, TEMPLATES
 from app.workspace_image_service import (
@@ -490,84 +480,6 @@ async def apply_https_settings(
     await db.commit()
     await db.refresh(record)
     return _download_settings_out(record)
-
-
-def _mlflow_settings_out(record: MlflowSettings) -> MlflowSettingsOut:
-    return MlflowSettingsOut(
-        enabled=record.enabled,
-        base_url=record.base_url,
-        auth_type=record.auth_type,
-        username=record.username,
-        has_secret=bool(record.encrypted_secret),
-        validate_tls=record.validate_tls,
-        ca_cert_file=record.ca_cert_file,
-        timeout_seconds=record.timeout_seconds,
-    )
-
-
-async def _get_or_create_mlflow_settings(db: AsyncSession) -> MlflowSettings:
-    record = await db.get(MlflowSettings, 1)
-    if record:
-        return record
-    record = MlflowSettings(id=1)
-    db.add(record)
-    await db.commit()
-    await db.refresh(record)
-    return record
-
-
-@admin_router.get("/mlflow-settings", response_model=MlflowSettingsOut)
-async def get_mlflow_settings(
-    _admin: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    return _mlflow_settings_out(await _get_or_create_mlflow_settings(db))
-
-
-@admin_router.put("/mlflow-settings", response_model=MlflowSettingsOut)
-async def update_mlflow_settings(
-    update: MlflowSettingsUpdate,
-    _admin: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    record = await _get_or_create_mlflow_settings(db)
-    try:
-        candidate = mlflow_config_from_update(update, record)
-        if update.enabled:
-            validate_mlflow_config(candidate)
-    except MlflowConfigurationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    for field_name, value in update.model_dump(exclude={"secret"}).items():
-        setattr(record, field_name, value)
-    if update.secret:
-        record.encrypted_secret = encrypt_secret(update.secret)
-    db.add(record)
-    await db.commit()
-    await db.refresh(record)
-    return _mlflow_settings_out(record)
-
-
-@admin_router.post("/mlflow-settings/test", response_model=MlflowTestResult)
-async def test_mlflow_settings(
-    update: MlflowSettingsUpdate,
-    _admin: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    record = await _get_or_create_mlflow_settings(db)
-    try:
-        candidate = mlflow_config_from_update(update, record)
-        validate_mlflow_config(candidate)
-        count, elapsed_ms = await MlflowClient(candidate).test()
-    except MlflowConfigurationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except MlflowConnectionError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return MlflowTestResult(
-        success=True,
-        message="MLflow Model Registry bağlantısı başarılı.",
-        response_time_ms=elapsed_ms,
-        model_count=count,
-    )
 
 
 def _node_out(node: Node, enrollment_token: str | None = None):

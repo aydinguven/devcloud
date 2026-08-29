@@ -427,29 +427,12 @@ cd devcloud
   <div class="card-header">
     <div>
       <h2 class="card-title">MLflow Model Registry</h2>
-      <p class="admin-section-description">Model bilgilerini kullanıcıya açmadan controller üzerinden MLflow API'ına bağlanın.</p>
+      <p class="admin-section-description">MLflow bağlantıları artık kullanıcıya özeldir.</p>
     </div>
-    <span id="mlflow-status-badge" class="badge {% if mlflow_settings and mlflow_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if mlflow_settings and mlflow_settings.enabled else 'Devre Dışı' }}</span>
+    <span class="badge badge-running">Kullanıcı Bazlı</span>
   </div>
-  <form id="mlflow-settings-form" autocomplete="off">
-    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="enabled" {% if mlflow_settings and mlflow_settings.enabled %}checked{% endif %}><span>MLflow görünümünü etkinleştir</span></label>
-      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="validate_tls" {% if not mlflow_settings or mlflow_settings.validate_tls %}checked{% endif %}><span>TLS sertifikasını doğrula</span></label>
-    </div>
-    <div class="grid grid-cols-3" style="gap:.75rem;margin-bottom:.75rem;">
-      <label class="form-group" style="margin:0;grid-column:span 2;"><span class="form-label">MLflow adresi</span><input class="form-input" name="base_url" value="{{ mlflow_settings.base_url if mlflow_settings else '' }}" placeholder="https://mlflow.example.internal" required></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Authentication</span><select class="form-input" name="auth_type"><option value="none" {% if not mlflow_settings or mlflow_settings.auth_type == 'none' %}selected{% endif %}>Yok</option><option value="basic" {% if mlflow_settings and mlflow_settings.auth_type == 'basic' %}selected{% endif %}>Basic</option><option value="bearer" {% if mlflow_settings and mlflow_settings.auth_type == 'bearer' %}selected{% endif %}>Bearer token</option></select></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Kullanıcı adı</span><input class="form-input" name="username" value="{{ mlflow_settings.username if mlflow_settings else '' }}"></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Parola / token</span><input class="form-input" type="password" name="secret" placeholder="{% if mlflow_settings and mlflow_settings.encrypted_secret %}Kayıtlı değeri korumak için boş bırakın{% endif %}" autocomplete="new-password"></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Timeout (sn)</span><input class="form-input" type="number" name="timeout_seconds" min="1" max="120" value="{{ mlflow_settings.timeout_seconds if mlflow_settings else 10 }}"></label>
-      <label class="form-group" style="margin:0;grid-column:1/-1;"><span class="form-label">Özel CA sertifika dosyası (controller yolu)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_settings.ca_cert_file if mlflow_settings else '' }}"></label>
-    </div>
-    <div class="table-actions">
-      <button id="btn-test-mlflow" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
-      <button id="btn-save-mlflow" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
-      <span id="mlflow-form-status" class="quota-form-status" role="status"></span>
-    </div>
-  </form>
+  <p class="text-muted">Her kullanıcı kendi MLflow URL'sini ve kimlik bilgilerini <strong>ML Modelleri</strong> sayfasında kaydeder. Şifreler ve token'lar şifreli saklanır; bir kullanıcının bağlantısı veya modelleri başka kullanıcılara gösterilmez.</p>
+  <a class="btn btn-primary" href="/models">Kişisel MLflow Ayarlarını Aç</a>
 </section>
 {% endif %}
 

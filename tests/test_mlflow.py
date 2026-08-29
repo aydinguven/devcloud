@@ -1,30 +1,38 @@
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import update
+from sqlalchemy import select
 
-import app.routes.admin_routes as admin_module
+import app.routes.mlflow_routes as mlflow_module
 from app.integrations.mlflow import MlflowClient
-from app.models.user import User, UserRole
+from app.models.mlflow_settings import MlflowSettings
 from tests.conftest import TestingSessionLocal
 
 
-async def _admin_headers(client: AsyncClient) -> dict[str, str]:
+async def _user_headers(
+    client: AsyncClient,
+    username: str,
+) -> tuple[dict[str, str], int]:
     response = await client.post(
         "/api/auth/register",
-        json={"username": "mlflow_admin", "email": "mlflow-admin@test.com", "password": "Password123!"},
+        json={
+            "username": username,
+            "email": f"{username}@test.com",
+            "password": "Password123!",
+        },
     )
-    token = response.json()["access_token"]
-    user_id = response.json()["user"]["id"]
-    async with TestingSessionLocal() as session:
-        await session.execute(update(User).where(User.id == user_id).values(role=UserRole.ADMIN))
-        await session.commit()
-    return {"Authorization": f"Bearer {token}"}
+    return (
+        {"Authorization": f"Bearer {response.json()['access_token']}"},
+        response.json()["user"]["id"],
+    )
 
 
-def _settings_payload(secret="model-registry-token"):
+def _settings_payload(
+    secret: str | None = "model-registry-token",
+    base_url: str = "https://mlflow.internal",
+):
     return {
         "enabled": True,
-        "base_url": "https://mlflow.internal",
+        "base_url": base_url,
         "auth_type": "bearer",
         "username": "",
         "secret": secret,
@@ -35,21 +43,37 @@ def _settings_payload(secret="model-registry-token"):
 
 
 @pytest.mark.asyncio
-async def test_mlflow_secret_is_write_only_and_connection_can_be_tested(client: AsyncClient, monkeypatch):
-    headers = await _admin_headers(client)
-    saved = await client.put("/api/admin/mlflow-settings", headers=headers, json=_settings_payload())
+async def test_user_mlflow_secret_is_write_only_and_connection_can_be_tested(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, user_id = await _user_headers(client, "mlflow_user")
+    saved = await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload(),
+    )
     assert saved.status_code == 200
     assert saved.json()["has_secret"] is True
     assert "secret" not in saved.json()
     assert "model-registry-token" not in saved.text
 
+    async with TestingSessionLocal() as session:
+        record = (
+            await session.execute(
+                select(MlflowSettings).where(MlflowSettings.user_id == user_id)
+            )
+        ).scalar_one()
+        assert record.encrypted_secret
+        assert record.encrypted_secret != "model-registry-token"
+
     async def fake_test(self):
         assert self.config.secret == "model-registry-token"
         return 1, 12
 
-    monkeypatch.setattr(admin_module.MlflowClient, "test", fake_test)
+    monkeypatch.setattr(mlflow_module.MlflowClient, "test", fake_test)
     tested = await client.post(
-        "/api/admin/mlflow-settings/test",
+        "/api/mlflow/settings/test",
         headers=headers,
         json=_settings_payload(secret=None),
     )
@@ -58,30 +82,64 @@ async def test_mlflow_secret_is_write_only_and_connection_can_be_tested(client: 
 
 
 @pytest.mark.asyncio
-async def test_authenticated_user_can_list_normalized_mlflow_models(client: AsyncClient, monkeypatch):
-    headers = await _admin_headers(client)
-    await client.put("/api/admin/mlflow-settings", headers=headers, json=_settings_payload())
+async def test_mlflow_settings_and_models_are_isolated_per_user(
+    client: AsyncClient,
+    monkeypatch,
+):
+    alice_headers, _ = await _user_headers(client, "mlflow_alice")
+    bob_headers, _ = await _user_headers(client, "mlflow_bob")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=alice_headers,
+        json=_settings_payload("alice-token", "https://alice-mlflow.internal"),
+    )
+    await client.put(
+        "/api/mlflow/settings",
+        headers=bob_headers,
+        json=_settings_payload("bob-token", "https://bob-mlflow.internal"),
+    )
 
     async def fake_search(self, search="", page_token="", max_results=100):
-        assert search == "fraud"
+        owner = "alice" if "alice-mlflow" in self.config.base_url else "bob"
+        assert self.config.secret == f"{owner}-token"
         return {
             "registered_models": [
                 {
-                    "name": "fraud-detector",
-                    "description": "Production classifier",
+                    "name": f"{owner}-model",
+                    "description": "User-owned registry model",
                     "aliases": ["champion"],
-                    "tags": [{"key": "team", "value": "risk"}],
+                    "tags": [{"key": "owner", "value": owner}],
                     "latest_versions": [{"version": "7", "status": "READY"}],
                 }
             ],
-            "next_page_token": "next",
+            "next_page_token": "",
         }
 
     monkeypatch.setattr(MlflowClient, "search_registered_models", fake_search)
-    response = await client.get("/api/mlflow/models?search=fraud", headers=headers)
-    assert response.status_code == 200
-    model = response.json()["models"][0]
-    assert model["latest_version"]["version"] == "7"
-    assert model["aliases_list"] == ["champion"]
-    assert model["tags_map"] == {"team": "risk"}
+    alice_models = await client.get("/api/mlflow/models", headers=alice_headers)
+    bob_models = await client.get("/api/mlflow/models", headers=bob_headers)
 
+    assert alice_models.status_code == 200
+    assert bob_models.status_code == 200
+    assert alice_models.json()["models"][0]["name"] == "alice-model"
+    assert bob_models.json()["models"][0]["name"] == "bob-model"
+    assert alice_models.json()["models"][0]["tags_map"] == {"owner": "alice"}
+    assert bob_models.json()["models"][0]["tags_map"] == {"owner": "bob"}
+
+    alice_settings = await client.get("/api/mlflow/settings", headers=alice_headers)
+    bob_settings = await client.get("/api/mlflow/settings", headers=bob_headers)
+    assert alice_settings.json()["base_url"] == "https://alice-mlflow.internal"
+    assert bob_settings.json()["base_url"] == "https://bob-mlflow.internal"
+
+
+@pytest.mark.asyncio
+async def test_user_without_mlflow_settings_gets_setup_guidance(client: AsyncClient):
+    headers, _ = await _user_headers(client, "mlflow_unconfigured")
+    settings = await client.get("/api/mlflow/settings", headers=headers)
+    models = await client.get("/api/mlflow/models", headers=headers)
+
+    assert settings.status_code == 200
+    assert settings.json()["enabled"] is False
+    assert settings.json()["has_secret"] is False
+    assert models.status_code == 503
+    assert "ML Modelleri" in models.json()["detail"]

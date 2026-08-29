@@ -10,6 +10,7 @@ from app.database import (
     ensure_user_quota_columns,
     ensure_workspace_columns,
 )
+from app.migrations import _make_mlflow_settings_per_user
 
 
 @pytest.mark.asyncio
@@ -125,3 +126,54 @@ async def test_existing_download_settings_table_receives_https_columns(tmp_path)
         "certificate_sha256",
     } <= columns
     assert row == (0, settings.HTTPS_DEFAULT_HOSTNAME, 1)
+
+
+@pytest.mark.asyncio
+async def test_legacy_mlflow_settings_receive_user_ownership(tmp_path):
+    database_path = (tmp_path / "legacy-mlflow.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_settings ("
+                    "id INTEGER PRIMARY KEY, "
+                    "encrypted_secret TEXT NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO mlflow_settings (id, encrypted_secret) "
+                    "VALUES (1, 'legacy-encrypted-value')"
+                )
+            )
+            await _make_mlflow_settings_per_user(conn)
+            await _make_mlflow_settings_per_user(conn)
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    column["name"]
+                    for column in inspect(sync_conn).get_columns(
+                        "mlflow_settings"
+                    )
+                }
+            )
+            unique_sets = await conn.run_sync(
+                lambda sync_conn: {
+                    tuple(index.get("column_names") or ())
+                    for index in inspect(sync_conn).get_indexes(
+                        "mlflow_settings"
+                    )
+                    if index.get("unique")
+                }
+            )
+            legacy_user_id = (
+                await conn.execute(
+                    text("SELECT user_id FROM mlflow_settings WHERE id = 1")
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+    assert "user_id" in columns
+    assert ("user_id",) in unique_sets
+    assert legacy_user_id is None
