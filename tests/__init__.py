@@ -1,1 +1,0 @@
-"""DevCloud automated test suite."""
