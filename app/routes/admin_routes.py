@@ -627,7 +627,7 @@ async def create_worker_bootstrap_ticket(
     db.add(
         WorkerBootstrapTicket(
             token_hash=ticket_hash(token),
-            created_by_user_id=_admin.id,
+            created_by_user_id=str(_admin.id),
             expires_at=expires_at,
         )
     )

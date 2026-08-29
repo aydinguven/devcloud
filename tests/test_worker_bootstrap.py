@@ -53,12 +53,25 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
 ):
     _publish_fake_release(tmp_path, monkeypatch)
     headers = await _admin_headers(client)
+    captured_creator_ids = []
+    ticket_model = WorkerBootstrapTicket
+
+    def ticket_factory(**values):
+        captured_creator_ids.append(values["created_by_user_id"])
+        return ticket_model(**values)
+
+    monkeypatch.setattr(
+        "app.routes.admin_routes.WorkerBootstrapTicket",
+        ticket_factory,
+    )
 
     created = await client.post(
         "/api/admin/worker-bootstrap-tickets", headers=headers
     )
 
     assert created.status_code == 201
+    assert captured_creator_ids
+    assert isinstance(captured_creator_ids[0], str)
     ticket = created.json()
     assert ticket["command"].startswith("curl -fsSL ")
     assert ticket["command"].endswith(" | sudo bash")
