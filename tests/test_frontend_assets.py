@@ -84,6 +84,34 @@ def test_admin_panel_exposes_category_navigation():
     assert "initAdminFilters()" in javascript
 
 
+def test_dense_data_views_have_responsive_overflow_guards():
+    base_css = (PROJECT_ROOT / "app/static/css/style.css").read_text(
+        encoding="utf-8"
+    )
+    corporate_css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(
+        encoding="utf-8"
+    )
+    admin = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+    images = (
+        PROJECT_ROOT / "app/templates/partials/admin_images.html"
+    ).read_text(encoding="utf-8")
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert ".data-table-shell" in base_css
+    assert "overflow-x: auto" in base_css
+    assert ".responsive-card-table td::before" in corporate_css
+    assert "content: attr(data-label)" in corporate_css
+    assert ".worker-sync-item" in corporate_css
+    assert 'class="data-table-shell"' in admin
+    assert 'class="table responsive-card-table" id="admin-workspace-table"' in admin
+    assert 'data-label="Worker"' in admin
+    assert "responsive-card-table-shell image-catalog-shell" in images
+    assert 'data-label="Digest / SHA-256"' in javascript
+    assert 'class="worker-sync-item"' in javascript
+
+
 def test_public_download_page_exposes_worker_bootstrap_command():
     template = (PROJECT_ROOT / "app/templates/downloads.html").read_text(
         encoding="utf-8"

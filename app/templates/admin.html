@@ -83,7 +83,7 @@
       </div>
       <span id="admin-update-state" class="badge badge-neutral">Durum yükleniyor</span>
     </div>
-    <form id="platform-git-update-form" style="display:grid;grid-template-columns:minmax(240px,1fr) minmax(110px,.3fr) auto;gap:.5rem;align-items:end;margin-bottom:1rem;">
+    <form id="platform-git-update-form" class="responsive-form-grid responsive-form-grid--platform">
       <label class="form-group" style="margin:0;">Git release kanalı
         <input id="platform-update-repository" name="repository" type="text" required placeholder="https://github.com/aydinguven/devcloud.git">
       </label>
@@ -139,7 +139,7 @@
     </div>
   </div>
 
-  <form id="download-settings-form" style="display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:.75rem;align-items:end;margin-bottom:1rem;padding:1rem;border:1px solid var(--border-color);border-radius:var(--radius-md);background:rgba(255,255,255,.02);">
+  <form id="download-settings-form" class="responsive-form-grid responsive-form-grid--download">
     <label class="form-group" style="margin:0;">
       <span class="form-label">Worker kurulumunda kullanılacak Controller URL</span>
       <input class="form-input" type="url" name="public_base_url" value="{{ download_public_base_url }}" placeholder="http://10.253.6.189" required>
@@ -188,7 +188,7 @@
         Henüz sertifika yüklenmedi. Sertifika ve private key yalnızca birlikte kabul edilir; eşleşme ve SAN hostname'i uygulanmadan önce doğrulanır.
       {% endif %}
     </small>
-    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+    <div class="table-actions">
       <button id="btn-apply-https-settings" class="btn btn-primary btn-sm" type="submit">Kaydet ve Nginx'e Uygula</button>
       <span id="https-settings-status" class="quota-form-status" role="status" aria-live="polite"></span>
     </div>
@@ -295,6 +295,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
   </form>
   <div id="node-enrollment-token" class="terminal-window" style="display:none;margin-bottom:1.25rem;padding:1rem;"></div>
   
+  <div class="data-table-shell">
   <table class="table" id="admin-nodes-table" style="width: 100%; margin: 0; border-collapse: collapse;">
     <thead>
       <tr>
@@ -364,6 +365,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endif %}
 
@@ -389,7 +391,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       <label class="form-group" style="margin:0;"><span class="form-label">Timeout (sn)</span><input class="form-input" type="number" name="timeout_seconds" min="1" max="120" value="{{ mlflow_settings.timeout_seconds if mlflow_settings else 10 }}"></label>
       <label class="form-group" style="margin:0;grid-column:1/-1;"><span class="form-label">Özel CA sertifika dosyası (controller yolu)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_settings.ca_cert_file if mlflow_settings else '' }}"></label>
     </div>
-    <div style="display:flex;gap:.75rem;align-items:center;">
+    <div class="table-actions">
       <button id="btn-test-mlflow" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
       <button id="btn-save-mlflow" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
       <span id="mlflow-form-status" class="quota-form-status" role="status"></span>
@@ -503,7 +505,7 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       </div>
     </details>
 
-    <div style="display: flex; gap: 0.75rem; align-items: center;">
+    <div class="table-actions">
       <button id="btn-test-directory" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
       <button id="btn-save-directory" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
       <span id="directory-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
@@ -600,7 +602,8 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       <input class="form-input" type="search" placeholder="Workspace ara..." data-admin-filter="#admin-workspace-table tbody tr">
     </label>
   </div>
-  <table class="table" id="admin-workspace-table">
+  <div class="data-table-shell responsive-card-table-shell">
+  <table class="table responsive-card-table" id="admin-workspace-table">
     <thead>
       <tr>
         <th>Ad</th>
@@ -617,26 +620,27 @@ sudo bash deploy/deploy_worker_offline.sh</pre>
       {% for ws in all_workspaces %}
         {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
         <tr>
-          <td style="font-weight: 600; color: #fff;">{{ ws.name }}</td>
-          <td>Kullanıcı #{{ ws.user_id }}</td>
-          <td>{{ ws.template_id }}</td>
-          <td><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
-          <td><code>{{ ws.node_id or 'unassigned' }}</code></td>
-          <td><code>{{ ws.host_port }}</code></td>
-          <td><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
-          <td>
-            <div style="display: flex; gap: 0.5rem;">
+          <td data-label="Ad" style="font-weight: 600; color: #fff;">{{ ws.name }}</td>
+          <td data-label="Sahip">Kullanıcı #{{ ws.user_id }}</td>
+          <td data-label="Şablon">{{ ws.template_id }}</td>
+          <td data-label="Kaynak Profili"><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
+          <td data-label="Worker" class="data-value"><code>{{ ws.node_id or 'unassigned' }}</code></td>
+          <td data-label="Host Portu"><code>{{ ws.host_port }}</code></td>
+          <td data-label="Durum"><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
+          <td data-label="İşlemler">
+            <div class="table-actions">
               <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Görüntüle</a>
               <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Sil</button>
             </div>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="8">Henüz çalışma alanı oluşturulmadı.</td></tr>
+        <tr><td class="table-empty" colspan="8">Henüz çalışma alanı oluşturulmadı.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-</div>
+  </div>
+</section>
 
 <!-- Custom Template Builder Modal -->
 <div id="template-builder-modal" class="modal-backdrop">

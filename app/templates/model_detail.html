@@ -15,7 +15,7 @@
   <div id="model-detail-content" hidden>
     <p id="model-description"></p>
     <div id="model-tags" style="display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1rem;"></div>
-    <div style="overflow-x:auto;">
+    <div class="data-table-shell">
       <table class="table">
         <thead><tr><th>Versiyon</th><th>Alias</th><th>Durum</th><th>Run ID</th><th>Kaynak</th><th>Oluşturulma</th></tr></thead>
         <tbody id="model-versions"></tbody>
@@ -41,7 +41,7 @@
       document.getElementById("model-versions").innerHTML = (data.versions || []).map(version => {
         const aliases = (version.aliases || []).map(escapeHtml).join(", ") || "—";
         const created = version.creation_timestamp ? new Date(Number(version.creation_timestamp)).toLocaleString("tr-TR") : "—";
-        return `<tr><td><strong>v${escapeHtml(version.version)}</strong></td><td>${aliases}</td><td>${escapeHtml(version.status || "—")}</td><td><code>${escapeHtml(version.run_id || "—")}</code></td><td><code>${escapeHtml(version.source || "—")}</code></td><td>${created}</td></tr>`;
+        return `<tr><td><strong>v${escapeHtml(version.version)}</strong></td><td>${aliases}</td><td>${escapeHtml(version.status || "—")}</td><td class="data-value"><code>${escapeHtml(version.run_id || "—")}</code></td><td class="data-value"><code>${escapeHtml(version.source || "—")}</code></td><td>${created}</td></tr>`;
       }).join("");
       status.textContent = "";
       content.hidden = false;

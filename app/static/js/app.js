@@ -70,15 +70,15 @@ function initWorkspaceImageManager() {
   };
   const renderWorkerProgress = (workers) => {
     if (!workers?.length) return '<small>Kayıtlı worker yok</small>';
-    return workers.map((worker) => {
+    return `<div class="worker-sync-list">${workers.map((worker) => {
       const percent = Math.max(0, Math.min(100, Number(worker.percent || 0)));
-      const error = worker.error ? `<small class="quota-status-error" title="${escapeHtml(worker.error)}">${escapeHtml(worker.error)}</small>` : "";
-      return `<div style="min-width:180px;margin:.25rem 0;">
-        <div style="display:flex;justify-content:space-between;gap:.5rem;"><small><strong>${escapeHtml(worker.node_name)}</strong> · ${escapeHtml(syncStateLabel[worker.state] || worker.state)}</small><small>${percent.toFixed(0)}%</small></div>
-        <div style="height:6px;background:rgba(148,163,184,.22);border-radius:999px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:${worker.state === "failed" ? "var(--color-danger,#ef4444)" : "var(--primary,#3b82f6)"};transition:width .3s;"></div></div>
-        <small>${humanSize(worker.downloaded_bytes)} / ${humanSize(worker.total_bytes)}</small>${error}
+      const error = worker.error ? `<small class="worker-sync-error quota-status-error" title="${escapeHtml(worker.error)}">${escapeHtml(worker.error)}</small>` : "";
+      return `<div class="worker-sync-item">
+        <div class="worker-sync-heading"><small><strong>${escapeHtml(worker.node_name)}</strong> · ${escapeHtml(syncStateLabel[worker.state] || worker.state)}</small><small>${percent.toFixed(0)}%</small></div>
+        <div class="worker-sync-track"><div class="worker-sync-fill ${worker.state === "failed" ? "is-failed" : ""}" style="width:${percent}%;"></div></div>
+        <small class="worker-sync-size">${humanSize(worker.downloaded_bytes)} / ${humanSize(worker.total_bytes)}</small>${error}
       </div>`;
-    }).join("");
+    }).join("")}</div>`;
   };
 
   async function loadImages() {
@@ -89,17 +89,17 @@ function initWorkspaceImageManager() {
       count.textContent = `${images.length} sürüm`;
       tbody.innerHTML = images.length ? images.map((image) => `
         <tr>
-          <td><strong>${escapeHtml(image.display_name)}</strong><br><code>${escapeHtml(image.template_id)}</code><br><small>${escapeHtml(image.image_ref)}</small></td>
-          <td><span class="badge badge-neutral">${escapeHtml(image.source_type)}</span><br><small>${escapeHtml(image.source_ref)}</small></td>
-          <td><code title="${escapeHtml(image.digest)}">${escapeHtml((image.digest || "-").slice(0, 24))}</code><br><code title="${escapeHtml(image.sha256)}">${escapeHtml(image.sha256.slice(0, 24))}…</code></td>
-          <td>${humanSize(image.size)}</td>
-          <td><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
-          <td><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Pasif"}</span></td>
-          <td><div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+          <td data-label="Şablon / Sürüm" class="image-cell-title"><strong>${escapeHtml(image.display_name)}</strong><code>${escapeHtml(image.template_id)}</code><small title="${escapeHtml(image.image_ref)}">${escapeHtml(image.image_ref)}</small></td>
+          <td data-label="Kaynak" class="image-cell-source"><span class="badge badge-neutral">${escapeHtml(image.source_type)}</span><small title="${escapeHtml(image.source_ref)}">${escapeHtml(image.source_ref)}</small></td>
+          <td data-label="Digest / SHA-256" class="image-cell-hash"><code title="${escapeHtml(image.digest)}">${escapeHtml((image.digest || "-").slice(0, 24))}</code><code title="${escapeHtml(image.sha256)}">${escapeHtml(image.sha256.slice(0, 24))}…</code></td>
+          <td data-label="Boyut">${humanSize(image.size)}</td>
+          <td data-label="Worker"><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
+          <td data-label="Durum"><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Pasif"}</span></td>
+          <td data-label="İşlemler"><div class="table-actions">
             <button class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}">${image.enabled ? "Devre Dışı" : "Etkinleştir"}</button>
             <button class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}">Sil</button>
           </div></td>
-        </tr>`).join("") : '<tr><td colspan="7">Henüz workspace image eklenmedi.</td></tr>';
+        </tr>`).join("") : '<tr><td class="table-empty" colspan="7">Henüz workspace image eklenmedi.</td></tr>';
     } catch (error) {
       setStatus(globalStatus, error.message, true);
     }

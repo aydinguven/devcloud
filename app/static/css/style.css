@@ -35,6 +35,13 @@ body {
   flex-direction: column;
 }
 
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
 a {
   color: var(--primary);
   text-decoration: none;
@@ -106,13 +113,17 @@ a:hover {
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  min-width: 0;
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.25rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
+.card-header > * { min-width: 0; }
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
@@ -133,6 +144,8 @@ a:hover {
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s, transform 0.05s;
   text-decoration: none;
+  max-width: 100%;
+  white-space: normal;
 }
 .btn:active {
   transform: scale(0.98);
@@ -230,6 +243,8 @@ a:hover {
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.15s;
+  min-width: 0;
+  max-width: 100%;
 }
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   border-color: var(--border-focus);
@@ -240,6 +255,7 @@ a:hover {
   display: grid;
   gap: 1.25rem;
 }
+.grid > * { min-width: 0; }
 .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -312,8 +328,9 @@ a:hover {
   font-size: 0.825rem;
   color: #10b981;
   max-height: 400px;
-  overflow-y: auto;
+  overflow: auto;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Tables */
@@ -326,6 +343,8 @@ a:hover {
   padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
+  overflow-wrap: anywhere;
+  vertical-align: top;
 }
 .table th {
   color: var(--text-muted);
@@ -335,6 +354,52 @@ a:hover {
 }
 .table tr:hover td {
   background-color: rgba(255, 255, 255, 0.02);
+}
+
+.data-table-shell {
+  border: 1px solid var(--border-color);
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  width: 100%;
+}
+.data-table-shell > .table {
+  margin: 0;
+  min-width: 760px;
+}
+.table-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.data-value,
+.data-value code,
+.break-anywhere,
+td code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.data-value code { white-space: normal; }
+.responsive-form-grid {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.responsive-form-grid > * { min-width: 0; }
+
+@media (max-width: 768px) {
+  .container { overflow-x: clip; }
+  .card { padding: 1rem; }
+  .card-header { align-items: flex-start; flex-direction: column; }
+  .card-header > .btn,
+  .card-header > .badge,
+  .card-header > .admin-section-count { align-self: flex-start; }
+  .responsive-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .responsive-form-grid .btn { width: 100%; }
+  .modal { padding: 1.1rem; }
 }
 
 /* Pulse Dot */

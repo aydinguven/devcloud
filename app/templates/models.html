@@ -18,7 +18,7 @@
 </section>
 {% else %}
 <section class="card" style="margin-bottom: 1rem;">
-  <form id="mlflow-search-form" style="display: flex; gap: 0.75rem; align-items: end;">
+  <form id="mlflow-search-form" class="responsive-form-grid">
     <label class="form-group" style="margin: 0; flex: 1;">
       <span class="form-label">Model ara</span>
       <input id="mlflow-search" class="form-input" type="search" placeholder="Model adı">
@@ -56,7 +56,7 @@
     const latest = model.latest_version || {};
     const aliases = (model.aliases_list || []).map(alias => `<span class="badge badge-running">${escapeHtml(alias)}</span>`).join(" ");
     const version = latest.version ? `v${escapeHtml(latest.version)}` : "Versiyon yok";
-    return `<article class="admin-user-card" style="grid-template-columns: minmax(0, 1fr) auto;">
+    return `<article class="admin-user-card model-card" style="grid-template-columns: minmax(0, 1fr) auto;">
       <div>
         <a href="/models/${encodeURIComponent(model.name)}" class="admin-user-name">${escapeHtml(model.name)}</a>
         <p class="admin-section-description">${escapeHtml(model.description || "Açıklama girilmemiş")}</p>

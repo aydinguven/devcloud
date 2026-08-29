@@ -117,8 +117,8 @@
         </button>
       </div>
     </div>
-    <div style="border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; background: var(--bg-main);">
-      <table style="width: 100%; border-collapse: collapse; font-size: 0.825rem;">
+    <div class="data-table-shell" style="background: var(--bg-main);">
+      <table class="file-manager-table" style="width: 100%; border-collapse: collapse; font-size: 0.825rem;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.03); color: var(--text-muted); text-align: left;">
             <th style="padding: 0.6rem 0.8rem;">Ad</th>
@@ -142,7 +142,7 @@
         Container içinde başlattığınız yerel web sunucularını (örneğin React Vite <code>5173</code>, Flask <code>5000</code>, FastAPI <code>8000</code>, Streamlit <code>8501</code>) doğrudan tarayıcınızda açın.
       </p>
 
-      <div style="display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 1.5rem;">
+      <div class="responsive-form-grid" style="margin-bottom: 1.5rem;">
         <div style="flex: 1;">
           <label class="form-label" for="input-custom-port">Port Numarası</label>
           <input type="number" id="input-custom-port" class="form-input" placeholder="örn. 5173 veya 3000" min="1" max="65535" value="5173">

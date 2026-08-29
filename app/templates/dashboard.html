@@ -78,7 +78,7 @@
       {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
       <div class="card workspace-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
         <div>
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: .75rem;">
             <div>
               <h2 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 0.25rem;">
                 <a href="/workspaces/{{ ws.id }}" style="color: var(--heading); text-decoration: none;">{{ ws.name }}</a>
@@ -98,7 +98,7 @@
           </div>
 
           <div class="ws-live-metrics-box" data-metrics-ws-id="{{ ws.id }}" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.6rem 0.75rem; margin-bottom: 0.75rem; font-size: 0.75rem;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem; flex-wrap: wrap; gap: .35rem .75rem;">
               <span style="color: var(--text-muted);">CPU: <strong class="val-cpu" style="color: #fff;">--</strong></span>
               <span style="color: var(--text-muted);">RAM: <strong class="val-ram" style="color: #fff;">--</strong></span>
               <span style="color: var(--text-muted);">Disk: <strong class="val-disk" style="color: #fff;">--</strong></span>
@@ -110,13 +110,13 @@
             </div>
           </div>
 
-          <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-main); padding: 0.4rem 0.6rem; border-radius: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <div class="workspace-storage-path" title="{{ ws.storage_path }}" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-main); padding: 0.4rem 0.6rem; border-radius: 2px;">
             ▣ {{ ws.storage_path }}
           </div>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+        <div class="workspace-card-actions" style="padding-top: 1rem; border-top: 1px solid var(--border-color);">
+          <div class="table-actions">
             {% if ws_st == 'running' %}
               <a href="{{ ws.web_url }}" target="_blank" class="btn btn-success btn-sm">
                 <span>↗</span> IDE'yi Aç
