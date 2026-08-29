@@ -188,8 +188,9 @@ podman ps
 curl -fsS http://127.0.0.1:8000/healthz
 ```
 
-See [INSTALL.md](INSTALL.md) for release-builder and channel publication
-commands, and [AIRGAP.md](AIRGAP.md) for disconnected updates.
+See [RELEASE.md](RELEASE.md) for GitHub Actions release automation and runner
+setup, [INSTALL.md](INSTALL.md) for manual release-builder commands, and
+[AIRGAP.md](AIRGAP.md) for disconnected updates.
 
 ### 3. Manual Linux VM Setup
 

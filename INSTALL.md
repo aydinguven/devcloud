@@ -99,6 +99,10 @@ worker OCI images once on a trusted builder, exports them into one signed
 platform bundle, and deploys that same bundle without building on the VMs.
 Workspace images are never included.
 
+The automated GitHub Actions release process, Rocky 10 runner requirements,
+Quay secrets, signing configuration, release assets, and the machine-managed
+`stable` channel are documented in [RELEASE.md](RELEASE.md).
+
 On the release builder:
 
     bash deploy/container/build-controller-image.sh
