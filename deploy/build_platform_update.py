@@ -63,6 +63,12 @@ def _copy_tracked(root: Path, stage: Path) -> None:
 
 def _image_digest(root: Path, podman: str, image: str) -> str:
     digest = command(root, podman, "image", "inspect", "--format", "{{.Id}}", image)
+    # Podman 5 on Rocky/RHEL 10 returns the image ID as 64 bare hex
+    # characters, while older releases include the ``sha256:`` prefix.
+    if len(digest) == 64 and all(
+        character in "0123456789abcdef" for character in digest.lower()
+    ):
+        digest = f"sha256:{digest.lower()}"
     if not digest.startswith("sha256:") or len(digest) != 71:
         raise ReleaseBuildError(f"Image has no immutable digest: {image}")
     return digest

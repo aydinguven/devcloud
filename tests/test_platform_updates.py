@@ -14,6 +14,7 @@ from app.installer.update_source import (
 )
 from app.platform_release import load_platform_release, publish_platform_bundle
 from app.release_catalog import latest_release
+from deploy.build_platform_update import _image_digest
 
 
 def _platform_root(root: Path) -> Path:
@@ -112,3 +113,18 @@ def test_git_channel_resolves_a_checksum_pinned_relative_bundle(tmp_path):
 def test_git_channel_rejects_unsafe_transport_or_ref(location, ref):
     with pytest.raises(InstallerError):
         validate_git_source(location, ref)
+
+
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [
+        ("a" * 64, "sha256:" + "a" * 64),
+        ("sha256:" + "b" * 64, "sha256:" + "b" * 64),
+    ],
+)
+def test_image_digest_accepts_current_and_legacy_podman_formats(
+    monkeypatch, tmp_path, reported, expected
+):
+    monkeypatch.setattr("deploy.build_platform_update.command", lambda *_args: reported)
+
+    assert _image_digest(tmp_path, "podman", "localhost/example:latest") == expected
