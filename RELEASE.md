@@ -21,7 +21,7 @@ The release workflow deliberately does not run for pull requests.
 
 No self-hosted runner registration is required. GitHub creates a fresh
 `ubuntu-24.04` runner for each release job. The workflow starts
-`rockylinux:10` with Docker's `--privileged` option, installs the Rocky build
+`rockylinux/rockylinux:10.2` with Docker's `--privileged` option, installs the Rocky build
 dependencies there, and runs Podman with the `vfs` storage driver. GitHub CLI
 and Git operations that publish the finished artifacts remain on the host.
 

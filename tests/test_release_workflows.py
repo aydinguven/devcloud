@@ -26,7 +26,7 @@ def test_platform_release_is_restricted_to_release_triggers_and_hosted_runner():
     assert "pull_request:" not in content
     assert "runs-on: ubuntu-24.04" in content
     assert "docker run --privileged --rm" in content
-    assert "rockylinux:10" in content
+    assert "rockylinux/rockylinux:10.2" in content
     assert "self-hosted" not in content
     assert 'Manual releases must be dispatched from main.' in content
     assert 'Tag ${release_tag} does not match app version' in content

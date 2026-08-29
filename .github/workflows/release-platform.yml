@@ -128,7 +128,7 @@ jobs:
             --env SIGN_RELEASE \
             --env RELEASE_GPG_PRIVATE_KEY \
             --env RELEASE_GPG_KEY_ID \
-            rockylinux:10 \
+            rockylinux/rockylinux:10.2 \
             bash /workspace/deploy/ci/build-release-assets.sh
 
       - name: Create or update GitHub Release
