@@ -59,7 +59,7 @@ def test_platform_release_publishes_quay_release_assets_and_stable_channel():
 def test_release_operator_guide_documents_required_controls():
     content = (ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
-    assert "public" in content
+    assert "If the GitHub mirror is public" in content
     assert "isolated Rocky Linux 10" in content
     assert "QUAY_USERNAME" in content
     assert "RELEASE_GPG_PRIVATE_KEY" in content

@@ -41,9 +41,10 @@ than embedding a registration token in this repository:
 
 https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners
 
-The GitHub mirror is public. Do not put this runner on a sensitive company
-network or reuse it for untrusted repositories. Prefer a disposable release VM
-with no unrelated credentials or data.
+If the GitHub mirror is public, do not put this runner on a sensitive company
+network. For a private mirror, restrict the runner to this repository and its
+release workflow. In either case, prefer a disposable release VM with no
+unrelated credentials or data.
 
 ## Repository configuration
 
