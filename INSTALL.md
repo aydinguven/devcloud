@@ -110,7 +110,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.4-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.5-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -126,19 +126,19 @@ them in `/etc/devcloud/controller.env`. They can also be supplied directly:
       --ref stable
 
 The same Git source or an uploaded bundle can be selected under **Admin >
-System > Platform Güncelleme**. Signature verification is enabled by default.
-For a trusted internal source, an administrator may explicitly select
-**İmzasız güncellemeye izin ver** and accept the additional warning. The
-controller process only writes a request; `devcloud-update.path` invokes the
-root-owned updater. A pre-update database/configuration backup is created
-automatically. On success, the controller publishes the platform bundle to
-enrolled workers, which obtain it through authenticated release endpoints and
-use their own root-owned queue.
+System > Platform Güncelleme**. The controller Git form defaults to
+`https://github.com/aydinguven/devcloud.git`, branch `stable`, with
+**İmzasız güncellemeye izin ver** selected for the current internal release
+workflow. Clear the checkbox to require a signature. The controller process
+only writes a request; `devcloud-update.path` invokes the root-owned updater.
+A pre-update database/configuration backup is created automatically. Worker
+inventory reports the running agent version and OTA state through heartbeat
+telemetry.
 
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.4.4-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.4.5-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

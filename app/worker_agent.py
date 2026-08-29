@@ -88,6 +88,11 @@ class WorkerAgent:
         self.image_state_path = Path(settings.STORAGE_ROOT) / ".devcloud-image-state.json"
         self.image_state = self._load_image_state()
         self.image_progress: dict[str, dict] = {}
+        self.upgrade_status: dict[str, str] = {
+            "state": "idle",
+            "target_version": "",
+            "message": "",
+        }
 
     def _load_registry(self) -> dict:
         try:
@@ -122,6 +127,50 @@ class WorkerAgent:
         )
         os.chmod(temporary, 0o600)
         temporary.replace(self.image_state_path)
+
+    def _set_upgrade_status(
+        self,
+        state: str,
+        *,
+        target_version: str = "",
+        message: str = "",
+    ) -> None:
+        self.upgrade_status = {
+            "state": state,
+            "target_version": target_version,
+            "message": message,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _reported_upgrade_status(self) -> dict[str, str]:
+        if self.upgrade_status.get("state") in {"preparing", "downloading", "failed"}:
+            return dict(self.upgrade_status)
+        queue_root = Path(settings.UPDATE_QUEUE_ROOT).resolve()
+        for filename, fallback_state in (
+            ("running.json", "running"),
+            ("pending.json", "queued"),
+            ("status.json", "idle"),
+        ):
+            try:
+                value = json.loads(
+                    (queue_root / filename).read_text(encoding="utf-8")
+                )
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+            if not isinstance(value, dict):
+                continue
+            return {
+                "state": str(value.get("state") or fallback_state),
+                "target_version": str(value.get("target_version") or ""),
+                "message": str(value.get("error") or value.get("message") or ""),
+                "updated_at": str(
+                    value.get("finished_at")
+                    or value.get("started_at")
+                    or value.get("queued_at")
+                    or ""
+                ),
+            }
+        return dict(self.upgrade_status)
 
     @staticmethod
     def _http_verify_context(base_url: str):
@@ -366,6 +415,7 @@ class WorkerAgent:
                         "active_containers_count": active_cnt,
                         "capabilities": {
                             "runtime": "podman",
+                            "upgrade": self._reported_upgrade_status(),
                             "workspace_images": workspace_images,
                             "workspace_image_sync": [
                                 self.image_progress[key]
@@ -735,6 +785,10 @@ class WorkerAgent:
                     "status": "upgrade_in_progress",
                     "message": "Worker güncellemesi zaten çalışıyor.",
                 }
+            self._set_upgrade_status(
+                "preparing",
+                message="Controller release bilgisi alınıyor.",
+            )
             self.upgrade_task = asyncio.create_task(
                 self._execute_upgrade(controller_url)
             )
@@ -745,6 +799,7 @@ class WorkerAgent:
         await asyncio.sleep(1)
         temporary: Path | None = None
         destination: Path | None = None
+        target_version = ""
         try:
             node_id = _required_env("DEVCLOUD_NODE_ID")
             token = _required_env("DEVCLOUD_NODE_TOKEN")
@@ -757,6 +812,12 @@ class WorkerAgent:
                 )
                 metadata_response.raise_for_status()
                 metadata = metadata_response.json()
+                target_version = str(metadata.get("version") or "")
+                self._set_upgrade_status(
+                    "downloading",
+                    target_version=target_version,
+                    message="Platform bundle indiriliyor.",
+                )
                 queue_root = Path(settings.UPDATE_QUEUE_ROOT).resolve()
                 uploads = queue_root / "uploads"
                 uploads.mkdir(parents=True, exist_ok=True)
@@ -796,6 +857,7 @@ class WorkerAgent:
                     "bundle": str(destination),
                     "size": size,
                     "sha256": digest.hexdigest(),
+                    "target_version": target_version,
                     "allow_unsigned": False,
                 }
                 marker_tmp = queue_root / "pending.tmp"
@@ -804,9 +866,19 @@ class WorkerAgent:
                 )
                 os.chmod(marker_tmp, 0o600)
                 os.replace(marker_tmp, queue_root / "pending.json")
+                self._set_upgrade_status(
+                    "queued",
+                    target_version=target_version,
+                    message="Bundle root updater kuyruğuna alındı.",
+                )
         except Exception as exc:
             if destination is not None:
                 destination.unlink(missing_ok=True)
+            self._set_upgrade_status(
+                "failed",
+                target_version=target_version,
+                message=str(exc),
+            )
             logger.exception("Upgrade execution error: %s", exc)
         finally:
             if temporary is not None:

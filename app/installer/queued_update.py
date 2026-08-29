@@ -68,6 +68,7 @@ def main() -> int:
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
                 "source_type": source_type,
+                "target_version": request.get("target_version"),
             },
         )
         result = subprocess.run(command, text=True, capture_output=True)
@@ -78,6 +79,7 @@ def main() -> int:
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
                 "source_type": source_type,
+                "target_version": request.get("target_version"),
                 "return_code": result.returncode,
                 "output": (result.stdout + "\n" + result.stderr)[-20000:],
             },

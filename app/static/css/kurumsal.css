@@ -977,6 +977,20 @@ code { color: #8d0022; }
   line-height: 1.35;
   margin-top: 0.12rem;
 }
+.node-release-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+.node-release-line .badge {
+  font-size: 0.58rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 0.15rem 0.32rem;
+  text-transform: none;
+}
 .node-status-cell { text-align: center !important; }
 .node-resource-cell {
   font-size: 0.73rem;

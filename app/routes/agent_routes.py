@@ -282,6 +282,8 @@ async def connect_agent(
                         "memory_used_mb": node.memory_used_mb,
                         "disk_used_mb": node.disk_used_mb,
                         "active_containers_count": node.active_containers_count,
+                        "agent_version": node.agent_version,
+                        "upgrade_status": heartbeat.capabilities.get("upgrade", {}),
                         "last_seen_at": node.last_seen_at.isoformat() if node.last_seen_at else None,
                     },
                 )

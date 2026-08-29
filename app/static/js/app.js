@@ -704,6 +704,33 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
   }
 
   // Real-time SSE Stream for Nodes Telemetry and Status
+  const renderWorkerUpgradeState = (row, upgrade = {}) => {
+    const state = upgrade.state || "idle";
+    const labels = {
+      idle: "Hazır",
+      preparing: "Hazırlanıyor",
+      downloading: "İndiriliyor",
+      queued: "Kuyrukta",
+      running: "Güncelleniyor",
+      succeeded: "Güncel",
+      failed: "Güncelleme hatası",
+    };
+    const badge = row?.querySelector(".node-upgrade-state");
+    if (!badge) return;
+    const badgeClass = state === "succeeded"
+      ? "badge-running"
+      : state === "failed"
+        ? "badge-error"
+        : ["preparing", "downloading", "queued", "running"].includes(state)
+          ? "badge-starting"
+          : "badge-neutral";
+    const target = upgrade.target_version ? ` · v${upgrade.target_version}` : "";
+    badge.className = `node-upgrade-state badge ${badgeClass}`;
+    badge.dataset.state = state;
+    badge.textContent = `${labels[state] || state}${target}`;
+    badge.title = upgrade.message || "";
+  };
+
   const nodesTable = document.getElementById("admin-nodes-table");
   if (nodesTable) {
     try {
@@ -752,6 +779,14 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
 
               const cntBadge = row.querySelector(".node-container-count");
               if (cntBadge) cntBadge.textContent = `${d.active_containers_count} cnt`;
+
+              const versionBadge = row.querySelector(".node-version");
+              if (versionBadge) {
+                versionBadge.textContent = d.agent_version ? `v${d.agent_version}` : "Sürüm bekleniyor";
+              }
+              if (d.upgrade_status && Object.keys(d.upgrade_status).length) {
+                renderWorkerUpgradeState(row, d.upgrade_status);
+              }
 
               const lastSeenCell = row.querySelector(".node-last-seen-cell");
               if (lastSeenCell && d.last_seen_at) {
@@ -830,8 +865,15 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || "Yükseltme başlatılamadı.");
-        alert(`✓ ${data.message}`);
+        renderWorkerUpgradeState(row, {
+          state: "preparing",
+          message: data.message,
+        });
       } catch (error) {
+        renderWorkerUpgradeState(row, {
+          state: "failed",
+          message: error.message,
+        });
         alert(error.message);
       } finally {
         button.disabled = false;
@@ -1638,7 +1680,9 @@ function initAdminPlatformUpdater() {
         commitCode.textContent = `v${d.version} · ${d.branch} (${d.commit})`;
         const repository = document.getElementById("platform-update-repository");
         const ref = document.getElementById("platform-update-ref");
-        if (repository && d.update_source) repository.value = d.update_source;
+        if (repository && !repository.value.trim() && d.update_source) {
+          repository.value = d.update_source;
+        }
         if (ref && d.update_ref) ref.value = d.update_ref;
       })
       .catch(() => {

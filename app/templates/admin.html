@@ -99,7 +99,7 @@
         <div class="platform-git-fields">
           <label class="form-group">
             <span class="form-label">Repository adresi</span>
-            <input class="form-input" id="platform-update-repository" name="repository" type="url" required placeholder="https://github.com/aydinguven/devcloud.git">
+            <input class="form-input" id="platform-update-repository" name="repository" type="url" required value="https://github.com/aydinguven/devcloud.git">
           </label>
           <label class="form-group">
             <span class="form-label">Branch / tag</span>
@@ -107,7 +107,7 @@
           </label>
         </div>
         <label class="unsigned-update-control">
-          <input name="allow_unsigned" type="checkbox" value="true">
+          <input name="allow_unsigned" type="checkbox" value="true" checked>
           <span>
             <strong>İmzasız güncellemeye izin ver</strong>
             <small>Yalnızca kaynağa güvendiğinizde kullanın; release imzası denetlenmez.</small>
@@ -344,10 +344,30 @@ cd devcloud
     <tbody id="node-table-body">
     {% for node in nodes %}
       {% set node_st = (node.status.value if node.status.value is defined else node.status)|lower %}
+      {% set node_capabilities = node.capabilities_json|from_json %}
+      {% set upgrade_status = node_capabilities.get('upgrade', {}) %}
+      {% set upgrade_state = upgrade_status.get('state', 'idle') %}
       <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="vertical-align: middle;">
         <td class="node-identity-cell" data-label="Worker">
           <div class="node-name">{{ node.name }}</div>
           <div class="node-hostname-cell">{{ node.hostname or 'Henüz bağlanmadı' }}</div>
+          <div class="node-release-line">
+            <span class="node-version badge badge-neutral">{{ 'v' ~ node.agent_version if node.agent_version else 'Sürüm bekleniyor' }}</span>
+            <span
+              class="node-upgrade-state badge {% if upgrade_state == 'succeeded' %}badge-running{% elif upgrade_state == 'failed' %}badge-error{% elif upgrade_state in ['preparing', 'downloading', 'queued', 'running'] %}badge-starting{% else %}badge-neutral{% endif %}"
+              data-state="{{ upgrade_state }}"
+              title="{{ upgrade_status.get('message', '') }}"
+            >
+              {% if upgrade_state == 'preparing' %}Hazırlanıyor
+              {% elif upgrade_state == 'downloading' %}İndiriliyor
+              {% elif upgrade_state == 'queued' %}Kuyrukta
+              {% elif upgrade_state == 'running' %}Güncelleniyor
+              {% elif upgrade_state == 'succeeded' %}Güncel
+              {% elif upgrade_state == 'failed' %}Güncelleme hatası
+              {% else %}Hazır{% endif %}
+              {% if upgrade_status.get('target_version') %} · v{{ upgrade_status.get('target_version') }}{% endif %}
+            </span>
+          </div>
           <div class="node-last-seen-cell">{{ node.last_seen_at or '' }}</div>
         </td>
         <td class="node-status-cell" data-label="Durum">

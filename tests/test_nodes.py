@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -129,8 +130,14 @@ async def test_agent_heartbeat_preserves_admin_drain_change(db_session):
                         "cpu_total": 8,
                         "memory_total_mb": 16384,
                         "disk_total_mb": 100000,
-                        "capabilities": {"runtime": "podman"},
-                        "agent_version": "test",
+                        "capabilities": {
+                            "runtime": "podman",
+                            "upgrade": {
+                                "state": "downloading",
+                                "target_version": "3.4.5",
+                            },
+                        },
+                        "agent_version": "3.4.4",
                     },
                 }
             async with TestingSessionLocal() as observer:
@@ -142,6 +149,12 @@ async def test_agent_heartbeat_preserves_admin_drain_change(db_session):
     await connect_agent(websocket, worker.id, db_session)
 
     assert websocket.status_during_connection == NodeStatus.DRAINING
+    async with TestingSessionLocal() as observer:
+        fresh = await observer.get(Node, worker.id)
+        capabilities = json.loads(fresh.capabilities_json)
+        assert fresh.agent_version == "3.4.4"
+        assert capabilities["upgrade"]["state"] == "downloading"
+        assert capabilities["upgrade"]["target_version"] == "3.4.5"
 
 
 @pytest.mark.asyncio

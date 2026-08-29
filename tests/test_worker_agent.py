@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+from app.config import settings
 from app.worker_agent import WorkerAgent
 
 
@@ -74,4 +77,26 @@ async def test_worker_agent_system_upgrade_initiates_upgrade(monkeypatch):
 
     res = await agent.handle_system_command("system.upgrade", {})
     assert res["status"] == "upgrade_started"
+    assert agent.upgrade_status["state"] == "preparing"
+
+
+def test_worker_reports_durable_upgrade_queue_status(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+    (queue / "pending.json").write_text(
+        json.dumps(
+            {
+                "state": "queued",
+                "target_version": "3.4.5",
+                "queued_at": "2026-08-29T20:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = WorkerAgent()._reported_upgrade_status()
+
+    assert status["state"] == "queued"
+    assert status["target_version"] == "3.4.5"
 

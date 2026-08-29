@@ -78,6 +78,7 @@ def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
                 "repository": "https://github.com/aydinguven/devcloud.git",
                 "ref": "stable",
                 "filename": "devcloud@stable",
+                "target_version": "3.4.5",
                 "allow_unsigned": True,
             }
         ),
@@ -95,6 +96,8 @@ def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
     assert queued_update.main() == 0
     assert captured["command"][-1] == "--allow-unsigned"
     assert "--source-type" in captured["command"]
+    status = json.loads((queue / "status.json").read_text(encoding="utf-8"))
+    assert status["target_version"] == "3.4.5"
 
 
 def test_install_plans_share_one_role_aware_engine(tmp_path):
