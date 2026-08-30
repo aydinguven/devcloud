@@ -209,6 +209,25 @@ def test_worker_inventory_shows_version_and_live_upgrade_state():
     assert ".node-upgrade-detail.is-error" in css
 
 
+def test_worker_inventory_shows_live_gpu_runtime_state():
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(
+        encoding="utf-8"
+    )
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'class="node-gpu-cell"' in template
+    assert "accelerator_runtime" in template
+    assert "GPU Hatası" in template
+    assert "renderWorkerGpu" in javascript
+    assert "d.accelerators" in javascript
+    assert "memory_used_mb" in javascript
+    assert ".node-gpu-detail" in (
+        PROJECT_ROOT / "app/static/css/kurumsal.css"
+    ).read_text(encoding="utf-8")
+
+
 def test_mlflow_connection_is_configured_per_user_from_models_page():
     template = (PROJECT_ROOT / "app/templates/models.html").read_text(
         encoding="utf-8"

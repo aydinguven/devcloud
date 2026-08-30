@@ -315,6 +315,10 @@ async def connect_agent(
                         "disk_used_mb": node.disk_used_mb,
                         "active_containers_count": node.active_containers_count,
                         "agent_version": node.agent_version,
+                        "accelerators": capabilities.get("accelerators", []),
+                        "accelerator_runtime": capabilities.get(
+                            "accelerator_runtime", {}
+                        ),
                         "upgrade_status": capabilities.get("upgrade", {}),
                         "last_seen_at": node.last_seen_at.isoformat() if node.last_seen_at else None,
                     },

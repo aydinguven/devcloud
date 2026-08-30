@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.installer.engine import InstallerEngine
-from app.installer.models import DeploymentRole, InstallConfig, UpdateSourceType
+from app.installer.models import (
+    DeploymentRole,
+    InstallConfig,
+    UpdateSourceType,
+    WorkerRuntime,
+)
 from app.installer.platform import CommandRunner, InstallerError
 from app.installer.release import prepare_release
 from app.installer.ui import InstallerUI
@@ -60,6 +65,16 @@ def _worker_config_from_environment(
             "Incomplete non-interactive worker enrollment: "
             + ", ".join(missing)
         )
+    runtime_value = (
+        os.environ.get("DEVCLOUD_INSTALL_WORKER_RUNTIME", "").strip()
+        or WorkerRuntime.CONTAINER.value
+    )
+    try:
+        worker_runtime = WorkerRuntime(runtime_value)
+    except ValueError as exc:
+        raise InstallerError(
+            "DEVCLOUD_INSTALL_WORKER_RUNTIME must be container or native"
+        ) from exc
     return InstallConfig(
         role=role,
         controller_url=values["controller_url"],
@@ -77,6 +92,7 @@ def _worker_config_from_environment(
             "DEVCLOUD_INSTALL_PRELOAD_IMAGES", "false"
         ).strip().lower()
         not in {"0", "false", "no"},
+        worker_runtime=worker_runtime,
     )
 
 

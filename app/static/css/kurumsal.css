@@ -1032,6 +1032,14 @@ code { color: #8d0022; }
 }
 .node-container-summary { margin-top: 0.25rem; }
 .node-container-count { padding: 0.15rem 0.35rem; }
+.node-gpu-detail {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+  max-width: 190px;
+  overflow-wrap: anywhere;
+}
 .node-labels-container {
   align-items: center;
   display: flex;

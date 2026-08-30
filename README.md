@@ -32,7 +32,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
-- **Outbound-Only CPU Workers**: Schedule workspaces across worker nodes without opening inbound worker or container ports.
+- **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, and display physical GPU and MIG inventory in real time.
 - **Per-User MLflow Tracking & Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage. DevCloud provides direct links into MLflow and keeps training, serving, and metadata changes in MLflow and the user's ML tooling.
 
 ---
@@ -49,7 +49,7 @@ User Browser ── HTTPS/WSS :443 ──> DevCloud Controller
                                                 │ outbound WSS :443
                            ┌────────────────────┴────────────────────┐
                            │                                         │
-                    CPU Worker 01                            CPU Worker 02
+                    CPU Worker 01                         NVIDIA GPU Worker 02
                     ├── Worker Agent                         ├── Worker Agent
                     ├── Podman                               ├── Podman
                     └── Local workspace storage              └── Local workspace storage
@@ -134,7 +134,7 @@ installations created before the unified installer.
 
 For a secure public hostname, follow [the Cloudflare Tunnel deployment guide](CLOUDFLARE.md).
 For Rocky/RHEL enforcing mode, follow [the SELinux deployment guide](SELINUX.md).
-For the controller plus CPU-worker topology, follow [the worker deployment guide](WORKERS.md).
+For controller plus CPU/GPU worker topology, follow [the worker deployment guide](WORKERS.md).
 
 ### 1. Clean install from Git
 
@@ -177,7 +177,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.7-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.8-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -343,7 +343,7 @@ The second run installs all remaining operating-system prerequisites from the
 registered Satellite/Foreman repositories, verifies the full offline manifest,
 and continues into the interactive installer.
 
-A connected deployment can also publish separate controller and CPU-worker bundles
+A connected deployment can also publish separate controller and worker bundles
 at `/download/`. Administrators can trigger either verified background rebuild
 from the Admin page after enabling the download settings documented in
 [AIRGAP.md](AIRGAP.md).
@@ -352,6 +352,10 @@ After controller installation, open **Admin > Worker Node'ları** and generate a
 10-minute, single-use installation command. Run the generated command as root on
 the new worker. The script asks only for the worker name; the controller creates
 the node and enrollment token, then serves the checksummed platform release.
+On a machine with NVIDIA display/3D hardware, the script first checks the
+operator-installed driver, NVIDIA Container Toolkit, and CDI devices. It never
+installs or changes that stack, and it stops before consuming the one-time
+ticket when a prerequisite is missing or unhealthy.
 
 The initial bootstrap/controller address is `http://10.253.6.189` and can be
 changed without restarting DevCloud from the Offline Downloads card in Admin.

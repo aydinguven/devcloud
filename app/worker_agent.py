@@ -25,6 +25,7 @@ from app import __version__
 from app.config import settings
 from app.orchestrator.podman_service import podman_service
 from app.release_catalog import semantic_version
+from app.worker_gpu import discover_nvidia_capabilities
 
 logger = logging.getLogger("devcloud.worker")
 
@@ -418,6 +419,9 @@ class WorkerAgent:
                     }
                 )
             active_cnt = len(inventory)
+            accelerator_capabilities = await asyncio.to_thread(
+                discover_nvidia_capabilities
+            )
 
             await self.send(
                 {
@@ -433,6 +437,7 @@ class WorkerAgent:
                         "active_containers_count": active_cnt,
                         "capabilities": {
                             "runtime": "podman",
+                            **accelerator_capabilities,
                             "upgrade": self._reported_upgrade_status(),
                             "workspace_images": workspace_images,
                             "workspace_image_sync": [

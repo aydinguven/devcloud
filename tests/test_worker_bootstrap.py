@@ -87,6 +87,16 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
     assert "--location" not in script.text
     assert "__CONTROLLER_URL__" not in script.text
     assert "__ENROLLMENT_URL__" not in script.text
+    assert 'DEVCLOUD_WORKER_GPU_MODE' in script.text
+    assert 'command -v nvidia-smi' in script.text
+    assert 'command -v nvidia-ctk' in script.text
+    assert 'nvidia-ctk cdi list' in script.text
+    assert 'WORKER_RUNTIME=native' in script.text
+    assert 'DEVCLOUD_INSTALL_WORKER_RUNTIME="$WORKER_RUNTIME"' in script.text
+    assert script.text.index('NVIDIA GPU detected') < script.text.index(
+        'Enrolling $' + '{WORKER_NAME}'
+    )
+    assert "dnf install -y nvidia" not in script.text.lower()
 
     raw_ticket = ticket["install_url"].split("/")[-2]
     enrolled = await client.post(

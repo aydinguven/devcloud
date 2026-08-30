@@ -50,7 +50,8 @@ async def test_download_listing_file_and_range_support(
     assert f"{filename}.sha256" in listing.text
     assert worker_filename in listing.text
     assert legacy_filename in listing.text
-    assert "CPU Worker" in listing.text
+    assert ">Worker<" in listing.text
+    assert "CPU / NVIDIA GPU Worker Kurulum Kılavuzu" in listing.text
     assert "http://test/download/install-worker.sh" not in listing.text
     assert listing.headers["cache-control"] == "private, no-store"
 

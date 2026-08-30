@@ -15,7 +15,7 @@ fail() {
 [[ "$(id -u)" -eq 0 ]] || fail \
     "Run through sudo: curl -fsSL <ticket-url> | sudo bash"
 
-for required_command in basename curl hostname mktemp sha256sum stat tar; do
+for required_command in basename curl dirname grep hostname mktemp printenv sha256sum stat tar; do
     command -v "${required_command}" >/dev/null 2>&1 || fail \
         "Required base command is missing: ${required_command}"
 done
@@ -28,6 +28,50 @@ fi
 
 [[ ! -f /var/lib/devcloud/installer/install-state.json ]] || fail \
     "A managed DevCloud installation already exists; purge it or run update."
+
+GPU_MODE="$(printenv DEVCLOUD_WORKER_GPU_MODE || true)"
+[[ -n "$GPU_MODE" ]] || GPU_MODE=auto
+[[ "$GPU_MODE" == "auto" || "$GPU_MODE" == "required" ]] || fail \
+    "DEVCLOUD_WORKER_GPU_MODE must be auto or required."
+
+NVIDIA_HARDWARE=false
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    class_file="$(dirname "$vendor_file")/class"
+    [[ -r "$class_file" ]] || continue
+    read -r vendor_id < "$vendor_file"
+    read -r device_class < "$class_file"
+    if [[ "$vendor_id" == "0x10de" && "$device_class" == 0x03* ]]; then
+        NVIDIA_HARDWARE=true
+        break
+    fi
+done
+
+if [[ "$GPU_MODE" == "required" && "$NVIDIA_HARDWARE" != "true" ]]; then
+    fail "GPU worker requested, but no NVIDIA display/3D PCI device was detected."
+fi
+
+if [[ "$NVIDIA_HARDWARE" == "true" ]]; then
+    log "NVIDIA GPU detected; validating the existing host GPU stack..."
+    command -v nvidia-smi >/dev/null 2>&1 || fail \
+        "NVIDIA driver is missing: nvidia-smi was not found. Install/repair the host driver, then run this same command again."
+    NVIDIA_GPU_LIST="$(nvidia-smi -L 2>&1)" || fail \
+        "NVIDIA driver check failed: $NVIDIA_GPU_LIST. Install/repair the host driver, then retry."
+    grep -q '^GPU [0-9]' <<<"$NVIDIA_GPU_LIST" || fail \
+        "nvidia-smi did not report a usable physical GPU."
+    command -v nvidia-ctk >/dev/null 2>&1 || fail \
+        "NVIDIA Container Toolkit is missing: nvidia-ctk was not found. Install it on the host, then retry."
+    NVIDIA_CDI_LIST="$(nvidia-ctk cdi list 2>&1)" || fail \
+        "NVIDIA CDI validation failed: $NVIDIA_CDI_LIST. Configure/refresh NVIDIA CDI, then retry."
+    grep -q 'nvidia\.com/gpu=' <<<"$NVIDIA_CDI_LIST" || fail \
+        "NVIDIA Container Toolkit returned no CDI GPU devices. Configure/refresh CDI, then retry."
+    log "NVIDIA preflight passed: driver, Container Toolkit, and CDI devices are ready."
+    WORKER_RUNTIME=native
+    log "Selecting the native worker agent so host GPU/CDI telemetry remains visible."
+else
+    log "No NVIDIA GPU detected; registering this machine as a CPU worker."
+    WORKER_RUNTIME=container
+fi
 
 CONTROLLER_URL=__CONTROLLER_URL__
 ENROLLMENT_URL=__ENROLLMENT_URL__
@@ -128,6 +172,7 @@ export DEVCLOUD_INSTALL_TOKEN_FILE="${TOKEN_FILE}"
 export DEVCLOUD_INSTALL_WORKER_NAME="${WORKER_NAME}"
 export DEVCLOUD_INSTALL_WORKSPACE_ROOT="${STORAGE_ROOT:-/var/lib/devcloud/workspaces}"
 export DEVCLOUD_INSTALL_PRELOAD_IMAGES=false
+export DEVCLOUD_INSTALL_WORKER_RUNTIME="$WORKER_RUNTIME"
 
 log "Installing the verified worker release..."
 bash "${RELEASE_ROOT}/deploy/devcloud-setup.sh" --yes install worker

@@ -302,7 +302,7 @@ cd devcloud
   <div class="card-header">
     <div>
       <h2 class="card-title">Worker Node'ları</h2>
-      <p class="admin-section-description">Workspace çalıştıracak CPU worker'ları kaydedin ve drain durumlarını yönetin.</p>
+      <p class="admin-section-description">CPU ve NVIDIA GPU worker'larını kaydedin; kaynak durumlarını ve drain politikasını yönetin.</p>
     </div>
     <span class="admin-section-count">{{ nodes|length }} worker</span>
   </div>
@@ -313,7 +313,7 @@ cd devcloud
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem; color: var(--text-main);">
-        Aşağıdaki butonla tek kullanımlık komut üretin ve yeni worker üzerinde çalıştırın. Script yalnızca worker adını sorar; node ID ve kalıcı token controller tarafından otomatik oluşturulur.
+        Aşağıdaki butonla tek kullanımlık komut üretin ve yeni worker üzerinde çalıştırın. Script yalnızca worker adını sorar; NVIDIA donanımı algılarsa mevcut driver, Container Toolkit ve CDI yapılandırmasını kayıt oluşturmadan önce doğrular.
       </p>
       <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
         Her komut yalnızca bir worker kaydedebilir ve 10 dakika sonra geçersiz olur. HTTPS kullanılması önerilir.
@@ -336,6 +336,7 @@ cd devcloud
         <th style="padding: 0.6rem 0.4rem; text-align: center;">DURUM</th>
         <th style="padding: 0.6rem 0.5rem;">CPU</th>
         <th style="padding: 0.6rem 0.5rem;">RAM</th>
+        <th style="padding: 0.6rem 0.5rem;">GPU</th>
         <th style="padding: 0.6rem 0.5rem;">DİSK / CNT</th>
         <th style="padding: 0.6rem 0.4rem;">ETİKETLER</th>
         <th style="padding: 0.6rem 0.4rem; text-align: right;">İŞLEMLER</th>
@@ -347,6 +348,10 @@ cd devcloud
       {% set node_capabilities = node.capabilities_json|from_json %}
       {% set upgrade_status = node_capabilities.get('upgrade', {}) %}
       {% set upgrade_state = upgrade_status.get('state', 'idle') %}
+      {% set accelerators = node_capabilities.get('accelerators', []) %}
+      {% set nvidia_runtime = node_capabilities.get('accelerator_runtime', {}).get('nvidia', {}) %}
+      {% set physical_gpus = accelerators|selectattr('kind', 'equalto', 'physical')|list %}
+      {% set mig_devices = accelerators|selectattr('kind', 'equalto', 'mig')|list %}
       <tr data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" style="vertical-align: middle;">
         <td class="node-identity-cell" data-label="Worker">
           <div class="node-name">{{ node.name }}</div>
@@ -389,6 +394,29 @@ cd devcloud
             <div class="node-resource-fill node-resource-fill--memory node-ram-bar" style="width: {{ [(((node.memory_used_mb or 0) / node.memory_total_mb * 100) if node.memory_total_mb else 0), 100]|min }}%;"></div>
           </div>
         </td>
+        <td class="node-gpu-cell" data-label="GPU">
+          <div class="node-gpu-main">
+            {% if nvidia_runtime.get('status') == 'ready' %}
+              <span class="badge badge-running">{{ physical_gpus|length }} NVIDIA</span>
+            {% elif nvidia_runtime.get('status') == 'error' %}
+              <span class="badge badge-error">GPU Hatası</span>
+            {% else %}
+              <span class="badge badge-neutral">CPU</span>
+            {% endif %}
+          </div>
+          <div class="node-gpu-detail" title="{{ nvidia_runtime.get('message', '') }}">
+            {% if physical_gpus %}
+              {{ physical_gpus[0].get('model', 'NVIDIA GPU') }}{% if physical_gpus|length > 1 %} × {{ physical_gpus|length }}{% endif %}
+              · {{ '%.1f'|format((physical_gpus[0].get('memory_used_mb', 0) or 0) / 1024) }}/{{ '%.1f'|format((physical_gpus[0].get('memory_mb', 0) or 0) / 1024) }} GB
+              · {{ physical_gpus[0].get('utilization_percent', 0) or 0 }}%
+              {% if mig_devices %} · {{ mig_devices|length }} MIG{% endif %}
+            {% elif nvidia_runtime.get('status') == 'error' %}
+              {{ nvidia_runtime.get('message', 'GPU runtime hazır değil') }}
+            {% else %}
+              GPU yok
+            {% endif %}
+          </div>
+        </td>
         <td class="node-capacity-cell" data-label="Disk / Container">
           <div class="node-disk-cell">
             <span>{{ '%.1f'|format((node.disk_used_mb or 0) / 1024) }} GB</span>
@@ -418,7 +446,7 @@ cd devcloud
         </td>
       </tr>
     {% else %}
-      <tr><td class="table-empty" colspan="7">Henüz worker eklenmedi. Workspace oluşturabilmek için en az bir worker kaydedip çevrimiçi duruma getirin.</td></tr>
+      <tr><td class="table-empty" colspan="8">Henüz worker eklenmedi. Workspace oluşturabilmek için en az bir worker kaydedip çevrimiçi duruma getirin.</td></tr>
     {% endfor %}
     </tbody>
   </table>

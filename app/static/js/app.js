@@ -744,6 +744,49 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
 
   const nodesTable = document.getElementById("admin-nodes-table");
   if (nodesTable) {
+    const renderWorkerGpu = (row, accelerators = [], runtimes = {}) => {
+      const runtime = runtimes?.nvidia || {};
+      const physical = accelerators.filter(device => device?.kind === "physical");
+      const mig = accelerators.filter(device => device?.kind === "mig");
+      const main = row.querySelector(".node-gpu-main");
+      const detail = row.querySelector(".node-gpu-detail");
+      if (main) {
+        const badge = document.createElement("span");
+        if (runtime.status === "ready") {
+          badge.className = "badge badge-running";
+          badge.textContent = physical.length + " NVIDIA";
+        } else if (runtime.status === "error") {
+          badge.className = "badge badge-error";
+          badge.textContent = "GPU Hatası";
+        } else {
+          badge.className = "badge badge-neutral";
+          badge.textContent = "CPU";
+        }
+        main.replaceChildren(badge);
+      }
+      if (detail) {
+        if (physical.length) {
+          const model = physical[0].model || "NVIDIA GPU";
+          const totalMb = physical.reduce((sum, device) => sum + Number(device.memory_mb || 0), 0);
+          const usedMb = physical.reduce((sum, device) => sum + Number(device.memory_used_mb || 0), 0);
+          const maxUtilization = physical.reduce(
+            (highest, device) => Math.max(highest, Number(device.utilization_percent || 0)),
+            0
+          );
+          detail.textContent = model
+            + (physical.length > 1 ? " × " + physical.length : "")
+            + " · " + (usedMb / 1024).toFixed(1) + "/" + (totalMb / 1024).toFixed(1) + " GB"
+            + " · " + maxUtilization.toFixed(0) + "%"
+            + (mig.length ? " · " + mig.length + " MIG" : "");
+        } else {
+          detail.textContent = runtime.status === "error"
+            ? (runtime.message || "GPU runtime hazır değil")
+            : "GPU yok";
+        }
+        detail.title = runtime.message || "";
+      }
+    };
+
     try {
       const eventSource = new EventSource("/api/admin/nodes/events-stream");
       eventSource.onmessage = (event) => {
@@ -798,6 +841,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
               if (d.upgrade_status && Object.keys(d.upgrade_status).length) {
                 renderWorkerUpgradeState(row, d.upgrade_status);
               }
+              renderWorkerGpu(row, d.accelerators || [], d.accelerator_runtime || {});
 
               const lastSeenCell = row.querySelector(".node-last-seen-cell");
               if (lastSeenCell && d.last_seen_at) {

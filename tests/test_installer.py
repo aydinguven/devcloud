@@ -165,6 +165,23 @@ def test_worker_bootstrap_answers_can_cross_pre_python_shell_boundary(
     assert result.controller_url == "https://controller.example"
     assert result.worker_id == "worker-42"
     assert result.worker_name == "compute-42"
+    assert result.worker_runtime == WorkerRuntime.CONTAINER
+
+
+def test_gpu_worker_bootstrap_selects_native_runtime(monkeypatch, tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("worker-secret\n", encoding="utf-8")
+    monkeypatch.setenv(
+        "DEVCLOUD_INSTALL_CONTROLLER_URL", "https://controller.example"
+    )
+    monkeypatch.setenv("DEVCLOUD_INSTALL_WORKER_ID", "gpu-worker-42")
+    monkeypatch.setenv("DEVCLOUD_INSTALL_TOKEN_FILE", str(token_file))
+    monkeypatch.setenv("DEVCLOUD_INSTALL_WORKER_RUNTIME", "native")
+
+    result = _worker_config_from_environment(DeploymentRole.WORKER)
+
+    assert result is not None
+    assert result.worker_runtime == WorkerRuntime.NATIVE
 
 
 def test_same_semver_sources_receive_distinct_immutable_release_ids(tmp_path):
