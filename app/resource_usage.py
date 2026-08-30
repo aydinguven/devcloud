@@ -30,6 +30,10 @@ def format_cpu(value: float) -> str:
     return f"{max(float(value), 0.0):.1f} cores"
 
 
+def format_gpu(value: float) -> str:
+    return f"{max(int(value), 0)} slot"
+
+
 def _metric(used: float, limit: float, formatter) -> dict[str, Any]:
     used = max(float(used), 0.0)
     limit = max(float(limit), 0.0)
@@ -157,6 +161,16 @@ def workspace_allocations(workspaces: Iterable[Workspace]) -> tuple[float, int, 
     return cpu_used, memory_mb_used, count
 
 
+def workspace_gpu_allocations(workspaces: Iterable[Workspace]) -> int:
+    """Return reserved GPU slots for recognized workspace flavors."""
+    total = 0
+    for workspace in workspaces:
+        flavor = get_flavor(workspace.flavor_id)
+        if flavor:
+            total += flavor.accelerator_count
+    return total
+
+
 def get_user_usage(
     user: User,
     workspaces: Iterable[Workspace],
@@ -164,7 +178,9 @@ def get_user_usage(
     disk_used_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Return a user's allocations, actual disk use, and remaining quota."""
+    workspaces = list(workspaces)
     cpu_used, memory_mb_used, workspace_count = workspace_allocations(workspaces)
+    gpu_used = workspace_gpu_allocations(workspaces)
     disk_used = (
         directory_size(Path(settings.STORAGE_ROOT) / str(user.id))
         if disk_used_bytes is None
@@ -182,6 +198,7 @@ def get_user_usage(
             user.disk_mb_quota * BYTES_PER_MB,
             format_bytes,
         ),
+        "gpu": _metric(gpu_used, getattr(user, "gpu_quota", 0), format_gpu),
         "workspace_count": workspace_count,
     }
 
@@ -224,6 +241,7 @@ def quota_violations(
     violations = []
     requested_cpu = usage["cpu"]["used"] + requested_flavor.cpus
     requested_memory_mb = usage["memory"]["used"] / BYTES_PER_MB + requested_flavor.memory_mb
+    requested_gpu = usage["gpu"]["used"] + requested_flavor.accelerator_count
     if requested_cpu > user.cpu_quota:
         violations.append(
             f"CPU {requested_cpu:.1f}/{user.cpu_quota:.1f} olacak"
@@ -231,6 +249,11 @@ def quota_violations(
     if requested_memory_mb > user.memory_mb_quota:
         violations.append(
             f"RAM {requested_memory_mb:.0f}/{user.memory_mb_quota} MB olacak"
+        )
+    gpu_quota = int(getattr(user, "gpu_quota", 0) or 0)
+    if requested_gpu > gpu_quota:
+        violations.append(
+            f"GPU {requested_gpu:.0f}/{gpu_quota} slot olacak"
         )
     if usage["disk"]["used"] >= usage["disk"]["limit"]:
         violations.append(

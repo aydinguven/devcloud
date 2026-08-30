@@ -20,6 +20,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - `t1.medium`: 2 CPU, 4 GB RAM (Java, Jupyter, and medium builds)
   - `t1.large`: 4 CPU, 8 GB RAM (Heavy builds, data analysis, and multi-service projects)
   - `t1.xlarge`: 8 CPU, 16 GB RAM (Compute-intensive builds and large notebooks)
+  - `g1.shared`: 4 CPU, 16 GB RAM, one NVIDIA GPU slot with at least 8 GB VRAM
 
   The former `t1.mini` profile remains internally available for existing workspaces but is no longer offered for new deployments.
 - **Modular Authentication**:
@@ -29,10 +30,11 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - Read-only user profiles synchronized from AD: username, full name, email, team, and directorate.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
-- **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user allocations, and remaining quota on the workspace dashboard.
+- **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user CPU/RAM/disk/GPU allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
-- **Per-User Quotas**: Admin-managed CPU, RAM, and persistent-disk limits with workspace deployment enforcement.
-- **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, and display physical GPU and MIG inventory in real time.
+- **Per-User Quotas**: Admin-managed CPU, RAM, persistent-disk, and GPU-slot limits with workspace deployment enforcement. GPU quota defaults to zero.
+- **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, display physical GPU and MIG inventory, and schedule GPU workspaces onto exact CDI devices.
+- **GPU Sharing Policy**: RTX 4090 workers default to two workspace slots per physical GPU and RTX 5090 workers to three; admins can override physical GPUs to one, two, or three slots. Every MIG CDI slice is an exclusive single slot.
 - **Per-User MLflow Tracking & Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage. DevCloud provides direct links into MLflow and keeps training, serving, and metadata changes in MLflow and the user's ML tooling.
 
 ---
@@ -177,7 +179,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.8-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.9-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -357,6 +359,13 @@ operator-installed driver, NVIDIA Container Toolkit, and CDI devices. It never
 installs or changes that stack, and it stops before consuming the one-time
 ticket when a prerequisite is missing or unhealthy.
 
+GPU users select the `g1.shared` flavor like any CPU flavor. DevCloud reserves a
+specific worker, device UUID, and slot transactionally, then passes only that
+exact CDI device to Podman. Stopped and failed workspaces retain the reservation
+until deletion. Physical-GPU slot sharing is cooperative: the 8 GB flavor value
+is scheduling guidance, not hard VRAM isolation. Use MIG when hardware-enforced
+memory and fault isolation are required.
+
 The initial bootstrap/controller address is `http://10.253.6.189` and can be
 changed without restarting DevCloud from the Offline Downloads card in Admin.
 
@@ -447,7 +456,7 @@ intelligent-nobel/
 | `GET` | `/api/workspaces/{id}/logs` | Fetch container logs | Yes |
 | `GET` | `/proxy/{id}/{path}` | Reverse proxy to container IDE | Yes (Owner/Admin) |
 | `GET` | `/api/admin/users` | List all users | Yes (Admin) |
-| `PUT` | `/api/admin/users/{id}/quota` | Update a user's CPU/RAM/disk quota | Yes (Admin) |
+| `PUT` | `/api/admin/users/{id}/quota` | Update a user's CPU/RAM/disk/GPU-slot quota | Yes (Admin) |
 | `GET` | `/api/admin/workspaces` | List all workspaces | Yes (Admin) |
 | `GET` | `/api/admin/stats` | System statistics | Yes (Admin) |
 

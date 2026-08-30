@@ -13,7 +13,12 @@ from app.config import settings
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
-from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
+from app.orchestrator.scheduler import (
+    NoSchedulableNode,
+    gpu_slots_for_device,
+    select_worker_node,
+    select_workspace_placement,
+)
 from tests.conftest import TEST_WORKER_ID
 from app.routes.agent_routes import connect_agent, normalize_worker_capabilities
 from tests.conftest import TestingSessionLocal
@@ -87,6 +92,82 @@ async def test_scheduler_uses_online_cpu_worker_and_never_falls_back_when_worker
     await db_session.commit()
     with pytest.raises(NoSchedulableNode):
         await select_worker_node(db_session, get_flavor("t1.small"))
+
+
+def test_gpu_slot_policy_auto_and_mig_isolation():
+    node = Node(name="gpu-policy", gpu_slots_per_device=0)
+    assert gpu_slots_for_device(node, {"kind": "physical", "model": "RTX 4090"}) == 2
+    assert gpu_slots_for_device(node, {"kind": "physical", "model": "RTX 5090"}) == 3
+    assert gpu_slots_for_device(node, {"kind": "physical", "model": "B300"}) == 1
+    node.gpu_slots_per_device = 3
+    assert gpu_slots_for_device(node, {"kind": "physical", "model": "RTX 4090"}) == 3
+    assert gpu_slots_for_device(node, {"kind": "mig", "model": "B300 MIG"}) == 1
+
+
+@pytest.mark.asyncio
+async def test_gpu_scheduler_reserves_stopped_4090_slots(db_session, monkeypatch):
+    user = User(
+        username="gpu_user", email="gpu@test.local", hashed_password="x", gpu_quota=3
+    )
+    worker = Node(
+        name="gpu-worker",
+        status=NodeStatus.ONLINE,
+        enabled=True,
+        schedulable=True,
+        cpu_total=32,
+        memory_total_mb=131072,
+        disk_total_mb=100000,
+        agent_token_hash="9" * 64,
+        capabilities_json=json.dumps({
+            "accelerators": [{
+                "vendor": "nvidia",
+                "kind": "physical",
+                "id": "GPU-test-4090",
+                "cdi_name": "nvidia.com/gpu=GPU-test-4090",
+                "model": "NVIDIA GeForce RTX 4090",
+                "memory_mb": 24564,
+                "healthy": True,
+                "allocatable": True,
+            }]
+        }),
+    )
+    db_session.add_all([user, worker])
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.orchestrator.scheduler.agent_manager.is_connected", lambda _node_id: True
+    )
+
+    first = await select_workspace_placement(db_session, get_flavor("g1.shared"))
+    assert first.accelerator.slot == 0
+    assert first.accelerator.shared_slots == 2
+
+    for index in (0, 1):
+        db_session.add(Workspace(
+            name=f"gpu-{index}",
+            user_id=user.id,
+            node_id=worker.id,
+            template_id="vscode-python",
+            flavor_id="g1.shared",
+            accelerator_device_id="GPU-test-4090",
+            accelerator_cdi_name="nvidia.com/gpu=GPU-test-4090",
+            accelerator_model="NVIDIA GeForce RTX 4090",
+            accelerator_kind="physical",
+            accelerator_slot=index,
+            accelerator_memory_mb=8192,
+            accelerator_shared_slots=2,
+            container_name=f"gpu-container-{index}",
+            host_port=11000 + index,
+            container_port=8080,
+            storage_path=f"/tmp/gpu-{index}",
+            status=WorkspaceStatus.STOPPED,
+        ))
+        await db_session.commit()
+        if index == 0:
+            second = await select_workspace_placement(db_session, get_flavor("g1.shared"))
+            assert second.accelerator.slot == 1
+
+    with pytest.raises(NoSchedulableNode):
+        await select_workspace_placement(db_session, get_flavor("g1.shared"))
 
 
 @pytest.mark.asyncio

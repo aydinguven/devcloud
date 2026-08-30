@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     cpu_quota: float
     memory_mb_quota: int
     disk_mb_quota: int
+    gpu_quota: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -43,3 +44,4 @@ class UserQuotaUpdate(BaseModel):
     cpu_quota: float = Field(..., ge=0, le=256)
     memory_mb_quota: int = Field(..., ge=0, le=1048576)
     disk_mb_quota: int = Field(..., ge=0, le=1073741824)
+    gpu_quota: int | None = Field(default=None, ge=0, le=64)

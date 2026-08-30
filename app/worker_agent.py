@@ -480,6 +480,7 @@ class WorkerAgent:
             allowed = {
                 "workspace_id", "user_id", "container_name", "template_id",
                 "flavor_id", "host_port", "workspace_token",
+                "accelerator_cdi_name",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
             async with self.registry_lock:
@@ -493,6 +494,12 @@ class WorkerAgent:
                         raise PermissionError(
                             "Tekrarlanan create isteğinin host portu kayıtla eşleşmiyor."
                         )
+                    if str(existing.get("accelerator_cdi_name") or "") != str(
+                        args.get("accelerator_cdi_name") or ""
+                    ):
+                        raise PermissionError(
+                            "Tekrarlanan create isteğinin GPU tahsisi kayıtla eşleşmiyor."
+                        )
                     if await podman_service.container_exists(args["container_name"]):
                         return {
                             "container_id": str(existing.get("container_id") or ""),
@@ -505,6 +512,7 @@ class WorkerAgent:
                     "container_id": container_id,
                     "storage_path": storage_path,
                     "host_port": args["host_port"],
+                    "accelerator_cdi_name": args.get("accelerator_cdi_name") or "",
                 }
                 self._save_registry()
                 return {"container_id": container_id, "storage_path": storage_path}

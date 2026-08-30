@@ -23,7 +23,12 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
 from app.orchestrator.templates import get_template, list_templates, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
-from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
+from app.orchestrator.scheduler import (
+    flavor_availability,
+    NoSchedulableNode,
+    WorkspacePlacement,
+    select_workspace_placement,
+)
 from app.resource_usage import get_cluster_usage, get_user_usage, quota_violations
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import (
@@ -61,15 +66,16 @@ async def reserve_workspace(
     *,
     data: WorkspaceCreate,
     current_user: User,
-    node: Node,
+    placement: WorkspacePlacement,
     template,
     flavor: Flavor,
 ) -> Workspace:
-    """Atomically reserve one worker-scoped port, retrying allocation races."""
+    """Atomically reserve a worker port and, when requested, one GPU slot."""
+    node = placement.node
+    accelerator = placement.accelerator
     workspace_id = str(uuid.uuid4())
-    for attempt in range(5):
-        host_port = await allocate_workspace_port(db, node.id)
-        workspace = Workspace(
+    host_port = await allocate_workspace_port(db, node.id)
+    workspace = Workspace(
             id=workspace_id,
             name=data.name.strip(),
             description=data.description.strip(),
@@ -83,21 +89,54 @@ async def reserve_workspace(
             storage_path="",
             status=WorkspaceStatus.CREATING,
             auto_stop_minutes=data.auto_stop_minutes,
+            accelerator_device_id=accelerator.device_id if accelerator else None,
+            accelerator_cdi_name=accelerator.cdi_name if accelerator else None,
+            accelerator_model=accelerator.model if accelerator else None,
+            accelerator_kind=accelerator.kind if accelerator else None,
+            accelerator_slot=accelerator.slot if accelerator else None,
+            accelerator_memory_mb=accelerator.memory_mb if accelerator else 0,
+            accelerator_shared_slots=accelerator.shared_slots if accelerator else 0,
             created_at=datetime.now(timezone.utc),
+    )
+    db.add(workspace)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise RuntimeError(
+            "Worker portu veya GPU slotu eşzamanlı başka bir istek tarafından ayrıldı."
+        ) from exc
+    await db.refresh(workspace)
+    return workspace
+
+
+async def schedule_and_reserve_workspace(
+    db: AsyncSession,
+    *,
+    data: WorkspaceCreate,
+    current_user: User,
+    template,
+    flavor: Flavor,
+) -> tuple[Workspace, WorkspacePlacement]:
+    """Retry placement after a concurrent port or accelerator-slot race."""
+    for attempt in range(5):
+        placement = await select_workspace_placement(
+            db, flavor, required_image=template.image_tag
         )
-        db.add(workspace)
         try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
+            workspace = await reserve_workspace(
+                db,
+                data=data,
+                current_user=current_user,
+                placement=placement,
+                template=template,
+                flavor=flavor,
+            )
+            return workspace, placement
+        except RuntimeError:
             if attempt == 4:
-                raise RuntimeError(
-                    "Worker port reservation remained contended after retries."
-                )
-            continue
-        await db.refresh(workspace)
-        return workspace
-    raise RuntimeError("Workspace port reservation failed.")
+                raise
+    raise RuntimeError("Workspace reservation failed.")
 
 
 async def get_quota_error(
@@ -130,9 +169,16 @@ async def get_templates():
 
 
 @workspace_router.get("/flavors", response_model=list[FlavorInfo])
-async def get_flavors():
+async def get_flavors(db: Annotated[AsyncSession, Depends(get_db)]):
     """List available resource flavors."""
-    return list_flavors()
+    catalog = []
+    for item in list_flavors():
+        flavor = get_flavor(item.id)
+        available, message = await flavor_availability(db, flavor)
+        catalog.append(item.model_copy(update={
+            "available": available, "availability_message": message
+        }))
+    return catalog
 
 
 @workspace_router.get("/usage")
@@ -202,12 +248,10 @@ async def create_workspace(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=quota_error)
 
     try:
-        node = await select_worker_node(db, flavor, required_image=template.image_tag)
-        workspace = await reserve_workspace(
+        workspace, placement = await schedule_and_reserve_workspace(
             db,
             data=data,
             current_user=current_user,
-            node=node,
             template=template,
             flavor=flavor,
         )
@@ -226,6 +270,7 @@ async def create_workspace(
             flavor_id=flavor.id,
             host_port=workspace.host_port,
             workspace_token=workspace.workspace_token,
+            accelerator_cdi_name=workspace.accelerator_cdi_name or "",
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
@@ -294,24 +339,27 @@ async def deploy_workspace_stream(
             await emit_log(f"Çalışma alanı kaynağı: {flavor.cpus} CPU, {flavor.memory_display} RAM ({flavor.name})", "info")
 
             try:
-                node = await select_worker_node(
-                    db, flavor, required_image=template.image_tag
-                )
-                workspace = await reserve_workspace(
+                workspace, placement = await schedule_and_reserve_workspace(
                     db,
                     data=data,
                     current_user=current_user,
-                    node=node,
                     template=template,
                     flavor=flavor,
                 )
                 await emit_log(
-                    f"Worker seçildi: {node.name}; host portu ayrıldı: "
+                    f"Worker seçildi: {placement.node.name}; host portu ayrıldı: "
                     f"{workspace.host_port}",
                     "info",
                 )
+                if placement.accelerator:
+                    await emit_log(
+                        f"GPU ayrıldı: {placement.accelerator.model}; "
+                        f"slot {placement.accelerator.slot + 1}/"
+                        f"{placement.accelerator.shared_slots}",
+                        "success",
+                    )
             except (NoSchedulableNode, RuntimeError) as e:
-                await emit_error(f"Port ayrılamadı: {str(e)}")
+                await emit_error(f"Kaynak ayrılamadı: {str(e)}")
                 return
 
             await emit_log(f"Kullanıcı #{current_user.id} için kalıcı volume hazırlandı", "info")
@@ -326,6 +374,7 @@ async def deploy_workspace_stream(
                 flavor_id=flavor.id,
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
+                accelerator_cdi_name=workspace.accelerator_cdi_name or "",
                 progress_callback=emit_log,
             )
 
@@ -427,6 +476,7 @@ async def start_workspace_endpoint(
                 flavor_id=workspace.flavor_id,
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
+                accelerator_cdi_name=workspace.accelerator_cdi_name or "",
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path

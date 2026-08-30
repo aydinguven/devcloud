@@ -10,6 +10,10 @@ class Flavor:
     cpus: float
     memory_mb: int
     memory_display: str
+    accelerator_count: int = 0
+    accelerator_vendor: str = ""
+    accelerator_memory_mb: int = 0
+    accelerator_display: str = ""
     selectable: bool = True
 
     def to_schema(self) -> FlavorInfo:
@@ -20,6 +24,10 @@ class Flavor:
             cpus=self.cpus,
             memory_mb=self.memory_mb,
             memory_display=self.memory_display,
+            accelerator_count=self.accelerator_count,
+            accelerator_vendor=self.accelerator_vendor,
+            accelerator_memory_mb=self.accelerator_memory_mb,
+            accelerator_display=self.accelerator_display,
         )
 
 
@@ -80,6 +88,21 @@ FLAVORS: dict[str, Flavor] = {
         cpus=8.0,
         memory_mb=16384,
         memory_display="16 GB",
+    ),
+    "g1.shared": Flavor(
+        id="g1.shared",
+        name="g1.shared",
+        description=(
+            "RTX 4090/5090 üzerinde paylaşımlı slot veya B300 üzerinde "
+            "izole MIG aygıtı; GPU belleği limiti best-effort'tur"
+        ),
+        cpus=4.0,
+        memory_mb=16384,
+        memory_display="16 GB",
+        accelerator_count=1,
+        accelerator_vendor="nvidia",
+        accelerator_memory_mb=8192,
+        accelerator_display="1 NVIDIA GPU · 8 GB+",
     ),
 }
 

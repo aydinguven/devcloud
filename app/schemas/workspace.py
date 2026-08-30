@@ -10,6 +10,12 @@ class FlavorInfo(BaseModel):
     cpus: float
     memory_mb: int
     memory_display: str
+    accelerator_count: int = 0
+    accelerator_vendor: str = ""
+    accelerator_memory_mb: int = 0
+    accelerator_display: str = ""
+    available: bool | None = None
+    availability_message: str = ""
 
 
 class TemplateInfo(BaseModel):
@@ -49,6 +55,13 @@ class WorkspaceOut(BaseModel):
     last_started_at: datetime | None = None
     last_stopped_at: datetime | None = None
     error_message: str | None = None
+    accelerator_device_id: str | None = None
+    accelerator_cdi_name: str | None = None
+    accelerator_model: str | None = None
+    accelerator_kind: str | None = None
+    accelerator_slot: int | None = None
+    accelerator_memory_mb: int = 0
+    accelerator_shared_slots: int = 0
     web_url: str | None = None
 
     model_config = {"from_attributes": True}

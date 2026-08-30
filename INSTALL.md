@@ -74,6 +74,11 @@ host capabilities remain directly observable. DevCloud does not install or
 modify any NVIDIA component. A failed GPU preflight exits before consuming the
 single-use ticket. CPU workers retain the system Quadlet default.
 
+After enrollment, set user GPU-slot quotas and choose the worker's physical GPU
+sharing policy under **Admin > Worker Node'ları**. Zero means automatic: RTX
+4090 uses two slots, RTX 5090 uses three, and other physical GPUs use one.
+MIG instances always remain exclusive single slots.
+
 When the worker can reach the controller, open **Admin > Worker Node'ları** and
 select **Yeni Worker Kurulum Komutu Üret**. Run the generated command as root on
 the worker within 10 minutes. The command is single-use. It asks only for the
@@ -117,7 +122,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.8-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.9-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -145,7 +150,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.4.8-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.4.9-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

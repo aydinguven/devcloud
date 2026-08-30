@@ -558,3 +558,8 @@ td code {
   .download-update-card .card-header, .download-item { align-items: stretch; flex-direction: column; }
   .download-update-actions, .download-actions { justify-content: flex-start; }
 }
+.flavor-card.is-unavailable {
+  opacity: .48;
+  cursor: not-allowed;
+  filter: grayscale(.35);
+}

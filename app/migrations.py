@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 class MigrationError(RuntimeError):
@@ -306,6 +306,31 @@ async def _add_directory_profile_fields(conn) -> None:
         )
 
 
+async def _add_gpu_allocation_constraints(conn) -> None:
+    """Protect one workspace reservation per worker GPU device slot."""
+    unique_sets = await conn.run_sync(
+        lambda sync_conn: {
+            tuple(item.get("column_names") or ())
+            for item in (
+                inspect(sync_conn).get_unique_constraints("workspaces")
+                + [
+                    index
+                    for index in inspect(sync_conn).get_indexes("workspaces")
+                    if index.get("unique")
+                ]
+            )
+        }
+    )
+    columns = ("node_id", "accelerator_device_id", "accelerator_slot")
+    if columns not in unique_sets:
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX uq_workspaces_accelerator_slot "
+                "ON workspaces "
+                "(node_id, accelerator_device_id, accelerator_slot)"
+            )
+        )
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -332,6 +357,9 @@ async def upgrade() -> None:
         if 7 not in applied:
             await _add_directory_profile_fields(conn)
             await _record_version(conn, 7, "LDAP profile organization fields")
+        if 8 not in applied:
+            await _add_gpu_allocation_constraints(conn)
+            await _record_version(conn, 8, "GPU workspace slot allocations")
 
 
 async def current_version() -> int:

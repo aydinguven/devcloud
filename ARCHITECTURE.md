@@ -45,6 +45,18 @@ The scheduler considers only enabled, schedulable, connected workers with
 sufficient CPU and memory. Reserved resources and live utilization contribute
 to the score. Host ports are unique per worker, not globally.
 
+GPU flavors additionally require a healthy allocatable NVIDIA CDI device.
+Allocation is a transactionally unique `(worker, device UUID, slot)`
+reservation. RTX 4090 and 5090 physical devices automatically expose two and
+three cooperative workspace slots respectively, unless an administrator sets
+an explicit one-to-three-slot policy. A MIG CDI slice exposes one exclusive
+slot. The worker receives only the reserved CDI device, never every GPU.
+Stopped and error workspaces keep reservations until deletion.
+
+Physical sharing does not provide hard VRAM or fault isolation: the flavor
+memory value is admission metadata. MIG supplies hardware-enforced isolation
+and is the intended path for future DGX/HGX B300 deployments.
+
 If no worker is available, workspace creation fails with HTTP 503; it never
 falls back to the controller. Existing workspaces remain pinned to their
 worker. Deleting a worker is blocked while any workspace remains assigned,

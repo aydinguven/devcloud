@@ -498,6 +498,7 @@ def _node_out(node: Node, enrollment_token: str | None = None):
         memory_used_mb=node.memory_used_mb,
         disk_used_mb=node.disk_used_mb,
         active_containers_count=node.active_containers_count,
+        gpu_slots_per_device=node.gpu_slots_per_device,
         labels=json.loads(node.labels_json or "{}"),
         capabilities=json.loads(node.capabilities_json or "{}"),
         inventory=json.loads(node.inventory_json or "[]"),
@@ -877,13 +878,15 @@ async def update_user_quota(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Admin: Update CPU, RAM, and persistent-disk quota for one user."""
+    """Admin: Update CPU, RAM, disk, and GPU-slot quota for one user."""
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
     user.cpu_quota = quota.cpu_quota
     user.memory_mb_quota = quota.memory_mb_quota
     user.disk_mb_quota = quota.disk_mb_quota
+    if quota.gpu_quota is not None:
+        user.gpu_quota = quota.gpu_quota
     db.add(user)
     await db.commit()
     await db.refresh(user)

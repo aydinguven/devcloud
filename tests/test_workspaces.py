@@ -56,7 +56,8 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
         "t1.medium",
         "t1.large",
         "t1.xlarge",
-    ]
+        "g1.shared",
+        ]
     flavor_resources = {
         flavor["id"]: (flavor["cpus"], flavor["memory_mb"])
         for flavor in flavors
@@ -68,6 +69,7 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
         "t1.medium": (2.0, 4096),
         "t1.large": (4.0, 8192),
         "t1.xlarge": (8.0, 16384),
+        "g1.shared": (4.0, 16384),
     }
 
     legacy_mini = get_flavor("t1.mini")

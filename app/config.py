@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     DEFAULT_USER_CPU_QUOTA: float = 1.0
     DEFAULT_USER_MEMORY_MB_QUOTA: int = 1024
     DEFAULT_USER_DISK_MB_QUOTA: int = 10240
+    DEFAULT_USER_GPU_QUOTA: int = 0
 
     # Offline bundle publishing (admin-only; disable updates on disconnected hosts).
     DOWNLOADS_ENABLED: bool = True

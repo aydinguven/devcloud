@@ -226,6 +226,7 @@ function initWorkspaceCreationModal() {
   const flavorInput = document.getElementById("input-flavor-id");
   flavorCards.forEach((card) => {
     card.addEventListener("click", () => {
+      if (card.dataset.available === "false") return;
       flavorCards.forEach((c) => c.classList.remove("selected"));
       card.classList.add("selected");
       if (flavorInput) {
@@ -468,8 +469,9 @@ function initQuotaForms() {
       const cpuQuota = Number(form.elements.cpu_quota.value);
       const memoryGbQuota = Number(form.elements.memory_gb_quota.value);
       const diskGbQuota = Number(form.elements.disk_gb_quota.value);
+      const gpuQuota = Number(form.elements.gpu_quota.value);
 
-      if (![cpuQuota, memoryGbQuota, diskGbQuota].every(Number.isFinite)) {
+      if (![cpuQuota, memoryGbQuota, diskGbQuota, gpuQuota].every(Number.isFinite)) {
         status.textContent = "Geçerli sayılar girin.";
         status.className = "quota-form-status quota-status-error";
         return;
@@ -486,6 +488,7 @@ function initQuotaForms() {
             cpu_quota: cpuQuota,
             memory_mb_quota: Math.round(memoryGbQuota * 1024),
             disk_mb_quota: Math.round(diskGbQuota * 1024),
+            gpu_quota: Math.round(gpuQuota),
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -874,6 +877,26 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
           status.className = "quota-form-status quota-status-error";
         }
         button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll(".node-gpu-slots").forEach(select => {
+    select.addEventListener("change", async () => {
+      const row = select.closest("tr");
+      select.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/nodes/${row.dataset.nodeId}`, {
+          method: "PATCH",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({gpu_slots_per_device: Number(select.value)}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "GPU paylaşım politikası güncellenemedi.");
+        window.location.reload();
+      } catch (error) {
+        alert(error.message);
+        select.disabled = false;
       }
     });
   });

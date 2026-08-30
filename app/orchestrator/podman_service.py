@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -12,6 +13,7 @@ from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 
 logger = logging.getLogger("devcloud.podman")
+CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
 
 
 class PodmanExecutionError(Exception):
@@ -179,6 +181,7 @@ class PodmanService:
         flavor_id: str,
         host_port: int,
         workspace_token: str,
+        accelerator_cdi_name: str = "",
         progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
@@ -196,6 +199,16 @@ class PodmanService:
         if not flavor:
             raise ValueError(f"Bilinmeyen kaynak profili: {flavor_id}")
 
+        accelerator_cdi_name = str(accelerator_cdi_name or "").strip()
+        if flavor.accelerator_count:
+            if (
+                not CDI_DEVICE_PATTERN.fullmatch(accelerator_cdi_name)
+                or accelerator_cdi_name.rsplit("=", 1)[-1].lower() == "all"
+            ):
+                raise ValueError("GPU workspace için tekil ve geçerli NVIDIA CDI cihazı gereklidir.")
+        elif accelerator_cdi_name:
+            raise ValueError("CPU profiline GPU CDI cihazı atanamaz.")
+
         storage_path = self.ensure_workspace_storage(user_id, workspace_id)
 
         if self._mock_mode:
@@ -207,6 +220,7 @@ class PodmanService:
                 "flavor": flavor_id,
                 "host_port": host_port,
                 "storage_path": storage_path,
+                "accelerator_cdi_name": accelerator_cdi_name,
                 "logs": [
                     f"[{container_name}] {template.name} başlatılıyor...",
                     f"[{container_name}] Kalıcı volume bağlandı: {template.container_workdir}",
@@ -250,6 +264,11 @@ class PodmanService:
             "-v", f"{storage_path}:{template.container_workdir}:Z,U",
             "--restart", "unless-stopped",
         ]
+        if accelerator_cdi_name:
+            cmd_args.extend([
+                "--device", accelerator_cdi_name,
+                "--security-opt", "label=disable",
+            ])
 
         # Injected environment variables for auth & config
         if "vscode" in template_id:

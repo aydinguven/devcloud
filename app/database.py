@@ -61,6 +61,10 @@ async def ensure_user_quota_columns(conn) -> None:
             "INTEGER",
             settings.DEFAULT_USER_DISK_MB_QUOTA,
         ),
+        "gpu_quota": (
+            "INTEGER",
+            settings.DEFAULT_USER_GPU_QUOTA,
+        ),
     }
     for column_name, (column_type, default_value) in quota_columns.items():
         if column_name in existing_columns:
@@ -108,6 +112,31 @@ async def ensure_workspace_columns(conn) -> None:
         except (OperationalError, ProgrammingError):
             current_columns = await _workspace_column_names(conn)
             if "node_id" not in current_columns:
+                raise
+    accelerator_columns = {
+        "accelerator_device_id": "VARCHAR(160)",
+        "accelerator_cdi_name": "VARCHAR(200)",
+        "accelerator_model": "VARCHAR(160)",
+        "accelerator_kind": "VARCHAR(32)",
+        "accelerator_slot": "INTEGER",
+        "accelerator_memory_mb": "INTEGER NOT NULL DEFAULT 0",
+        "accelerator_shared_slots": "INTEGER NOT NULL DEFAULT 0",
+    }
+    existing_columns = await _workspace_column_names(conn)
+    for column_name, definition in accelerator_columns.items():
+        if column_name in existing_columns:
+            continue
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE workspaces ADD COLUMN "
+                        f"{column_name} {definition}"
+                    )
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _workspace_column_names(conn)
+            if column_name not in current_columns:
                 raise
     try:
         await conn.execute(
@@ -181,6 +210,7 @@ async def ensure_node_columns(conn) -> None:
         "memory_used_mb": "INTEGER DEFAULT 0",
         "disk_used_mb": "INTEGER DEFAULT 0",
         "active_containers_count": "INTEGER DEFAULT 0",
+        "gpu_slots_per_device": "INTEGER NOT NULL DEFAULT 0",
         "labels_json": "TEXT DEFAULT '{}'",
         "capabilities_json": "TEXT DEFAULT '{}'",
         "inventory_json": "TEXT DEFAULT '[]'",

@@ -27,6 +27,12 @@ class Workspace(Base):
     __tablename__ = "workspaces"
     __table_args__ = (
         UniqueConstraint("node_id", "host_port", name="uq_workspaces_node_host_port"),
+        UniqueConstraint(
+            "node_id",
+            "accelerator_device_id",
+            "accelerator_slot",
+            name="uq_workspaces_accelerator_slot",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -49,6 +55,25 @@ class Workspace(Base):
     # Specifications
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-empty, vscode-python, etc.
     flavor_id: Mapped[str] = mapped_column(String(50), nullable=False)    # t1.nano through t1.xlarge
+    accelerator_device_id: Mapped[str | None] = mapped_column(
+        String(160), nullable=True
+    )
+    accelerator_cdi_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    accelerator_model: Mapped[str | None] = mapped_column(
+        String(160), nullable=True
+    )
+    accelerator_kind: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    accelerator_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    accelerator_memory_mb: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    accelerator_shared_slots: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Container details
     container_id: Mapped[str] = mapped_column(String(128), nullable=True)

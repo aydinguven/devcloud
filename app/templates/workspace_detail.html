@@ -71,6 +71,17 @@
     <div id="detail-val-uptime" style="font-size: 1.25rem; font-weight: 700; color: #a855f7; margin-top: 0.25rem;">--</div>
     <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">{{ workspace.node_id or 'local' }} · Port {{ workspace.host_port }}</div>
   </div>
+
+  {% if workspace.accelerator_device_id %}
+  <div class="card">
+    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">GPU Tahsisi</div>
+    <div style="font-size: 1rem; font-weight: 700; color: #10b981; margin-top: 0.25rem;">{{ workspace.accelerator_model }}</div>
+    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+      {% if workspace.accelerator_kind == 'mig' %}Özel MIG dilimi{% else %}Slot {{ workspace.accelerator_slot + 1 }}/{{ workspace.accelerator_shared_slots }} · paylaşımlı GPU{% endif %}
+      · {{ '%.1f'|format(workspace.accelerator_memory_mb / 1024) }} GB hedef
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% if workspace.error_message %}

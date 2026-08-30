@@ -18,7 +18,8 @@ from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.flavors import list_flavors
+from app.orchestrator.flavors import get_flavor, list_flavors
+from app.orchestrator.scheduler import flavor_availability
 from app.orchestrator.templates import list_builtin_templates, list_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
@@ -150,6 +151,20 @@ async def dashboard_page(
         disk_used_bytes=disk_usage.get(current_user.id, 0),
     )
 
+    flavor_catalog = []
+    for item in list_flavors():
+        available = True
+        message = ""
+        flavor = get_flavor(item.id)
+        if flavor and flavor.accelerator_count:
+            available, message = await flavor_availability(db, flavor)
+            if current_user.gpu_quota < flavor.accelerator_count:
+                available = False
+                message = "GPU kotanız yok. Yöneticinizden GPU slot kotası isteyin."
+        flavor_catalog.append(item.model_copy(update={
+            "available": available, "availability_message": message
+        }))
+
     from app.models.custom_template import CustomTemplate
     from app.orchestrator.templates import register_custom_template
 
@@ -178,7 +193,7 @@ async def dashboard_page(
             "user": current_user,
             "workspaces": ws_list,
             "templates": all_tpls,
-            "flavors": list_flavors(),
+            "flavors": flavor_catalog,
             "system_usage": system_usage,
             "user_usage": user_usage,
         },

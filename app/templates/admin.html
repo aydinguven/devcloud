@@ -416,6 +416,16 @@ cd devcloud
               GPU yok
             {% endif %}
           </div>
+          {% if physical_gpus %}
+          <label style="display:block;margin-top:.35rem;font-size:.68rem;color:var(--text-muted);">GPU başına workspace
+            <select class="form-input node-gpu-slots" style="padding:.2rem .3rem;height:auto;font-size:.72rem;">
+              <option value="0" {% if node.gpu_slots_per_device == 0 %}selected{% endif %}>Otomatik</option>
+              <option value="1" {% if node.gpu_slots_per_device == 1 %}selected{% endif %}>1 (özel)</option>
+              <option value="2" {% if node.gpu_slots_per_device == 2 %}selected{% endif %}>2</option>
+              <option value="3" {% if node.gpu_slots_per_device == 3 %}selected{% endif %}>3</option>
+            </select>
+          </label>
+          {% endif %}
         </td>
         <td class="node-capacity-cell" data-label="Disk / Container">
           <div class="node-disk-cell">
@@ -627,7 +637,7 @@ cd devcloud
 
         <section class="admin-user-usage" aria-label="{{ u.username }} kaynak kullanımı">
           <h3>Kullanım / Kota</h3>
-          {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk')] %}
+          {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk'), ('gpu', 'GPU')] %}
             {% set metric = quota_usage[key] %}
             <div class="admin-quota-metric">
               <div class="admin-quota-label">
@@ -653,6 +663,10 @@ cd devcloud
             <label class="quota-field">
               <span>Disk GB</span>
               <input class="form-input" type="number" name="disk_gb_quota" min="0" max="1048576" step="0.25" value="{{ '%.2f'|format(u.disk_mb_quota / 1024) }}" required>
+            </label>
+            <label class="quota-field">
+              <span>GPU slot</span>
+              <input class="form-input" type="number" name="gpu_quota" min="0" max="64" step="1" value="{{ u.gpu_quota }}" required>
             </label>
           </div>
           <div class="quota-actions">

@@ -52,6 +52,12 @@ class User(Base):
         server_default=str(settings.DEFAULT_USER_DISK_MB_QUOTA),
         nullable=False,
     )
+    gpu_quota: Mapped[int] = mapped_column(
+        Integer,
+        default=lambda: settings.DEFAULT_USER_GPU_QUOTA,
+        server_default=str(settings.DEFAULT_USER_GPU_QUOTA),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         default=lambda: datetime.now(timezone.utc),

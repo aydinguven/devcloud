@@ -42,6 +42,9 @@ class Node(Base):
     memory_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
     disk_used_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
     active_containers_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    gpu_slots_per_device: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     labels_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
     capabilities_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
     inventory_json: Mapped[str] = mapped_column(Text, default="[]", nullable=True)

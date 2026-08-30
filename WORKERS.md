@@ -33,7 +33,7 @@ bounded tail of the installer output instead of only a generic error badge.
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.
 
-## NVIDIA GPU workers (preliminary)
+## NVIDIA GPU workers and workspace allocation
 
 Use the same one-line registration command for CPU and GPU workers. The script
 detects NVIDIA display/3D PCI hardware automatically. Before it enrolls a GPU
@@ -52,6 +52,18 @@ GPU bootstrap automatically selects the native worker agent so host NVIDIA and
 CDI telemetry is available without an extra prompt. CPU bootstrap keeps the
 containerized worker default. The Admin worker inventory reports the driver and
 toolkit readiness, physical GPU model/count, live memory/utilization data, and
-discovered MIG instances. GPU workspace allocation and flavor scheduling are a
-separate implementation stage; inventory visibility alone does not allocate a
-GPU to a workspace.
+discovered MIG instances.
+
+Users with a nonzero GPU-slot quota can select the `g1.shared` flavor. The
+scheduler reserves one exact CDI device and a database-unique slot before
+container creation. It never passes `nvidia.com/gpu=all`. Stopped and failed
+workspaces retain their slot so restart returns to the same device; deleting
+the workspace releases it.
+
+Physical GPU sharing defaults are two workspaces for RTX 4090 and three for RTX
+5090. Other physical GPUs default to one. Admins can set one, two, or three
+slots per physical GPU in the worker inventory; zero means automatic. Each MIG
+CDI slice is always one exclusive slot regardless of the override. On a shared
+physical GPU, the flavor's VRAM value is scheduling guidance and does not
+enforce a hard memory boundary. Use MIG on DGX/HGX systems when hard isolation
+is required.

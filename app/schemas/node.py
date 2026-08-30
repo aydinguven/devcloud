@@ -15,6 +15,7 @@ class NodeUpdate(BaseModel):
     enabled: bool | None = None
     schedulable: bool | None = None
     labels: dict[str, str] | None = None
+    gpu_slots_per_device: int | None = Field(default=None, ge=0, le=3)
 
 
 class NodeLabelsUpdate(BaseModel):
@@ -35,6 +36,7 @@ class NodeOut(BaseModel):
     memory_used_mb: int = 0
     disk_used_mb: int = 0
     active_containers_count: int = 0
+    gpu_slots_per_device: int = 0
     labels: dict[str, str]
     capabilities: dict
     inventory: list[dict] = Field(default_factory=list)

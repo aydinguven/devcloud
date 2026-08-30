@@ -164,3 +164,54 @@ async def test_workspace_creation_refuses_unsynchronized_managed_image(monkeypat
             host_port=10100,
             workspace_token="secret-workspace-token",
         )
+
+
+@pytest.mark.asyncio
+async def test_gpu_container_uses_one_exact_cdi_device(monkeypatch):
+    svc = PodmanService(podman_bin="podman")
+    svc._mock_mode = False
+    commands = []
+
+    async def fake_run_cmd(*args, timeout=None):
+        commands.append(args)
+        return (0, "gpu-container-id", "") if args[0] == "run" else (0, "", "")
+
+    async def image_ready(*_args, **_kwargs):
+        return True
+
+    class FakeWriter:
+        def close(self):
+            pass
+        async def wait_closed(self):
+            pass
+
+    async def ready_port(*_args, **_kwargs):
+        return object(), FakeWriter()
+
+    monkeypatch.setattr(svc, "ensure_workspace_storage", lambda *_args: "/workspace")
+    monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(svc, "ensure_image_exists", image_ready)
+    monkeypatch.setattr(asyncio, "open_connection", ready_port)
+
+    cdi = "nvidia.com/gpu=GPU-test-4090"
+    await svc.create_workspace_container(
+        workspace_id="gpu-workspace",
+        user_id=1,
+        container_name="gpu-container",
+        template_id="vscode-python",
+        flavor_id="g1.shared",
+        host_port=10101,
+        workspace_token="token",
+        accelerator_cdi_name=cdi,
+    )
+    run_command = next(args for args in commands if args[0] == "run")
+    assert run_command[run_command.index("--device") + 1] == cdi
+    assert "label=disable" in run_command
+    assert not any(value.endswith("=all") for value in run_command)
+
+    with pytest.raises(ValueError, match="tekil"):
+        await svc.create_workspace_container(
+            workspace_id="gpu-workspace-2", user_id=1, container_name="gpu-container-2",
+            template_id="vscode-python", flavor_id="g1.shared", host_port=10102,
+            workspace_token="token", accelerator_cdi_name="nvidia.com/gpu=all",
+        )
