@@ -8,7 +8,7 @@ from app.auth.base import AuthProvider
 from app.auth.internal import decode_access_token
 from app.auth.ldap import HybridAuthProvider
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 
 http_bearer = HTTPBearer(auto_error=False)
@@ -52,6 +52,7 @@ async def get_current_user_optional(
     stmt = select(User).where(User.id == int(user_id))
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
+    await release_read_only_connection(db)
     
     if not user or not user.is_active:
         return None

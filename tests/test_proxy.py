@@ -349,7 +349,11 @@ async def test_custom_port_path_is_dispatched_before_catch_all_proxy(client: Asy
 
 
 @pytest.mark.asyncio
-async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(client: AsyncClient, monkeypatch):
+async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(
+    client: AsyncClient,
+    db_session,
+    monkeypatch,
+):
     register = await client.post(
         "/api/auth/register",
         json={"username": "remote_proxy_user", "email": "remote-proxy@test.com", "password": "Password123!"},
@@ -369,6 +373,7 @@ async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(client:
 
     class Connection:
         async def open_stream(self, action, payload):
+            assert db_session.in_transaction() is False
             captured["action"] = action
             captured["payload"] = payload
             stream = AgentStream("stream-1")

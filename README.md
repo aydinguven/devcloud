@@ -179,7 +179,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.13-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.14-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -197,6 +197,9 @@ independently managed in the image catalogue. Worker OTA refuses downgrades,
 compares installed and published versions before confirmation, skips downloads
 when they match, and shows the final updater message or bounded command-output
 tail directly below the version badge when an update fails.
+Read-only database transactions are returned to the connection pool before
+long-lived workspace uploads, HTTP streams, and WebSocket tunnels begin, so
+active IDE sessions cannot exhaust controller database connections.
 
 Verify the result:
 

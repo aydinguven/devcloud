@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.manager import AgentCommandError, AgentUnavailable, agent_manager
 from app.auth.dependencies import get_current_user
-from app.database import get_db
+from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace
 from app.orchestrator.metrics_service import format_bytes_human
@@ -39,6 +39,7 @@ async def get_accessible_workspace(
             status_code=409,
             detail="Workspace worker placement or storage is not initialized.",
         )
+    await release_read_only_connection(db)
     return workspace
 
 

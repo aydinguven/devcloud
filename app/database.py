@@ -37,6 +37,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+async def release_read_only_connection(session: AsyncSession) -> None:
+    """Finish a read-only transaction so long-running I/O does not hold a pool slot."""
+    if session.in_transaction():
+        await session.commit()
+
+
 async def _user_column_names(conn) -> set[str]:
     return await conn.run_sync(
         lambda sync_conn: {

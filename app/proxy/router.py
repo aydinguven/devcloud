@@ -14,7 +14,7 @@ import websockets
 
 from app.auth.dependencies import get_current_user_optional
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.runtime_backend import runtime_for_node
@@ -50,6 +50,7 @@ async def get_authorized_workspace(
             detail=f"Çalışma alanı çalışmıyor (mevcut durum: {workspace.status}). Önce çalışma alanını başlatın.",
         )
 
+    await release_read_only_connection(db)
     return workspace
 
 

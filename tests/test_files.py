@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import pytest
 from httpx import AsyncClient
+from app.agents.manager import agent_manager
 from app.models.workspace import Workspace, WorkspaceStatus
 from tests.conftest import TEST_WORKER_ID
 
@@ -25,7 +26,7 @@ async def get_authenticated_headers(client: AsyncClient, username: str = "file_u
 
 
 @pytest.mark.asyncio
-async def test_file_manager_operations(client: AsyncClient, db_session):
+async def test_file_manager_operations(client: AsyncClient, db_session, monkeypatch):
     headers, user_id = await get_authenticated_headers(client, "file_user_1")
 
     tmp_storage = tempfile.mkdtemp()
@@ -50,6 +51,16 @@ async def test_file_manager_operations(client: AsyncClient, db_session):
         )
         db_session.add(ws)
         await db_session.commit()
+        connection = agent_manager.get(TEST_WORKER_ID)
+        original_request = connection.request
+        upload_transaction_states = []
+
+        async def observe_request(action, payload, timeout=60):
+            if action == "files.upload":
+                upload_transaction_states.append(db_session.in_transaction())
+            return await original_request(action, payload, timeout)
+
+        monkeypatch.setattr(connection, "request", observe_request)
 
         # 1. List directory
         list_res = await client.get("/api/workspaces/test-ws-files-1/files", headers=headers)
@@ -76,6 +87,7 @@ async def test_file_manager_operations(client: AsyncClient, db_session):
             headers=headers,
         )
         assert upload_res.status_code == 200
+        assert upload_transaction_states == [False]
 
         # 4. Download uploaded file
         download_res = await client.get(
