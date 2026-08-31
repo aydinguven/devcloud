@@ -6,6 +6,7 @@ from app.models.workspace import WorkspaceStatus
 class FlavorInfo(BaseModel):
     id: str
     name: str
+    display_name: str = ""
     description: str
     cpus: float
     memory_mb: int
@@ -16,6 +17,10 @@ class FlavorInfo(BaseModel):
     accelerator_display: str = ""
     available: bool | None = None
     availability_message: str = ""
+    available_slots: int | None = None
+    eligible_accelerator_models: list[str] = Field(default_factory=list)
+    allocation_modes: list[str] = Field(default_factory=list)
+    gpu_quota_remaining: int | None = None
 
 
 class TemplateInfo(BaseModel):

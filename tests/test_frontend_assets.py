@@ -114,6 +114,30 @@ def test_admin_exposes_central_jupyter_ai_settings():
     assert "syncDefaultModels" in javascript
 
 
+def test_workspace_flavor_picker_separates_gpu_and_uses_radio_controls():
+    template = (
+        PROJECT_ROOT / "app/templates/dashboard.html"
+    ).read_text(encoding="utf-8")
+    css = (
+        PROJECT_ROOT / "app/static/css/kurumsal.css"
+    ).read_text(encoding="utf-8")
+    javascript = (
+        PROJECT_ROOT / "app/static/js/app.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'class="flavor-grid flavor-grid-cpu"' in template
+    assert "flavor-card flavor-card-gpu" in template
+    assert 'type="radio" name="flavor_id"' in template
+    assert 'id="input-flavor-id"' not in template
+    assert "available_slots" in template
+    assert "eligible_accelerator_models" in template
+    assert ".workspace-create-modal { max-width: 880px; }" in css
+    assert ".flavor-grid-cpu" in css
+    assert ".gpu-flavor-metrics" in css
+    assert "syncFlavorSelection" in javascript
+    assert 'input[name="flavor_id"]:checked' in javascript
+
+
 def test_dense_data_views_have_responsive_overflow_guards():
     base_css = (PROJECT_ROOT / "app/static/css/style.css").read_text(
         encoding="utf-8"

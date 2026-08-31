@@ -6,6 +6,7 @@ from app.schemas.workspace import FlavorInfo
 class Flavor:
     id: str
     name: str
+    display_name: str
     description: str
     cpus: float
     memory_mb: int
@@ -20,6 +21,7 @@ class Flavor:
         return FlavorInfo(
             id=self.id,
             name=self.name,
+            display_name=self.display_name,
             description=self.description,
             cpus=self.cpus,
             memory_mb=self.memory_mb,
@@ -35,6 +37,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.nano": Flavor(
         id="t1.nano",
         name="t1.nano",
+        display_name="Nano",
         description="Hafif script, küçük yapılandırma ve düşük RAM gerektiren işler için",
         cpus=0.5,
         memory_mb=512,
@@ -43,6 +46,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.micro": Flavor(
         id="t1.micro",
         name="t1.micro",
+        display_name="Standard",
         description="Python ve temel uygulamalar için standart tek thread geliştirme ortamı",
         cpus=1.0,
         memory_mb=1024,
@@ -51,6 +55,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.small": Flavor(
         id="t1.small",
         name="t1.small",
+        display_name="Small",
         description="Python, React/Node.js ve standart VS Code geliştirme ortamları için",
         cpus=1.0,
         memory_mb=2048,
@@ -59,6 +64,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.mini": Flavor(
         id="t1.mini",
         name="t1.mini",
+        display_name="Legacy",
         description="Mevcut çalışma alanlarıyla geriye dönük uyumluluk için korunan eski profil",
         cpus=2.0,
         memory_mb=2048,
@@ -68,6 +74,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.medium": Flavor(
         id="t1.medium",
         name="t1.medium",
+        display_name="Medium",
         description="Java, Jupyter ve orta ölçekli build işlemleri için",
         cpus=2.0,
         memory_mb=4096,
@@ -76,6 +83,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.large": Flavor(
         id="t1.large",
         name="t1.large",
+        display_name="Large",
         description="Ağır build, veri analizi ve birden fazla servis için",
         cpus=4.0,
         memory_mb=8192,
@@ -84,6 +92,7 @@ FLAVORS: dict[str, Flavor] = {
     "t1.xlarge": Flavor(
         id="t1.xlarge",
         name="t1.xlarge",
+        display_name="XLarge",
         description="Yoğun derleme ve büyük notebook iş yükleri için",
         cpus=8.0,
         memory_mb=16384,
@@ -92,6 +101,7 @@ FLAVORS: dict[str, Flavor] = {
     "g1.shared": Flavor(
         id="g1.shared",
         name="g1.shared",
+        display_name="GPU Workspace",
         description=(
             "RTX 4090/5090 üzerinde paylaşımlı slot veya B300 üzerinde "
             "izole MIG aygıtı; GPU belleği limiti best-effort'tur"

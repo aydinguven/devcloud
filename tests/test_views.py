@@ -51,6 +51,13 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert "Toplam Kullanıcı Kullanımı" in auth_dashboard.text
     assert "Kalan Kullanıcı Kotası" in auth_dashboard.text
     assert "Kaynak Profili" in auth_dashboard.text
+    assert "CPU ve Bellek" in auth_dashboard.text
+    assert "GPU Hızlandırma" in auth_dashboard.text
+    assert 'type="radio" name="flavor_id"' in auth_dashboard.text
+    assert 'class="selectable-card flavor-card flavor-card-gpu is-unavailable"' in (
+        auth_dashboard.text
+    )
+    assert "GPU kotanız yok" in auth_dashboard.text
     assert "CPU" in auth_dashboard.text
     assert "RAM" in auth_dashboard.text
     for template_name in (

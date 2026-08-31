@@ -149,7 +149,7 @@
 {% endif %}
 
 <div id="create-modal" class="modal-backdrop">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+  <div class="modal workspace-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
     <div class="card-header" style="margin-bottom: 1.5rem;">
       <h2 id="create-modal-title" class="card-title">Bulut Çalışma Alanı Oluştur</h2>
       <button id="btn-close-create-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
@@ -157,7 +157,6 @@
 
     <form id="create-workspace-form">
       <input type="hidden" id="input-template-id" value="{{ templates[0].id }}">
-      <input type="hidden" id="input-flavor-id" value="{{ flavors[1].id }}">
 
       <div class="form-group">
         <label class="form-label" for="input-workspace-name">Çalışma Alanı Adı</label>
@@ -205,19 +204,84 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Kaynak Profili</label>
-        <div class="grid grid-cols-3" style="gap: 0.75rem;">
-          {% for flav in flavors %}
-            <div class="selectable-card flavor-card {% if flav.id == 't1.micro' %}selected{% endif %}{% if flav.available is sameas false %} is-unavailable{% endif %}" data-flavor-id="{{ flav.id }}" data-available="{{ 'true' if flav.available is not sameas false else 'false' }}" title="{{ flav.availability_message }}">
-              <div style="font-weight: 700; font-size: 0.95rem; color: var(--primary); margin-bottom: 0.2rem;">{{ flav.name }}</div>
-              <div style="font-size: 0.8rem; font-weight: 600; color: #fff;">{{ flav.cpus }} CPU • {{ flav.memory_display }}</div>
-              {% if flav.accelerator_count %}<div style="font-size: 0.75rem; color: #10b981; margin-top: 0.25rem;">{{ flav.accelerator_display }}</div>{% endif %}
-              <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem;">{{ flav.description }}</div>
-              {% if flav.available is sameas false %}<div style="font-size: 0.68rem; color: var(--danger); margin-top: 0.35rem;">Şu an kullanılamıyor: {{ flav.availability_message }}</div>{% endif %}
-            </div>
-          {% endfor %}
+      <div class="form-group flavor-picker" id="flavor-picker">
+        <div class="flavor-picker-heading">
+          <div>
+            <span class="form-label">Kaynak Profili</span>
+            <p>CPU/RAM profili veya GPU hızlandırmalı çalışma alanı seçin.</p>
+          </div>
         </div>
+
+        <section class="flavor-section" aria-labelledby="cpu-flavor-heading">
+          <div class="flavor-section-heading">
+            <h3 id="cpu-flavor-heading">CPU ve Bellek</h3>
+            <span>Genel geliştirme ve notebook iş yükleri</span>
+          </div>
+          <div class="flavor-grid flavor-grid-cpu">
+            {% for flav in flavors if not flav.accelerator_count %}
+            <label class="selectable-card flavor-card {% if flav.id == 't1.micro' %}selected{% endif %}" data-flavor-id="{{ flav.id }}" data-flavor-summary="{{ flav.display_name }} · {{ flav.cpus }} CPU · {{ flav.memory_display }}">
+              <input class="flavor-choice-input" type="radio" name="flavor_id" value="{{ flav.id }}" {% if flav.id == 't1.micro' %}checked{% endif %}>
+              <span class="flavor-selected-mark" aria-hidden="true">✓</span>
+              <span class="flavor-card-title">{{ flav.display_name or flav.name }}</span>
+              <span class="flavor-card-code">{{ flav.id }}</span>
+              <span class="flavor-card-resources">{{ flav.cpus }} CPU <b>·</b> {{ flav.memory_display }}</span>
+              <span class="flavor-card-description">{{ flav.description }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="flavor-section flavor-section-gpu" aria-labelledby="gpu-flavor-heading">
+          <div class="flavor-section-heading">
+            <h3 id="gpu-flavor-heading">GPU Hızlandırma</h3>
+            <span>Model geliştirme, çıkarım ve GPU notebook'ları</span>
+          </div>
+          <div class="flavor-grid-gpu">
+            {% for flav in flavors if flav.accelerator_count %}
+            <label class="selectable-card flavor-card flavor-card-gpu {% if flav.available is sameas false %}is-unavailable{% endif %}" data-flavor-id="{{ flav.id }}" data-flavor-summary="{{ flav.display_name }} · {{ flav.cpus }} CPU · {{ flav.memory_display }} · GPU slot">
+              <input class="flavor-choice-input" type="radio" name="flavor_id" value="{{ flav.id }}" {% if flav.available is sameas false %}disabled{% endif %}>
+              <span class="flavor-selected-mark" aria-hidden="true">✓</span>
+              <div class="gpu-flavor-main">
+                <div class="gpu-flavor-title-row">
+                  <div>
+                    <span class="flavor-card-title">{{ flav.display_name or flav.name }}</span>
+                    <span class="flavor-card-code">{{ flav.id }}</span>
+                  </div>
+                  {% if flav.available is sameas false %}
+                  <span class="badge badge-error">Kullanılamıyor</span>
+                  {% else %}
+                  <span class="badge badge-running">{{ flav.available_slots }} boş slot</span>
+                  {% endif %}
+                </div>
+                <div class="gpu-flavor-metrics">
+                  <span><strong>{{ flav.cpus }}</strong> CPU</span>
+                  <span><strong>{{ flav.memory_display }}</strong> RAM</span>
+                  <span><strong>{{ '%.0f'|format(flav.accelerator_memory_mb / 1024) }} GB+</strong> GPU hedefi</span>
+                  <span><strong>{{ flav.gpu_quota_remaining }}</strong> kota kaldı</span>
+                </div>
+                <div class="gpu-flavor-details">
+                  <span>
+                    <b>Uygun modeller:</b>
+                    {{ flav.eligible_accelerator_models|join(', ') if flav.eligible_accelerator_models else 'Uygun GPU worker bekleniyor' }}
+                  </span>
+                  <span>
+                    <b>Tahsis:</b>
+                    {% set mode_labels = [] %}
+                    {% if 'shared' in flav.allocation_modes %}{% set _ = mode_labels.append('Paylaşımlı GPU slotu') %}{% endif %}
+                    {% if 'mig' in flav.allocation_modes %}{% set _ = mode_labels.append('İzole MIG') %}{% endif %}
+                    {% if 'dedicated' in flav.allocation_modes %}{% set _ = mode_labels.append('Özel GPU') %}{% endif %}
+                    {{ mode_labels|join(' / ') if mode_labels else 'Kapasite oluştuğunda otomatik' }}
+                  </span>
+                </div>
+                <p class="gpu-flavor-note">GPU belleği paylaşımlı fiziksel kartlarda best-effort, MIG aygıtlarında izoledir.</p>
+                {% if flav.available is sameas false %}
+                <div class="gpu-flavor-unavailable" role="note">{{ flav.availability_message }}</div>
+                {% endif %}
+              </div>
+            </label>
+            {% endfor %}
+          </div>
+        </section>
       </div>
 
       <div id="deploy-terminal-box" style="display: none; margin-top: 1.25rem;">
@@ -232,6 +296,7 @@
       </div>
 
       <div id="modal-footer-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <div id="selected-flavor-summary" class="selected-flavor-summary" role="status" aria-live="polite"></div>
         <button type="button" id="btn-cancel-deploy" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">İptal</button>
         <button type="submit" id="btn-submit-deploy" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Çalışma Alanını Kur</button>
       </div>

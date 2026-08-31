@@ -21,7 +21,10 @@ from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor, list_flavors
-from app.orchestrator.scheduler import flavor_availability
+from app.orchestrator.scheduler import (
+    accelerator_availability_details,
+    flavor_availability,
+)
 from app.orchestrator.templates import list_builtin_templates, list_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
@@ -158,13 +161,19 @@ async def dashboard_page(
         available = True
         message = ""
         flavor = get_flavor(item.id)
+        details: dict[str, object] = {}
         if flavor and flavor.accelerator_count:
             available, message = await flavor_availability(db, flavor)
-            if current_user.gpu_quota < flavor.accelerator_count:
+            details = await accelerator_availability_details(db, flavor)
+            gpu_quota_remaining = int(user_usage["gpu"]["remaining"])
+            details["gpu_quota_remaining"] = gpu_quota_remaining
+            if gpu_quota_remaining < flavor.accelerator_count:
                 available = False
                 message = "GPU kotanız yok. Yöneticinizden GPU slot kotası isteyin."
         flavor_catalog.append(item.model_copy(update={
-            "available": available, "availability_message": message
+            "available": available,
+            "availability_message": message,
+            **details,
         }))
 
     from app.models.custom_template import CustomTemplate

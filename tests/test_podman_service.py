@@ -156,13 +156,18 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     assert "ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.6-35b" in run_command
     assert "ANTHROPIC_DEFAULT_FABLE_MODEL=openrouter/z-ai/glm-5.2" in run_command
     assert "ANTHROPIC_DEFAULT_HAIKU_MODEL=openrouter/deepseek/deepseek-v4-pro" in run_command
-    assert "ANTHROPIC_SMALL_FAST_MODEL=openrouter/deepseek/deepseek-v4-pro" in run_command
+    assert "ANTHROPIC_SMALL_FAST_MODEL=local-coder" in run_command
     assert "ANTHROPIC_CUSTOM_MODEL_OPTION=openrouter/qwen/qwen3-coder" in run_command
     assert any(value.startswith("CLAUDE_AVAILABLE_MODELS=local-coder,") for value in run_command)
     assert "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1" in run_command
     assert "ANTHROPIC_AUTH_TOKEN=shared-ai-token" in run_command
-    assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in run_command
+    assert not any(value.startswith("CLAUDE_CODE_EXECUTABLE=") for value in run_command)
     assert "CLAUDE_CODE_DISABLE_FAST_MODE=1" in run_command
+    assert "CLAUDE_CODE_ENABLE_AUTO_MODE=0" in run_command
+    assert "CLAUDE_CODE_DISABLE_1M_CONTEXT=1" in run_command
+    assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS=132000" in run_command
+    assert "CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000" in run_command
+    assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=95" in run_command
     assert (
         "--PersonaManager.default_persona_id="
         "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona"

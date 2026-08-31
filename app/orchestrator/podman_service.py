@@ -301,8 +301,16 @@ class PodmanService:
             ).items():
                 cmd_args.extend(["-e", f"{key}={value}"])
             cmd_args.extend([
-                "-e", "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude",
                 "-e", "CLAUDE_CODE_DISABLE_FAST_MODE=1",
+                "-e", "CLAUDE_CODE_ENABLE_AUTO_MODE=0",
+                "-e", "CLAUDE_CODE_DISABLE_1M_CONTEXT=1",
+                "-e", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=132000",
+                "-e", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000",
+                "-e", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=95",
+                "-e", "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2048",
+                "-e", "MAX_MCP_OUTPUT_TOKENS=8000",
+                "-e", "BASH_MAX_OUTPUT_LENGTH=12000",
+                "-e", "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=4000",
             ])
 
         for k, v in template.env_vars.items():

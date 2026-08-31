@@ -140,6 +140,14 @@ path. It must be reachable from the workspace container network. Do not use
 routable internal DNS/IP, and install the internal CA in the maintained
 workspace image when HTTPS uses a private certificate authority.
 
+Use a restricted LiteLLM virtual key for workspaces, never the LiteLLM master
+key. Jupyter AI launches Claude through the ACP adapter rather than calling the
+gateway directly like an editor extension. The maintained image intentionally
+lets that adapter use its bundled compatible Claude runtime; do not set
+`CLAUDE_CODE_EXECUTABLE` unless the external CLI/adapter pair has been tested
+together. The separately installed `claude` command remains available in the
+workspace terminal.
+
 When using that fallback, restart the worker after changing the file:
 
 ~~~bash
@@ -170,8 +178,8 @@ are also installed:
 %load_ext jupyter_ai_magic_commands
 ~~~
 
-For 3.5.1, import
-`quay.io/aaslangoren/devcloud:jupyter-python-3.5.1` under **Admin > Workspace
+For 3.5.2, import
+`quay.io/aaslangoren/devcloud:jupyter-python-3.5.2` under **Admin > Workspace
 Image'ları** as the source for the `jupyter-python` template. Enrolled workers
 then receive the controller-managed archive automatically.
 
@@ -195,7 +203,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.1-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.2-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -223,7 +231,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.5.1-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.5.2-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

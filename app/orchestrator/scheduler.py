@@ -206,6 +206,57 @@ def _free_accelerator_placements(
     return placements
 
 
+async def accelerator_availability_details(
+    db: AsyncSession, flavor: Flavor
+) -> dict[str, object]:
+    """Summarize currently schedulable GPU slots for the flavor picker."""
+    if not flavor.accelerator_count:
+        return {
+            "available_slots": None,
+            "eligible_accelerator_models": [],
+            "allocation_modes": [],
+        }
+
+    nodes = (
+        await db.execute(select(Node).where(Node.enabled.is_(True)))
+    ).scalars().all()
+    allocations = await _allocations(db)
+    reserved = await _reserved_accelerator_slots(db)
+    placements: list[AcceleratorPlacement] = []
+    for node in nodes:
+        if (
+            not node.schedulable
+            or node.status != NodeStatus.ONLINE
+            or not agent_manager.is_connected(node.id)
+            or node.cpu_total < flavor.cpus
+            or node.memory_total_mb < flavor.memory_mb
+        ):
+            continue
+        used = allocations.get(node.id, NodeAllocation())
+        if (
+            used.cpu + flavor.cpus > node.cpu_total
+            or used.memory_mb + flavor.memory_mb > node.memory_total_mb
+        ):
+            continue
+        placements.extend(_free_accelerator_placements(node, flavor, reserved))
+
+    modes: set[str] = set()
+    for placement in placements:
+        if placement.kind == "mig":
+            modes.add("mig")
+        elif placement.shared_slots > 1:
+            modes.add("shared")
+        else:
+            modes.add("dedicated")
+    return {
+        "available_slots": len(placements),
+        "eligible_accelerator_models": sorted(
+            {placement.model for placement in placements}
+        ),
+        "allocation_modes": sorted(modes),
+    }
+
+
 async def select_workspace_placement(
     db: AsyncSession,
     flavor: Flavor,

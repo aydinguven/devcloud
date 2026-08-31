@@ -58,6 +58,13 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
         "t1.xlarge",
         "g1.shared",
         ]
+    display_names = {flavor["id"]: flavor["display_name"] for flavor in flavors}
+    assert display_names["t1.micro"] == "Standard"
+    assert display_names["g1.shared"] == "GPU Workspace"
+    gpu_flavor = next(flavor for flavor in flavors if flavor["id"] == "g1.shared")
+    assert gpu_flavor["available_slots"] == 0
+    assert gpu_flavor["eligible_accelerator_models"] == []
+    assert gpu_flavor["allocation_modes"] == []
     flavor_resources = {
         flavor["id"]: (flavor["cpus"], flavor["memory_mb"])
         for flavor in flavors

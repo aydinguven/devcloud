@@ -24,6 +24,7 @@ from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
 from app.orchestrator.templates import get_template, list_templates, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import (
+    accelerator_availability_details,
     flavor_availability,
     NoSchedulableNode,
     WorkspacePlacement,
@@ -175,8 +176,15 @@ async def get_flavors(db: Annotated[AsyncSession, Depends(get_db)]):
     for item in list_flavors():
         flavor = get_flavor(item.id)
         available, message = await flavor_availability(db, flavor)
+        details = (
+            await accelerator_availability_details(db, flavor)
+            if flavor and flavor.accelerator_count
+            else {}
+        )
         catalog.append(item.model_copy(update={
-            "available": available, "availability_message": message
+            "available": available,
+            "availability_message": message,
+            **details,
         }))
     return catalog
 

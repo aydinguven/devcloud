@@ -15,6 +15,7 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import (
     NoSchedulableNode,
+    accelerator_availability_details,
     gpu_slots_for_device,
     select_worker_node,
     select_workspace_placement,
@@ -140,6 +141,14 @@ async def test_gpu_scheduler_reserves_stopped_4090_slots(db_session, monkeypatch
     first = await select_workspace_placement(db_session, get_flavor("g1.shared"))
     assert first.accelerator.slot == 0
     assert first.accelerator.shared_slots == 2
+    summary = await accelerator_availability_details(
+        db_session, get_flavor("g1.shared")
+    )
+    assert summary == {
+        "available_slots": 2,
+        "eligible_accelerator_models": ["NVIDIA GeForce RTX 4090"],
+        "allocation_modes": ["shared"],
+    }
 
     for index in (0, 1):
         db_session.add(Workspace(
@@ -165,9 +174,17 @@ async def test_gpu_scheduler_reserves_stopped_4090_slots(db_session, monkeypatch
         if index == 0:
             second = await select_workspace_placement(db_session, get_flavor("g1.shared"))
             assert second.accelerator.slot == 1
+            summary = await accelerator_availability_details(
+                db_session, get_flavor("g1.shared")
+            )
+            assert summary["available_slots"] == 1
 
     with pytest.raises(NoSchedulableNode):
         await select_workspace_placement(db_session, get_flavor("g1.shared"))
+    summary = await accelerator_availability_details(
+        db_session, get_flavor("g1.shared")
+    )
+    assert summary["available_slots"] == 0
 
 
 @pytest.mark.asyncio

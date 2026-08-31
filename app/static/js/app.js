@@ -330,17 +330,27 @@ function initWorkspaceCreationModal() {
 
   // Flavor Selection
   const flavorCards = document.querySelectorAll(".flavor-card");
-  const flavorInput = document.getElementById("input-flavor-id");
-  flavorCards.forEach((card) => {
-    card.addEventListener("click", () => {
-      if (card.dataset.available === "false") return;
-      flavorCards.forEach((c) => c.classList.remove("selected"));
-      card.classList.add("selected");
-      if (flavorInput) {
-        flavorInput.value = card.dataset.flavorId;
-      }
+  const flavorInputs = document.querySelectorAll('input[name="flavor_id"]');
+  const flavorSummary = document.getElementById("selected-flavor-summary");
+
+  function syncFlavorSelection() {
+    const selectedInput = document.querySelector('input[name="flavor_id"]:checked');
+    flavorCards.forEach((card) => {
+      const input = card.querySelector('input[name="flavor_id"]');
+      card.classList.toggle("selected", Boolean(input?.checked));
     });
+    if (flavorSummary) {
+      const selectedCard = selectedInput?.closest(".flavor-card");
+      flavorSummary.textContent = selectedCard
+        ? "Seçili: " + selectedCard.dataset.flavorSummary
+        : "Bir kaynak profili seçin";
+    }
+  }
+
+  flavorInputs.forEach((input) => {
+    input.addEventListener("change", syncFlavorSelection);
   });
+  syncFlavorSelection();
 
   function appendLog(text, level = "info") {
     if (!terminal) return;
@@ -359,11 +369,11 @@ function initWorkspaceCreationModal() {
       const name = document.getElementById("input-workspace-name").value.trim();
       const description = document.getElementById("input-workspace-desc")?.value.trim() || "";
       const templateId = templateInput.value;
-      const flavorId = flavorInput.value;
+      const flavorId = document.querySelector('input[name="flavor_id"]:checked')?.value;
       const autoStopInput = document.getElementById("input-auto-stop");
       const autoStopMinutes = autoStopInput ? parseInt(autoStopInput.value, 10) || 0 : 0;
 
-      if (!name) return;
+      if (!name || !flavorId) return;
 
       if (terminalBox) terminalBox.style.display = "block";
       if (terminal) terminal.innerHTML = "";

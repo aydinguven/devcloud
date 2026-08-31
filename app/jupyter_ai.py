@@ -113,6 +113,4 @@ def model_environment(
         environment[f"{prefix}_NAME"] = model["name"]
         environment[f"{prefix}_DESCRIPTION"] = model["description"]
         environment[f"{prefix}_SUPPORTED_CAPABILITIES"] = "none"
-    if len(catalog) >= 4:
-        environment["ANTHROPIC_SMALL_FAST_MODEL"] = catalog[3]["model_id"]
     return environment
