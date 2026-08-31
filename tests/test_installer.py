@@ -199,7 +199,9 @@ def test_all_in_one_update_preserves_jupyter_ai_worker_defaults(tmp_path):
         "DEVCLOUD_NODE_TOKEN=existing-token\n"
         "JUPYTER_AI_GATEWAY_URL=https://llm-gateway.internal\n"
         "JUPYTER_AI_MODEL=local-coder\n"
-        "JUPYTER_AI_GATEWAY_TOKEN=shared-ai-token\n",
+        "JUPYTER_AI_GATEWAY_TOKEN=shared-ai-token\n"
+        "JUPYTER_AI_GATEWAY_MODEL_DISCOVERY=true\n"
+        "JUPYTER_AI_MODEL_CATALOG_JSON=[{\"model_id\":\"local-coder\"}]\n",
         encoding="utf-8",
     )
 
@@ -209,6 +211,10 @@ def test_all_in_one_update_preserves_jupyter_ai_worker_defaults(tmp_path):
     assert worker["JUPYTER_AI_GATEWAY_URL"] == "https://llm-gateway.internal"
     assert worker["JUPYTER_AI_MODEL"] == "local-coder"
     assert worker["JUPYTER_AI_GATEWAY_TOKEN"] == "shared-ai-token"
+    assert worker["JUPYTER_AI_GATEWAY_MODEL_DISCOVERY"] == "true"
+    assert worker["JUPYTER_AI_MODEL_CATALOG_JSON"] == (
+        '[{"model_id":"local-coder"}]'
+    )
 
 
 def test_controller_update_preserves_unsigned_worker_ota_opt_in(tmp_path):

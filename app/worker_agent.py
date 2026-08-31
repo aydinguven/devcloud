@@ -26,6 +26,7 @@ from app import __version__
 from app.config import settings
 from app.orchestrator.podman_service import podman_service
 from app.release_catalog import semantic_version
+from app.schemas.jupyter_ai_settings import JupyterAiModel
 from app.worker_gpu import discover_nvidia_capabilities
 
 logger = logging.getLogger("devcloud.worker")
@@ -399,11 +400,14 @@ class WorkerAgent:
             settings.JUPYTER_AI_GATEWAY_URL = ""
             settings.JUPYTER_AI_MODEL = ""
             settings.JUPYTER_AI_GATEWAY_TOKEN = ""
+            settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY = False
+            settings.JUPYTER_AI_MODEL_CATALOG_JSON = "[]"
             return True
 
         gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
         model_id = str(payload.get("model_id") or "").strip()
         shared_token = payload.get("shared_token")
+        raw_models = payload.get("models")
         parsed = urlsplit(gateway_url)
         if (
             parsed.scheme not in {"http", "https"}
@@ -426,10 +430,30 @@ class WorkerAgent:
             or len(shared_token) > 4096
         ):
             raise RuntimeError("Controller returned an invalid Jupyter AI shared token")
+        if not isinstance(raw_models, list) or len(raw_models) > 50:
+            raise RuntimeError("Controller returned an invalid Jupyter AI model catalog")
+        try:
+            models = [
+                JupyterAiModel.model_validate(item).model_dump()
+                for item in raw_models
+            ]
+        except Exception as exc:
+            raise RuntimeError(
+                "Controller returned an invalid Jupyter AI model catalog"
+            ) from exc
+        model_ids = [model["model_id"] for model in models]
+        if len(model_ids) != len(set(model_ids)) or model_id not in model_ids:
+            raise RuntimeError("Controller returned an inconsistent Jupyter AI catalog")
 
         settings.JUPYTER_AI_GATEWAY_URL = gateway_url
         settings.JUPYTER_AI_MODEL = model_id
         settings.JUPYTER_AI_GATEWAY_TOKEN = shared_token
+        settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY = (
+            payload.get("gateway_model_discovery") is True
+        )
+        settings.JUPYTER_AI_MODEL_CATALOG_JSON = json.dumps(
+            models, ensure_ascii=False
+        )
         return True
 
     async def jupyter_ai_settings_sync_loop(self) -> None:

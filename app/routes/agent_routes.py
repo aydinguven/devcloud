@@ -25,6 +25,7 @@ from app.models.workspace_image import WorkspaceImage
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.schemas.node import NodeHeartbeat
 from app.schemas.jupyter_ai_settings import WorkerJupyterAiSettings
+from app.jupyter_ai import parse_model_catalog
 from app.config import settings
 from app.release_catalog import RELEASE_PATTERN, latest_release
 from app.security.secrets import SecretDecryptionError, decrypt_secret
@@ -261,6 +262,8 @@ async def worker_jupyter_ai_settings(
         enabled=True,
         gateway_url=record.gateway_url,
         model_id=record.model_id,
+        gateway_model_discovery=record.gateway_model_discovery,
+        models=parse_model_catalog(record.model_catalog_json, record.model_id),
         shared_token=shared_token,
         updated_at=record.updated_at,
     )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import inspect, text
@@ -18,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 class MigrationError(RuntimeError):
@@ -331,6 +332,60 @@ async def _add_gpu_allocation_constraints(conn) -> None:
             )
         )
 
+
+async def _add_jupyter_ai_model_catalog(conn) -> None:
+    """Add the centrally managed multi-model catalog to existing databases."""
+    from app.jupyter_ai import default_model_catalog, parse_model_catalog
+
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("jupyter_ai_settings")
+        }
+    )
+    if "gateway_model_discovery" not in columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE jupyter_ai_settings ADD COLUMN "
+                "gateway_model_discovery BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+    if "model_catalog_json" not in columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE jupyter_ai_settings ADD COLUMN "
+                "model_catalog_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        )
+    rows = (
+        await conn.execute(
+            text("SELECT id, model_id, model_catalog_json FROM jupyter_ai_settings")
+        )
+    ).all()
+    for row in rows:
+        catalog = parse_model_catalog(row.model_catalog_json, row.model_id)
+        if len(catalog) <= 1:
+            catalog = default_model_catalog()
+            if row.model_id and row.model_id not in {
+                item["model_id"] for item in catalog
+            }:
+                catalog.insert(
+                    0,
+                    {
+                        "model_id": row.model_id,
+                        "name": row.model_id,
+                        "description": "Default",
+                    },
+                )
+        await conn.execute(
+            text(
+                "UPDATE jupyter_ai_settings SET model_catalog_json = :catalog "
+                "WHERE id = :id"
+            ),
+            {"id": row.id, "catalog": json.dumps(catalog, ensure_ascii=False)},
+        )
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -363,6 +418,9 @@ async def upgrade() -> None:
         if 9 not in applied:
             # init_db creates the portable singleton settings table.
             await _record_version(conn, 9, "central Jupyter AI gateway settings")
+        if 10 not in applied:
+            await _add_jupyter_ai_model_catalog(conn)
+            await _record_version(conn, 10, "Jupyter AI multi-model catalog")
 
 
 async def current_version() -> int:

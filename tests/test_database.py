@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from sqlalchemy import inspect, text
@@ -10,7 +11,11 @@ from app.database import (
     ensure_user_quota_columns,
     ensure_workspace_columns,
 )
-from app.migrations import _add_directory_profile_fields, _make_mlflow_settings_per_user
+from app.migrations import (
+    _add_directory_profile_fields,
+    _add_jupyter_ai_model_catalog,
+    _make_mlflow_settings_per_user,
+)
 
 
 @pytest.mark.asyncio
@@ -207,3 +212,58 @@ async def test_legacy_database_receives_directory_profile_fields(tmp_path):
         await engine.dispose()
     assert {"team", "directorate"} <= user_columns
     assert {"team_attribute", "directorate_attribute"} <= directory_columns
+
+
+@pytest.mark.asyncio
+async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
+    database_path = (tmp_path / "legacy-jupyter-ai.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE jupyter_ai_settings ("
+                    "id INTEGER PRIMARY KEY, "
+                    "enabled BOOLEAN NOT NULL, "
+                    "gateway_url VARCHAR(512) NOT NULL, "
+                    "model_id VARCHAR(255) NOT NULL, "
+                    "encrypted_shared_token TEXT NOT NULL, "
+                    "updated_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO jupyter_ai_settings "
+                    "(id, enabled, gateway_url, model_id, "
+                    "encrypted_shared_token, updated_at) VALUES "
+                    "(1, true, 'https://gateway.internal', "
+                    "'private-default', 'encrypted', CURRENT_TIMESTAMP)"
+                )
+            )
+            await _add_jupyter_ai_model_catalog(conn)
+            await _add_jupyter_ai_model_catalog(conn)
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    column["name"]
+                    for column in inspect(sync_conn).get_columns(
+                        "jupyter_ai_settings"
+                    )
+                }
+            )
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT gateway_model_discovery, model_catalog_json "
+                        "FROM jupyter_ai_settings WHERE id = 1"
+                    )
+                )
+            ).one()
+    finally:
+        await engine.dispose()
+
+    catalog = json.loads(row.model_catalog_json)
+    assert {"gateway_model_discovery", "model_catalog_json"} <= columns
+    assert row.gateway_model_discovery == 0
+    assert catalog[0]["model_id"] == "private-default"
+    assert "qwen3.6-35b" in {item["model_id"] for item in catalog}

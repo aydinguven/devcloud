@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.jupyter_ai import default_model_catalog_json
 
 
 class JupyterAiSettings(Base):
@@ -18,6 +19,12 @@ class JupyterAiSettings(Base):
     )
     model_id: Mapped[str] = mapped_column(
         String(255), default="", nullable=False
+    )
+    gateway_model_discovery: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    model_catalog_json: Mapped[str] = mapped_column(
+        Text, default=default_model_catalog_json, nullable=False
     )
     encrypted_shared_token: Mapped[str] = mapped_column(
         Text, default="", nullable=False

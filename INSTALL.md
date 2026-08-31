@@ -115,6 +115,10 @@ Configure the gateway once under **Admin > Entegrasyonlar > Jupyter AI ·
 On-Prem LLM**. The controller encrypts the shared token at rest. Every enrolled
 worker fetches the central setting on startup and every 30 seconds, so a newly
 installed worker needs no Jupyter AI file or token provisioning.
+The same page manages the shared model catalogue, display names, descriptions,
+and the model initially selected for a new Claude session. The default catalogue
+contains the former on-prem Qwen model plus the GLM, DeepSeek, Qwen Coder, and
+Kimi OpenRouter routes.
 Use HTTPS for the controller-to-worker connection, or keep an HTTP deployment
 on an isolated trusted management network, because workers must receive the
 decrypted shared token before creating Jupyter containers.
@@ -126,6 +130,8 @@ rolling-upgrade fallback when the controller has no central Jupyter AI record:
 JUPYTER_AI_GATEWAY_URL=http://llm-gateway.internal.example:5003
 JUPYTER_AI_MODEL=qwen3.6-35b
 JUPYTER_AI_GATEWAY_TOKEN=replace-with-shared-gateway-token
+JUPYTER_AI_GATEWAY_MODEL_DISCOVERY=false
+JUPYTER_AI_MODEL_CATALOG_JSON=[]
 ~~~
 
 The gateway URL is the root URL; Claude Code appends the Anthropic messages
@@ -143,6 +149,14 @@ sudo systemctl restart devcloud-worker.service
 Only newly created workspace containers receive changed environment values.
 Existing containers must be recreated to pick up a changed gateway or model.
 
+The Admin default is only the initial model; it does not lock a workspace to a
+single model. Users can switch among the centrally published routes from
+Claude's model picker or with `/model`. Enable gateway discovery to include
+additional models returned by LiteLLM's `/v1/models` endpoint. Claude Code
+accepts discovered gateway IDs beginning with `claude` or `anthropic`, so
+give any dynamically discovered LiteLLM aliases one of those prefixes. The
+five explicit catalogue slots do not require those prefixes.
+
 The shared gateway token is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
 workspace, so users can open Claude chat without entering credentials. This
 also means each workspace user can inspect and reuse the token. Use a gateway
@@ -156,8 +170,8 @@ are also installed:
 %load_ext jupyter_ai_magic_commands
 ~~~
 
-For 3.5.0, import
-`quay.io/aaslangoren/devcloud:jupyter-python-3.5.0` under **Admin > Workspace
+For 3.5.1, import
+`quay.io/aaslangoren/devcloud:jupyter-python-3.5.1` under **Admin > Workspace
 Image'ları** as the source for the `jupyter-python` template. Enrolled workers
 then receive the controller-managed archive automatically.
 
@@ -181,7 +195,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.1-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -209,7 +223,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.5.1-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

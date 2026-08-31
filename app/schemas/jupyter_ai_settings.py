@@ -4,10 +4,30 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class JupyterAiModel(BaseModel):
+    model_id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=255)
+
+    @field_validator("model_id", "name", "description", mode="after")
+    @classmethod
+    def validate_model_text(cls, value: str, info) -> str:
+        value = value.strip()
+        if any(ord(character) < 32 for character in value):
+            raise ValueError("Model alanları kontrol karakteri içeremez.")
+        if info.field_name == "model_id" and (
+            any(character.isspace() for character in value) or "," in value
+        ):
+            raise ValueError("Model kimliği boşluk veya virgül içeremez.")
+        return value
+
+
 class JupyterAiSettingsUpdate(BaseModel):
     enabled: bool = False
     gateway_url: str = Field(default="", max_length=512)
     model_id: str = Field(default="", max_length=255)
+    gateway_model_discovery: bool = False
+    models: list[JupyterAiModel] | None = None
     shared_token: str | None = Field(default=None, max_length=4096)
 
     @field_validator("gateway_url", "model_id", mode="after")
@@ -44,6 +64,14 @@ class JupyterAiSettingsUpdate(BaseModel):
             raise ValueError(
                 "Jupyter AI etkinleştirildiğinde gateway URL ve model kimliği zorunludur."
             )
+        if self.models is not None:
+            if len(self.models) > 50:
+                raise ValueError("En fazla 50 sabit model tanımlanabilir.")
+            model_ids = [model.model_id for model in self.models]
+            if len(model_ids) != len(set(model_ids)):
+                raise ValueError("Model kimlikleri benzersiz olmalıdır.")
+            if self.enabled and self.model_id not in model_ids:
+                raise ValueError("Varsayılan model model kataloğunda bulunmalıdır.")
         return self
 
 
@@ -52,6 +80,8 @@ class JupyterAiSettingsOut(BaseModel):
     enabled: bool
     gateway_url: str
     model_id: str
+    gateway_model_discovery: bool
+    models: list[JupyterAiModel]
     has_shared_token: bool
     updated_at: datetime | None = None
 
@@ -61,5 +91,7 @@ class WorkerJupyterAiSettings(BaseModel):
     enabled: bool
     gateway_url: str = ""
     model_id: str = ""
+    gateway_model_discovery: bool = False
+    models: list[JupyterAiModel] = Field(default_factory=list)
     shared_token: str = ""
     updated_at: datetime | None = None

@@ -1,8 +1,10 @@
 import asyncio
+import json
 
 import pytest
 
 from app.config import settings
+from app.jupyter_ai import default_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator.podman_service import PodmanService
@@ -116,6 +118,15 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     )
     monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-ai-token")
+    catalog = default_model_catalog()
+    catalog.insert(
+        0,
+        {"model_id": "local-coder", "name": "Local Coder", "description": "On-Prem"},
+    )
+    monkeypatch.setattr(
+        settings, "JUPYTER_AI_MODEL_CATALOG_JSON", json.dumps(catalog)
+    )
+    monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_MODEL_DISCOVERY", True)
 
     workspace_id = "12345678-1234-1234-1234-123456789abc"
     await svc.create_workspace_container(
@@ -140,7 +151,15 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     assert "JUPYTER_TOKEN=secret-workspace-token" in run_command
     assert "ANTHROPIC_BASE_URL=https://llm-gateway.internal" in run_command
     assert "ANTHROPIC_MODEL=local-coder" in run_command
-    assert "ANTHROPIC_SMALL_FAST_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_DEFAULT_OPUS_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=Local Coder" in run_command
+    assert "ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.6-35b" in run_command
+    assert "ANTHROPIC_DEFAULT_FABLE_MODEL=openrouter/z-ai/glm-5.2" in run_command
+    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL=openrouter/deepseek/deepseek-v4-pro" in run_command
+    assert "ANTHROPIC_SMALL_FAST_MODEL=openrouter/deepseek/deepseek-v4-pro" in run_command
+    assert "ANTHROPIC_CUSTOM_MODEL_OPTION=openrouter/qwen/qwen3-coder" in run_command
+    assert any(value.startswith("CLAUDE_AVAILABLE_MODELS=local-coder,") for value in run_command)
+    assert "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1" in run_command
     assert "ANTHROPIC_AUTH_TOKEN=shared-ai-token" in run_command
     assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in run_command
     assert "CLAUDE_CODE_DISABLE_FAST_MODE=1" in run_command

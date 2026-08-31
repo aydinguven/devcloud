@@ -1330,6 +1330,8 @@ class InstallerEngine:
                 "JUPYTER_AI_GATEWAY_URL",
                 "JUPYTER_AI_MODEL",
                 "JUPYTER_AI_GATEWAY_TOKEN",
+                "JUPYTER_AI_GATEWAY_MODEL_DISCOVERY",
+                "JUPYTER_AI_MODEL_CATALOG_JSON",
             ):
                 if existing_worker.get(key):
                     worker_values[key] = existing_worker[key]

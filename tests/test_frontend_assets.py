@@ -106,8 +106,12 @@ def test_admin_exposes_central_jupyter_ai_settings():
 
     assert 'id="jupyter-ai-settings-form"' in template
     assert 'name="shared_token"' in template
+    assert 'data-jupyter-ai-model-row' in template
+    assert 'name="gateway_model_discovery"' in template
     assert "initJupyterAiSettings()" in javascript
     assert "/api/admin/jupyter-ai-settings" in javascript
+    assert "CLAUDE_AVAILABLE_MODELS" not in template
+    assert "syncDefaultModels" in javascript
 
 
 def test_dense_data_views_have_responsive_overflow_guards():

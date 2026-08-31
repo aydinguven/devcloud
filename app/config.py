@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     JUPYTER_AI_GATEWAY_URL: str = ""
     JUPYTER_AI_MODEL: str = ""
     JUPYTER_AI_GATEWAY_TOKEN: str = ""
+    JUPYTER_AI_GATEWAY_MODEL_DISCOVERY: bool = False
+    JUPYTER_AI_MODEL_CATALOG_JSON: str = "[]"
     
     # Container Port Range for internal forwarding
     PORT_RANGE_START: int = 10100

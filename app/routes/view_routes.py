@@ -18,6 +18,7 @@ from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor, list_flavors
 from app.orchestrator.scheduler import flavor_availability
@@ -526,7 +527,16 @@ async def admin_page(
             else (settings.DOWNLOAD_PUBLIC_BASE_URL or str(request.base_url).rstrip("/"))
         )
     elif section == "integrations":
-        context["jupyter_ai_settings"] = await db.get(JupyterAiSettings, 1)
+        jupyter_ai_settings = await db.get(JupyterAiSettings, 1)
+        context["jupyter_ai_settings"] = jupyter_ai_settings
+        context["jupyter_ai_models"] = (
+            parse_model_catalog(
+                jupyter_ai_settings.model_catalog_json,
+                jupyter_ai_settings.model_id,
+            )
+            if jupyter_ai_settings
+            else default_model_catalog()
+        )
     elif section == "system":
         download_settings = await db.get(DownloadSettings, 1)
         context.update(

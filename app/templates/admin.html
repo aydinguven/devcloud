@@ -509,8 +509,12 @@ cd devcloud
         <input class="form-input" name="gateway_url" type="url" value="{{ jupyter_ai_settings.gateway_url if jupyter_ai_settings else '' }}" placeholder="https://llm-gateway.internal.example">
       </label>
       <label class="form-group" style="margin: 0;">
-        <span class="form-label">Model kimliği</span>
-        <input class="form-input" name="model_id" value="{{ jupyter_ai_settings.model_id if jupyter_ai_settings else '' }}" placeholder="qwen3.6-35b">
+        <span class="form-label">Yeni sohbetlerin varsayılan modeli</span>
+        <select class="form-input" name="model_id">
+          {% for model in jupyter_ai_models %}
+          <option value="{{ model.model_id }}" {% if (jupyter_ai_settings and jupyter_ai_settings.model_id == model.model_id) or (not jupyter_ai_settings and loop.first) %}selected{% endif %}>{{ model.name }} — {{ model.model_id }}</option>
+          {% endfor %}
+        </select>
       </label>
     </div>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
@@ -522,6 +526,42 @@ cd devcloud
         <input type="checkbox" name="clear_token">
         <span>Kayıtlı tokenı temizle</span>
       </label>
+    </div>
+    <label style="display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0;">
+      <input type="checkbox" name="gateway_model_discovery" {% if jupyter_ai_settings and jupyter_ai_settings.gateway_model_discovery %}checked{% endif %}>
+      <span>LiteLLM <code>/v1/models</code> gateway keşfini etkinleştir</span>
+    </label>
+    <p class="text-muted">Keşif, Claude Code tarafından yalnızca <code>claude-*</code> veya <code>anthropic-*</code> gateway alias'ları için kullanılır. Aşağıdaki sabit katalog eski LiteLLM/OpenRouter model kimliklerini de seçilebilir tutar.</p>
+
+    <div style="margin: 1rem 0;">
+      <div class="card-header" style="padding: 0 0 0.5rem;">
+        <div>
+          <h3 class="card-title" style="font-size: 1rem;">Kullanıcı Model Kataloğu</h3>
+          <p class="admin-section-description">Sıra, Claude model seçicisindeki uyumluluk slotlarını belirler. İlk model varsayılan Opus slotudur.</p>
+        </div>
+        <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
+      </div>
+      <div id="jupyter-ai-model-list">
+        {% for model in jupyter_ai_models %}
+        <div class="grid grid-cols-3 jupyter-ai-model-row" data-jupyter-ai-model-row style="gap: 0.5rem; margin-bottom: 0.5rem; align-items: end;">
+          <label class="form-group" style="margin: 0;">
+            <span class="form-label">Model ID</span>
+            <input class="form-input" data-model-field="model_id" value="{{ model.model_id }}" placeholder="openrouter/provider/model">
+          </label>
+          <label class="form-group" style="margin: 0;">
+            <span class="form-label">Görünen Ad</span>
+            <input class="form-input" data-model-field="name" value="{{ model.name }}" placeholder="Model adı">
+          </label>
+          <div style="display: flex; gap: 0.5rem; align-items: end;">
+            <label class="form-group" style="margin: 0; flex: 1;">
+              <span class="form-label">Açıklama</span>
+              <input class="form-input" data-model-field="description" value="{{ model.description }}" placeholder="On-Prem / Online">
+            </label>
+            <button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model>Sil</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
     </div>
     <p class="text-muted">Token controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Yeni Jupyter container'larında kullanıcılar bu ortak tokenı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın.</p>
     <div class="table-actions">

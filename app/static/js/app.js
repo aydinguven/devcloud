@@ -43,12 +43,66 @@ function initJupyterAiSettings() {
   const saveButton = document.getElementById("btn-save-jupyter-ai");
   const status = document.getElementById("jupyter-ai-form-status");
   const badge = document.getElementById("jupyter-ai-status-badge");
+  const modelList = document.getElementById("jupyter-ai-model-list");
+  const defaultModel = form.elements.model_id;
+  const addModelButton = document.getElementById("btn-add-jupyter-ai-model");
+
+  function models() {
+    return Array.from(modelList.querySelectorAll("[data-jupyter-ai-model-row]"))
+      .map((row) => ({
+        model_id: String(row.querySelector('[data-model-field="model_id"]').value || "").trim(),
+        name: String(row.querySelector('[data-model-field="name"]').value || "").trim(),
+        description: String(row.querySelector('[data-model-field="description"]').value || "").trim(),
+      }))
+      .filter((model) => model.model_id || model.name || model.description);
+  }
+
+  function syncDefaultModels() {
+    const selected = defaultModel.value;
+    const catalog = models().filter((model) => model.model_id && model.name);
+    defaultModel.innerHTML = catalog.map((model) => {
+      const option = document.createElement("option");
+      option.value = model.model_id;
+      option.textContent = `${model.name} — ${model.model_id}`;
+      return option.outerHTML;
+    }).join("");
+    if (catalog.some((model) => model.model_id === selected)) {
+      defaultModel.value = selected;
+    }
+  }
+
+  function addModelRow(model = {}) {
+    const row = document.createElement("div");
+    row.className = "grid grid-cols-3 jupyter-ai-model-row";
+    row.dataset.jupyterAiModelRow = "";
+    row.style.cssText = "gap:0.5rem;margin-bottom:0.5rem;align-items:end;";
+    row.innerHTML = `
+      <label class="form-group" style="margin:0"><span class="form-label">Model ID</span><input class="form-input" data-model-field="model_id" placeholder="claude-model-alias"></label>
+      <label class="form-group" style="margin:0"><span class="form-label">Görünen Ad</span><input class="form-input" data-model-field="name" placeholder="Model adı"></label>
+      <div style="display:flex;gap:0.5rem;align-items:end"><label class="form-group" style="margin:0;flex:1"><span class="form-label">Açıklama</span><input class="form-input" data-model-field="description" placeholder="On-Prem / Online"></label><button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model>Sil</button></div>`;
+    Object.entries(model).forEach(([key, value]) => {
+      const input = row.querySelector(`[data-model-field="${key}"]`);
+      if (input) input.value = value;
+    });
+    modelList.appendChild(row);
+    row.querySelector('[data-model-field="model_id"]').focus();
+  }
+
+  modelList.addEventListener("input", syncDefaultModels);
+  modelList.addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-remove-jupyter-ai-model]");
+    if (!remove) return;
+    remove.closest("[data-jupyter-ai-model-row]").remove();
+    syncDefaultModels();
+  });
+  addModelButton.addEventListener("click", () => addModelRow());
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
     const token = String(data.get("shared_token") || "");
     const clearToken = form.elements.clear_token.checked;
+    const modelCatalog = models();
     saveButton.disabled = true;
     status.textContent = "Kaydediliyor...";
     status.className = "quota-form-status";
@@ -60,6 +114,8 @@ function initJupyterAiSettings() {
           enabled: form.elements.enabled.checked,
           gateway_url: String(data.get("gateway_url") || "").trim(),
           model_id: String(data.get("model_id") || "").trim(),
+          gateway_model_discovery: form.elements.gateway_model_discovery.checked,
+          models: modelCatalog,
           shared_token: clearToken ? "" : (token || null),
         }),
       });

@@ -179,7 +179,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.5.1-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform

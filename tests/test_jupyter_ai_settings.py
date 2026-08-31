@@ -7,6 +7,7 @@ from sqlalchemy import update
 
 import app.worker_agent as worker_module
 from app.config import settings
+from app.jupyter_ai import default_model_catalog
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.node import Node
 from app.models.user import User, UserRole
@@ -45,6 +46,8 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
         "enabled": False,
         "gateway_url": "",
         "model_id": "",
+        "gateway_model_discovery": False,
+        "models": default_model_catalog(),
         "has_shared_token": False,
         "updated_at": None,
     }
@@ -69,12 +72,16 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
             "enabled": True,
             "gateway_url": "https://llm.internal.example/",
             "model_id": "qwen3.6-35b",
+            "gateway_model_discovery": True,
+            "models": default_model_catalog(),
             "shared_token": shared_token,
         },
     )
     assert saved.status_code == 200
     assert saved.json()["gateway_url"] == "https://llm.internal.example"
     assert saved.json()["has_shared_token"] is True
+    assert saved.json()["gateway_model_discovery"] is True
+    assert len(saved.json()["models"]) == 5
     assert shared_token not in json.dumps(saved.json())
 
     record = await db_session.get(JupyterAiSettings, 1)
@@ -97,6 +104,10 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert worker_response.headers["cache-control"] == "no-store"
     assert worker_response.json()["managed"] is True
     assert worker_response.json()["shared_token"] == shared_token
+    assert worker_response.json()["gateway_model_discovery"] is True
+    assert worker_response.json()["models"][2]["model_id"] == (
+        "openrouter/deepseek/deepseek-v4-pro"
+    )
 
     forbidden = await client.get(
         "/api/agent/jupyter-ai-settings",
@@ -112,6 +123,8 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
             "enabled": True,
             "gateway_url": "https://llm.internal.example",
             "model_id": "qwen3.6-35b",
+            "gateway_model_discovery": True,
+            "models": None,
             "shared_token": None,
         },
     )
@@ -126,6 +139,8 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
             "enabled": False,
             "gateway_url": "",
             "model_id": "",
+            "gateway_model_discovery": False,
+            "models": [],
             "shared_token": "",
         },
     )
@@ -143,6 +158,8 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_URL", "http://legacy")
     monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "legacy-model")
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "legacy-token")
+    monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_MODEL_DISCOVERY", False)
+    monkeypatch.setattr(settings, "JUPYTER_AI_MODEL_CATALOG_JSON", "[]")
     monkeypatch.setenv("DEVCLOUD_CONTROLLER_URL", "https://controller.example")
     monkeypatch.setenv("DEVCLOUD_NODE_ID", "worker-1")
     monkeypatch.setenv("DEVCLOUD_NODE_TOKEN", "worker-token")
@@ -182,12 +199,18 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
             "gateway_url": "https://gateway.internal.example/",
             "model_id": "qwen3.6-35b",
             "shared_token": "central-token",
+            "gateway_model_discovery": True,
+            "models": default_model_catalog(),
         }
     )
     assert await agent.sync_jupyter_ai_settings() is True
     assert settings.JUPYTER_AI_GATEWAY_URL == "https://gateway.internal.example"
     assert settings.JUPYTER_AI_MODEL == "qwen3.6-35b"
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == "central-token"
+    assert settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY is True
+    assert json.loads(settings.JUPYTER_AI_MODEL_CATALOG_JSON) == (
+        default_model_catalog()
+    )
 
     payload.clear()
     payload.update({"managed": True, "enabled": False})
@@ -195,6 +218,8 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     assert settings.JUPYTER_AI_GATEWAY_URL == ""
     assert settings.JUPYTER_AI_MODEL == ""
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == ""
+    assert settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY is False
+    assert settings.JUPYTER_AI_MODEL_CATALOG_JSON == "[]"
 
 
 @pytest.mark.asyncio
@@ -219,8 +244,43 @@ async def test_admin_rejects_unsafe_jupyter_ai_gateway(client, db_session):
             "enabled": True,
             "gateway_url": "https://user:secret@llm.example?token=leak",
             "model_id": "model id",
+            "gateway_model_discovery": True,
+            "models": [
+                {"model_id": "model id", "name": "Unsafe", "description": ""}
+            ],
             "shared_token": "token",
         },
     )
     assert response.status_code == 422
     assert await db_session.get(JupyterAiSettings, 1) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_rejects_duplicate_jupyter_ai_models(client, db_session):
+    registration = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "jupyter-ai-duplicates",
+            "email": "jupyter-ai-duplicates@example.com",
+            "password": "AdminPassword123!",
+        },
+    )
+    admin_id = registration.json()["user"]["id"]
+    await db_session.execute(
+        update(User).where(User.id == admin_id).values(role=UserRole.ADMIN)
+    )
+    await db_session.commit()
+    model = {"model_id": "claude-internal", "name": "Internal", "description": ""}
+    response = await client.put(
+        "/api/admin/jupyter-ai-settings",
+        headers={"Authorization": f"Bearer {registration.json()['access_token']}"},
+        json={
+            "enabled": True,
+            "gateway_url": "https://llm.example",
+            "model_id": "claude-internal",
+            "gateway_model_discovery": True,
+            "models": [model, model],
+            "shared_token": "token",
+        },
+    )
+    assert response.status_code == 422

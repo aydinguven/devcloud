@@ -65,9 +65,11 @@ from app.schemas.workspace_image import (
 )
 from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.schemas.jupyter_ai_settings import (
+    JupyterAiModel,
     JupyterAiSettingsOut,
     JupyterAiSettingsUpdate,
 )
+from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.config import settings
 from app.security.secrets import encrypt_secret
 from app.installer.platform import InstallerError
@@ -888,6 +890,8 @@ def _jupyter_ai_settings_out(
             enabled=False,
             gateway_url="",
             model_id="",
+            gateway_model_discovery=False,
+            models=[JupyterAiModel(**item) for item in default_model_catalog()],
             has_shared_token=False,
             updated_at=None,
         )
@@ -896,6 +900,13 @@ def _jupyter_ai_settings_out(
         enabled=record.enabled,
         gateway_url=record.gateway_url,
         model_id=record.model_id,
+        gateway_model_discovery=record.gateway_model_discovery,
+        models=[
+            JupyterAiModel(**item)
+            for item in parse_model_catalog(
+                record.model_catalog_json, record.model_id
+            )
+        ],
         has_shared_token=bool(record.encrypted_shared_token),
         updated_at=record.updated_at,
     )
@@ -935,9 +946,32 @@ async def update_jupyter_ai_settings(
         )
     if record is None:
         record = JupyterAiSettings(id=1)
+    current_models = parse_model_catalog(
+        record.model_catalog_json, record.model_id
+    )
+    effective_models = (
+        [model.model_dump() for model in update.models]
+        if update.models is not None
+        else current_models
+    )
+    if not effective_models:
+        effective_models = default_model_catalog()
+    if update.model_id and update.model_id not in {
+        model["model_id"] for model in effective_models
+    }:
+        effective_models.insert(
+            0,
+            {
+                "model_id": update.model_id,
+                "name": update.model_id,
+                "description": "Default",
+            },
+        )
     record.enabled = update.enabled
     record.gateway_url = update.gateway_url
     record.model_id = update.model_id
+    record.gateway_model_discovery = update.gateway_model_discovery
+    record.model_catalog_json = json.dumps(effective_models, ensure_ascii=False)
     if update.shared_token is not None:
         record.encrypted_shared_token = encrypt_secret(update.shared_token)
     record.updated_at = datetime.now(timezone.utc)
