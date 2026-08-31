@@ -183,12 +183,12 @@ class IngressManager:
         self._lock = asyncio.Lock()
 
     async def _run_helper(self, request_id: str) -> None:
-        if not self.helper.is_file():
-            raise IngressApplyError(
-                "HTTPS uygulama yardımcısı kurulu değil. "
-                "Sunucuda deploy/install_ingress.sh scriptini çalıştırın."
-            )
         if hasattr(os, "geteuid") and os.geteuid() == 0:
+            if not self.helper.is_file():
+                raise IngressApplyError(
+                    "HTTPS uygulama yardımcısı kurulu değil. "
+                    "Sunucuda deploy/install_ingress.sh scriptini çalıştırın."
+                )
             try:
                 process = await asyncio.create_subprocess_exec(
                     str(self.helper),

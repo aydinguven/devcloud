@@ -1,3 +1,6 @@
+import json
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -143,3 +146,24 @@ def test_nginx_config_preserves_http_fallback_and_workspace_websockets():
     assert "listen 80;" in http_only
     assert "listen 443 ssl;" not in http_only
     assert "proxy_pass http://127.0.0.1:8000;" in http_only
+
+
+@pytest.mark.asyncio
+async def test_non_root_controller_uses_watcher_without_helper_binary(
+    tmp_path, monkeypatch
+):
+    manager = IngressManager(
+        staging_root=tmp_path / "ingress",
+        helper=tmp_path / "missing-devcloud-apply-ingress",
+    )
+    manager.staging_root.mkdir()
+    request_id = str(uuid.uuid4())
+    manager.result_path.write_text(
+        json.dumps({"request_id": request_id, "success": True}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(os, "geteuid", lambda: 10001, raising=False)
+
+    await manager._run_helper(request_id)
+
+    assert manager.request_path.read_text(encoding="ascii") == f"{request_id}\n"
