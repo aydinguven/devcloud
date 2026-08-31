@@ -15,6 +15,17 @@ def test_jupyter_workspace_image_installs_jupyter_ai_and_claude_acp():
     assert "nodejs=22" in containerfile
 
 
+def test_release_publishes_versioned_jupyter_workspace_image():
+    workflow = (
+        ROOT / ".github/workflows/release-platform.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Build and smoke-test Jupyter AI image" in workflow
+    assert '"jupyter-python-${DEVCLOUD_VERSION}"' in workflow
+    assert '"jupyter-python-${DEVCLOUD_VERSION}-${SHORT_SHA}"' in workflow
+    assert "needs: jupyter-workspace" in workflow
+
+
 def test_worker_forwards_shared_gateway_token_only_in_jupyter_configuration():
     podman_service = (ROOT / "app/orchestrator/podman_service.py").read_text(
         encoding="utf-8"

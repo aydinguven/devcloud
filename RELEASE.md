@@ -79,6 +79,8 @@ The workflow rejects a version tag that does not match `app.__version__`.
 The workflow publishes:
 
 - immutable and versioned controller and worker tags to Quay;
+- an immutable, smoke-tested Jupyter AI workspace image to Quay as
+  `jupyter-python-VERSION` and `jupyter-python-VERSION-SHORT_SHA`;
 - one controller-managed platform update bundle;
 - one complete server offline bundle;
 - one complete worker offline bundle;

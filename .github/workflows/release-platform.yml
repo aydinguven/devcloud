@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       publish_quay:
-        description: Push versioned controller and worker images to Quay
+        description: Push versioned controller, worker, and Jupyter images to Quay
         required: true
         default: true
         type: boolean
@@ -29,8 +29,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  jupyter-workspace:
+    name: Build and publish Jupyter AI workspace
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: release
+    env:
+      QUAY_REGISTRY: quay.io
+      QUAY_REPOSITORY: aaslangoren/devcloud
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+      PUBLISH_QUAY: ${{ github.event_name == 'push' || inputs.publish_quay }}
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Manual releases must be dispatched from main." >&2
+            exit 1
+          fi
+          version="$(python3 -c 'from app import __version__; print(__version__)')"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match app version v${version}." >&2
+            exit 1
+          fi
+          echo "DEVCLOUD_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "SHORT_SHA=${GITHUB_SHA:0:12}" >> "${GITHUB_ENV}"
+
+      - name: Build and smoke-test Jupyter AI image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          local_image="localhost/devcloud-jupyter-python:${DEVCLOUD_VERSION}"
+          docker build --pull --platform linux/amd64 \
+            --file containers/jupyter-python/Containerfile \
+            --tag "${local_image}" \
+            containers/jupyter-python
+          docker run --rm --entrypoint python "${local_image}" \
+            -c "import importlib.metadata as m; print(m.version('jupyter-ai'))"
+          docker run --rm --entrypoint bash "${local_image}" -lc \
+            'node --version && claude --version && command -v claude-agent-acp && npm list --global --depth=0'
+
+      - name: Push immutable Jupyter AI image tags
+        if: env.PUBLISH_QUAY == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
+            echo "Quay publishing requires QUAY_USERNAME and QUAY_PASSWORD." >&2
+            exit 1
+          }
+          printf '%s' "${QUAY_PASSWORD}" |
+            docker login --username "${QUAY_USERNAME}" --password-stdin "${QUAY_REGISTRY}"
+          trap 'docker logout "${QUAY_REGISTRY}" >/dev/null 2>&1 || true' EXIT
+          local_image="localhost/devcloud-jupyter-python:${DEVCLOUD_VERSION}"
+          for remote_tag in \
+            "jupyter-python-${DEVCLOUD_VERSION}" \
+            "jupyter-python-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
+            remote_image="${QUAY_REGISTRY}/${QUAY_REPOSITORY}:${remote_tag}"
+            docker tag "${local_image}" "${remote_image}"
+            docker push "${remote_image}"
+          done
+
   release:
     name: Build and publish Rocky 10 platform
+    needs: jupyter-workspace
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     environment: release

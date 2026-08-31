@@ -156,13 +156,19 @@ are also installed:
 %load_ext jupyter_ai_magic_commands
 ~~~
 
+For 3.5.0, import
+`quay.io/aaslangoren/devcloud:jupyter-python-3.5.0` under **Admin > Workspace
+Image'ları** as the source for the `jupyter-python` template. Enrolled workers
+then receive the controller-managed archive automatically.
+
 ## Updates
 
 Production updates are build-once/deploy-many. Git is the release channel, not
 the runtime artifact: every application release builds the controller and
 worker OCI images once on a trusted builder, exports them into one signed
 platform bundle, and deploys that same bundle without building on the VMs.
-Workspace images are never included.
+Workspace images are not embedded in platform bundles; the release publishes
+the maintained Jupyter image separately for controller-managed import.
 
 The automated GitHub Actions release process, Rocky 10 runner requirements,
 Quay secrets, signing configuration, release assets, and the machine-managed
