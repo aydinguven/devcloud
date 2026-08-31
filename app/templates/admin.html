@@ -487,6 +487,50 @@ cd devcloud
 {% endif %}
 
 {% if admin_section == 'integrations' %}
+<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Jupyter AI · On-Prem LLM</h2>
+      <p class="admin-section-description">Ortak gateway ayarını tüm kayıtlı worker'lara ve yeni Jupyter workspace'lerine dağıtın.</p>
+    </div>
+    <span id="jupyter-ai-status-badge" class="badge {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">
+      {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}Etkin{% else %}Devre Dışı{% endif %}
+    </span>
+  </div>
+
+  <form id="jupyter-ai-settings-form" autocomplete="off">
+    <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
+      <input type="checkbox" name="enabled" {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}checked{% endif %}>
+      <span>Jupyter AI ortak erişimini etkinleştir</span>
+    </label>
+    <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Anthropic uyumlu gateway URL</span>
+        <input class="form-input" name="gateway_url" type="url" value="{{ jupyter_ai_settings.gateway_url if jupyter_ai_settings else '' }}" placeholder="https://llm-gateway.internal.example">
+      </label>
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Model kimliği</span>
+        <input class="form-input" name="model_id" value="{{ jupyter_ai_settings.model_id if jupyter_ai_settings else '' }}" placeholder="qwen3.6-35b">
+      </label>
+    </div>
+    <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+      <label class="form-group" style="margin: 0;">
+        <span class="form-label">Ortak gateway tokenı</span>
+        <input class="form-input" name="shared_token" type="password" autocomplete="new-password" placeholder="{% if jupyter_ai_settings and jupyter_ai_settings.encrypted_shared_token %}Kayıtlı tokenı korumak için boş bırakın{% else %}Ortak gateway tokenını girin{% endif %}">
+      </label>
+      <label style="display: flex; gap: 0.5rem; align-items: center; align-self: end; min-height: 2.75rem;">
+        <input type="checkbox" name="clear_token">
+        <span>Kayıtlı tokenı temizle</span>
+      </label>
+    </div>
+    <p class="text-muted">Token controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Yeni Jupyter container'larında kullanıcılar bu ortak tokenı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın.</p>
+    <div class="table-actions">
+      <button id="btn-save-jupyter-ai" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
+      <span id="jupyter-ai-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+</section>
+
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
   <div class="card-header">
     <div>

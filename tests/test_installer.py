@@ -190,6 +190,27 @@ def test_all_in_one_writes_one_ordinary_enrolled_worker(tmp_path):
     )
 
 
+def test_all_in_one_update_preserves_jupyter_ai_worker_defaults(tmp_path):
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=CommandRunner())
+    env_path = tmp_path / "etc/devcloud/worker.env"
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text(
+        "DEVCLOUD_NODE_ID=existing-worker\n"
+        "DEVCLOUD_NODE_TOKEN=existing-token\n"
+        "JUPYTER_AI_GATEWAY_URL=https://llm-gateway.internal\n"
+        "JUPYTER_AI_MODEL=local-coder\n"
+        "JUPYTER_AI_GATEWAY_TOKEN=shared-ai-token\n",
+        encoding="utf-8",
+    )
+
+    engine._write_configuration(config(DeploymentRole.ALL_IN_ONE))
+
+    worker = engine._read_env(env_path)
+    assert worker["JUPYTER_AI_GATEWAY_URL"] == "https://llm-gateway.internal"
+    assert worker["JUPYTER_AI_MODEL"] == "local-coder"
+    assert worker["JUPYTER_AI_GATEWAY_TOKEN"] == "shared-ai-token"
+
+
 def test_controller_update_preserves_unsigned_worker_ota_opt_in(tmp_path):
     engine = InstallerEngine(filesystem_root=tmp_path, runner=CommandRunner())
     env_path = tmp_path / "etc/devcloud/controller.env"

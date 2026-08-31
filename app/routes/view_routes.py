@@ -17,6 +17,7 @@ from app.models.directory_settings import DirectorySettings
 from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor, list_flavors
 from app.orchestrator.scheduler import flavor_availability
@@ -524,6 +525,8 @@ async def admin_page(
             if download_settings and download_settings.public_base_url
             else (settings.DOWNLOAD_PUBLIC_BASE_URL or str(request.base_url).rstrip("/"))
         )
+    elif section == "integrations":
+        context["jupyter_ai_settings"] = await db.get(JupyterAiSettings, 1)
     elif section == "system":
         download_settings = await db.get(DownloadSettings, 1)
         context.update(

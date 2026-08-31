@@ -103,6 +103,59 @@ host Podman through its socket, and reports exact synchronized checksums.
 Scheduling waits until a worker reports the currently enabled checksum for the
 requested template.
 
+### Jupyter AI and the on-prem model gateway
+
+The maintained jupyter-python workspace image includes Jupyter AI 3, notebook
+magic commands, Claude Code, and the Claude ACP adapter. This preserves the
+agent architecture used by the former JupyterHub deployment: Jupyter AI opens
+Claude as the default persona, while Claude Code calls an Anthropic-compatible
+on-prem gateway.
+
+Configure the gateway once under **Admin > Entegrasyonlar > Jupyter AI ·
+On-Prem LLM**. The controller encrypts the shared token at rest. Every enrolled
+worker fetches the central setting on startup and every 30 seconds, so a newly
+installed worker needs no Jupyter AI file or token provisioning.
+Use HTTPS for the controller-to-worker connection, or keep an HTTP deployment
+on an isolated trusted management network, because workers must receive the
+decrypted shared token before creating Jupyter containers.
+
+The following `/etc/devcloud/worker.env` values remain available only as a
+rolling-upgrade fallback when the controller has no central Jupyter AI record:
+
+~~~ini
+JUPYTER_AI_GATEWAY_URL=http://llm-gateway.internal.example:5003
+JUPYTER_AI_MODEL=qwen3.6-35b
+JUPYTER_AI_GATEWAY_TOKEN=replace-with-shared-gateway-token
+~~~
+
+The gateway URL is the root URL; Claude Code appends the Anthropic messages
+path. It must be reachable from the workspace container network. Do not use
+127.0.0.1 unless the gateway runs inside the same workspace container. Use
+routable internal DNS/IP, and install the internal CA in the maintained
+workspace image when HTTPS uses a private certificate authority.
+
+When using that fallback, restart the worker after changing the file:
+
+~~~bash
+sudo systemctl restart devcloud-worker.service
+~~~
+
+Only newly created workspace containers receive changed environment values.
+Existing containers must be recreated to pick up a changed gateway or model.
+
+The shared gateway token is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
+workspace, so users can open Claude chat without entering credentials. This
+also means each workspace user can inspect and reuse the token. Use a gateway
+credential intended for this shared audience, restrict it at the gateway, and
+rotate it regularly.
+
+In JupyterLab, open the chat panel and select Claude. Notebook magic commands
+are also installed:
+
+~~~python
+%load_ext jupyter_ai_magic_commands
+~~~
+
 ## Updates
 
 Production updates are build-once/deploy-many. Git is the release channel, not
@@ -122,7 +175,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.17-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -150,7 +203,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.4.17-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

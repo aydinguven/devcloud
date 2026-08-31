@@ -100,6 +100,16 @@ def test_admin_panel_exposes_category_navigation():
     assert "initAdminFilters()" in javascript
 
 
+def test_admin_exposes_central_jupyter_ai_settings():
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+
+    assert 'id="jupyter-ai-settings-form"' in template
+    assert 'name="shared_token"' in template
+    assert "initJupyterAiSettings()" in javascript
+    assert "/api/admin/jupyter-ai-settings" in javascript
+
+
 def test_dense_data_views_have_responsive_overflow_guards():
     base_css = (PROJECT_ROOT / "app/static/css/style.css").read_text(
         encoding="utf-8"

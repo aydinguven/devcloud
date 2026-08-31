@@ -18,7 +18,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 class MigrationError(RuntimeError):
@@ -360,6 +360,9 @@ async def upgrade() -> None:
         if 8 not in applied:
             await _add_gpu_allocation_constraints(conn)
             await _record_version(conn, 8, "GPU workspace slot allocations")
+        if 9 not in applied:
+            # init_db creates the portable singleton settings table.
+            await _record_version(conn, 9, "central Jupyter AI gateway settings")
 
 
 async def current_version() -> int:

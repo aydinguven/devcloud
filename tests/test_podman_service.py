@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from app.config import settings
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator.podman_service import PodmanService
@@ -110,6 +111,11 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(svc, "ensure_image_exists", fake_ensure_image_exists)
     monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+    monkeypatch.setattr(
+        settings, "JUPYTER_AI_GATEWAY_URL", "https://llm-gateway.internal"
+    )
+    monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
+    monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-ai-token")
 
     workspace_id = "12345678-1234-1234-1234-123456789abc"
     await svc.create_workspace_container(
@@ -132,6 +138,16 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     assert "--ServerApp.default_url=/lab" in startup_command
     assert "-e" in run_command
     assert "JUPYTER_TOKEN=secret-workspace-token" in run_command
+    assert "ANTHROPIC_BASE_URL=https://llm-gateway.internal" in run_command
+    assert "ANTHROPIC_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_SMALL_FAST_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_AUTH_TOKEN=shared-ai-token" in run_command
+    assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in run_command
+    assert "CLAUDE_CODE_DISABLE_FAST_MODE=1" in run_command
+    assert (
+        "--PersonaManager.default_persona_id="
+        "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona"
+    ) in startup_command
     assert not any("disable_check_xsrf" in arg for arg in startup_command)
     assert not any("allow_origin" in arg for arg in startup_command)
 

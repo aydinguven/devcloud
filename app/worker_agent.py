@@ -17,6 +17,7 @@ import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 import websockets
@@ -368,6 +369,75 @@ class WorkerAgent:
                 await self.sync_workspace_images()
             except Exception as exc:
                 logger.warning("Workspace image synchronization failed: %s", exc)
+            await asyncio.sleep(30)
+
+    async def sync_jupyter_ai_settings(self) -> bool:
+        """Apply centrally managed Jupyter AI settings to new containers."""
+        base_url = _controller_http_url()
+        node_id = _required_env("DEVCLOUD_NODE_ID")
+        headers = {"Authorization": f"Bearer {_required_env('DEVCLOUD_NODE_TOKEN')}"}
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=30.0,
+            verify=self._http_verify_context(base_url),
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(
+                f"{base_url}/api/agent/jupyter-ai-settings",
+                params={"node_id": node_id},
+            )
+            if response.status_code == 404:
+                return False
+            response.raise_for_status()
+            payload = response.json()
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("Controller returned invalid Jupyter AI settings")
+        if payload.get("managed") is not True:
+            return False
+        if payload.get("enabled") is not True:
+            settings.JUPYTER_AI_GATEWAY_URL = ""
+            settings.JUPYTER_AI_MODEL = ""
+            settings.JUPYTER_AI_GATEWAY_TOKEN = ""
+            return True
+
+        gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
+        model_id = str(payload.get("model_id") or "").strip()
+        shared_token = payload.get("shared_token")
+        parsed = urlsplit(gateway_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise RuntimeError("Controller returned an invalid Jupyter AI gateway URL")
+        if (
+            not model_id
+            or len(model_id) > 255
+            or any(char.isspace() for char in model_id)
+        ):
+            raise RuntimeError("Controller returned an invalid Jupyter AI model ID")
+        if (
+            not isinstance(shared_token, str)
+            or not shared_token
+            or len(shared_token) > 4096
+        ):
+            raise RuntimeError("Controller returned an invalid Jupyter AI shared token")
+
+        settings.JUPYTER_AI_GATEWAY_URL = gateway_url
+        settings.JUPYTER_AI_MODEL = model_id
+        settings.JUPYTER_AI_GATEWAY_TOKEN = shared_token
+        return True
+
+    async def jupyter_ai_settings_sync_loop(self) -> None:
+        while True:
+            try:
+                await self.sync_jupyter_ai_settings()
+            except Exception as exc:
+                logger.warning("Jupyter AI settings synchronization failed: %s", exc)
             await asyncio.sleep(30)
 
     async def send(self, message: dict) -> None:
@@ -974,6 +1044,10 @@ class WorkerAgent:
     async def run_once(self) -> None:
         headers = {"Authorization": f"Bearer {_required_env('DEVCLOUD_NODE_TOKEN')}"}
         connection_url = _connection_url()
+        try:
+            await self.sync_jupyter_ai_settings()
+        except Exception as exc:
+            logger.warning("Initial Jupyter AI settings synchronization failed: %s", exc)
         async with websockets.connect(
             connection_url,
             additional_headers=headers,
@@ -985,6 +1059,9 @@ class WorkerAgent:
             self.websocket = websocket
             heartbeat_task = asyncio.create_task(self.heartbeat())
             image_sync_task = asyncio.create_task(self.image_sync_loop())
+            jupyter_ai_sync_task = asyncio.create_task(
+                self.jupyter_ai_settings_sync_loop()
+            )
             tasks: set[asyncio.Task] = set()
             try:
                 async for raw in websocket:
@@ -1000,6 +1077,7 @@ class WorkerAgent:
             finally:
                 heartbeat_task.cancel()
                 image_sync_task.cancel()
+                jupyter_ai_sync_task.cancel()
                 for task in tasks:
                     task.cancel()
 

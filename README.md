@@ -11,7 +11,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Integrated Browser IDEs**:
   - **VS Code (Empty Project)**: Clean environment with git and essential tools.
   - **VS Code (Python 3.14 / 3.12)**: Preloaded with Python, `pip`, `uv`, and the official Python/Jupyter VS Code extensions.
-  - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, and interactive notebooks.
+  - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
   - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, and Red Hat Java Language Support.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
@@ -179,7 +179,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.17-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.5.0-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform

@@ -47,6 +47,7 @@ from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.custom_template import CustomTemplate
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.agents.manager import agent_manager
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -63,7 +64,12 @@ from app.schemas.workspace_image import (
     WorkspaceImageUpdate,
 )
 from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
+from app.schemas.jupyter_ai_settings import (
+    JupyterAiSettingsOut,
+    JupyterAiSettingsUpdate,
+)
 from app.config import settings
+from app.security.secrets import encrypt_secret
 from app.installer.platform import InstallerError
 from app.installer.update_source import (
     CHANNEL_FILENAME,
@@ -871,6 +877,74 @@ def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
         admin_group_dn=record.admin_group_dn,
         nested_group_search=record.nested_group_search,
     )
+
+
+def _jupyter_ai_settings_out(
+    record: JupyterAiSettings | None,
+) -> JupyterAiSettingsOut:
+    if record is None:
+        return JupyterAiSettingsOut(
+            managed=False,
+            enabled=False,
+            gateway_url="",
+            model_id="",
+            has_shared_token=False,
+            updated_at=None,
+        )
+    return JupyterAiSettingsOut(
+        managed=True,
+        enabled=record.enabled,
+        gateway_url=record.gateway_url,
+        model_id=record.model_id,
+        has_shared_token=bool(record.encrypted_shared_token),
+        updated_at=record.updated_at,
+    )
+
+
+@admin_router.get(
+    "/jupyter-ai-settings",
+    response_model=JupyterAiSettingsOut,
+)
+async def get_jupyter_ai_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return central Jupyter AI settings without exposing the shared token."""
+    return _jupyter_ai_settings_out(await db.get(JupyterAiSettings, 1))
+
+
+@admin_router.put(
+    "/jupyter-ai-settings",
+    response_model=JupyterAiSettingsOut,
+)
+async def update_jupyter_ai_settings(
+    update: JupyterAiSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Encrypt and store the configuration distributed to enrolled workers."""
+    record = await db.get(JupyterAiSettings, 1)
+    has_existing_token = bool(record and record.encrypted_shared_token)
+    if update.enabled and (
+        (update.shared_token is None and not has_existing_token)
+        or update.shared_token == ""
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Jupyter AI etkinleştirildiğinde ortak gateway tokenı zorunludur.",
+        )
+    if record is None:
+        record = JupyterAiSettings(id=1)
+    record.enabled = update.enabled
+    record.gateway_url = update.gateway_url
+    record.model_id = update.model_id
+    if update.shared_token is not None:
+        record.encrypted_shared_token = encrypt_secret(update.shared_token)
+    record.updated_at = datetime.now(timezone.utc)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _jupyter_ai_settings_out(record)
 
 
 async def _get_or_create_directory_settings(

@@ -281,6 +281,25 @@ class PodmanService:
                 "-e", f"JUPYTER_TOKEN={workspace_token}",
                 "-e", "JUPYTER_ENABLE_LAB=yes",
             ])
+            if settings.JUPYTER_AI_GATEWAY_URL:
+                cmd_args.extend([
+                    "-e", f"ANTHROPIC_BASE_URL={settings.JUPYTER_AI_GATEWAY_URL}",
+                ])
+            if settings.JUPYTER_AI_MODEL:
+                cmd_args.extend([
+                    "-e", f"ANTHROPIC_MODEL={settings.JUPYTER_AI_MODEL}",
+                    "-e", f"ANTHROPIC_SMALL_FAST_MODEL={settings.JUPYTER_AI_MODEL}",
+                ])
+            if settings.JUPYTER_AI_GATEWAY_TOKEN:
+                cmd_args.extend([
+                    "-e",
+                    f"ANTHROPIC_AUTH_TOKEN={settings.JUPYTER_AI_GATEWAY_TOKEN}",
+                ])
+            cmd_args.extend([
+                "-e", "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude",
+                "-e", "CLAUDE_CODE_DISABLE_FAST_MODE=1",
+                "-e", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=0",
+            ])
 
         for k, v in template.env_vars.items():
             cmd_args.extend(["-e", f"{k}={v}"])
@@ -297,6 +316,7 @@ class PodmanService:
                 f"--ServerApp.base_url=/proxy/{workspace_id}/",
                 "--ServerApp.default_url=/lab",
                 "--ServerApp.trust_xheaders=True",
+                "--PersonaManager.default_persona_id=jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
             ])
         elif template.startup_command:
             cmd_args.extend(template.startup_command)

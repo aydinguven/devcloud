@@ -15,6 +15,7 @@ from app.models.workspace import Workspace
 from app.models.node import Node, NodeStatus
 from app.models.custom_template import CustomTemplate
 from app.models.directory_settings import DirectorySettings
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.main import app
 from app.orchestrator.podman_service import podman_service
 from app.agents.manager import AgentCommandError, AgentStream, StreamChunk, agent_manager

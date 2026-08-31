@@ -69,13 +69,13 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     "jupyter-python": WorkspaceTemplate(
         id="jupyter-python",
         name="Jupyter Notebook",
-        description="Python kernel ve veri bilimi paketleri içeren etkileşimli JupyterLab ortamı.",
+        description="Python, veri bilimi paketleri ve Claude ACP içeren Jupyter AI ortamı.",
         category="Veri Bilimi",
         icon="chart-bar",
         default_port=8888,
         container_workdir="/home/jovyan/work",
         image_tag="localhost/devcloud-jupyter-python:latest",
-        features=["JupyterLab & Notebooks", "Python Kernel", "Veri bilimi araçları", "Etkileşimli grafikler"],
+        features=["JupyterLab & Notebooks", "Jupyter AI", "Claude ACP", "Veri bilimi araçları"],
         env_vars={"JUPYTER_ENABLE_LAB": "yes"},
     ),
     "vscode-java": WorkspaceTemplate(

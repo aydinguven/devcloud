@@ -4,7 +4,15 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,9 +22,12 @@ from app.database import get_db
 from app.models.node import Node, NodeStatus
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.workspace_image import WorkspaceImage
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.schemas.node import NodeHeartbeat
+from app.schemas.jupyter_ai_settings import WorkerJupyterAiSettings
 from app.config import settings
 from app.release_catalog import RELEASE_PATTERN, latest_release
+from app.security.secrets import SecretDecryptionError, decrypt_secret
 from app.workspace_image_service import image_archive_path
 
 agent_router = APIRouter(prefix="/api/agent", tags=["Worker Agent"])
@@ -211,6 +222,48 @@ async def worker_image_catalog(
             for record in records
         ]
     }
+
+
+@agent_router.get(
+    "/jupyter-ai-settings",
+    response_model=WorkerJupyterAiSettings,
+)
+async def worker_jupyter_ai_settings(
+    request: Request,
+    response: Response,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return decrypted shared settings only to an enrolled, enabled worker."""
+    await _authenticated_node(request, node_id, db)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    record = await db.get(JupyterAiSettings, 1)
+    if record is None:
+        # Absence means centrally unmanaged. Workers retain legacy worker.env
+        # values during a rolling upgrade.
+        return WorkerJupyterAiSettings(managed=False, enabled=False)
+    if not record.enabled:
+        return WorkerJupyterAiSettings(
+            managed=True,
+            enabled=False,
+            updated_at=record.updated_at,
+        )
+    try:
+        shared_token = decrypt_secret(record.encrypted_shared_token)
+    except SecretDecryptionError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Jupyter AI ortak tokenı çözülemedi",
+        ) from exc
+    return WorkerJupyterAiSettings(
+        managed=True,
+        enabled=True,
+        gateway_url=record.gateway_url,
+        model_id=record.model_id,
+        shared_token=shared_token,
+        updated_at=record.updated_at,
+    )
 
 
 @agent_router.api_route("/images/{image_id}/archive", methods=["GET", "HEAD"])

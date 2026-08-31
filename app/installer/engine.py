@@ -1184,13 +1184,17 @@ class InstallerEngine:
         etc_dir.mkdir(parents=True, exist_ok=True)
         controller_env_path = etc_dir / "controller.env"
         worker_env_path = etc_dir / "worker.env"
+        existing_worker = self._read_env(worker_env_path)
 
         local_worker_id = ""
         local_worker_token = ""
         if config.role == DeploymentRole.ALL_IN_ONE:
-            old_worker = self._read_env(worker_env_path)
-            local_worker_id = old_worker.get("DEVCLOUD_NODE_ID", "") or str(uuid.uuid4())
-            local_worker_token = old_worker.get("DEVCLOUD_NODE_TOKEN", "") or secrets.token_urlsafe(32)
+            local_worker_id = existing_worker.get(
+                "DEVCLOUD_NODE_ID", ""
+            ) or str(uuid.uuid4())
+            local_worker_token = existing_worker.get(
+                "DEVCLOUD_NODE_TOKEN", ""
+            ) or secrets.token_urlsafe(32)
 
         if config.installs_controller:
             existing = self._read_env(controller_env_path)
@@ -1278,7 +1282,6 @@ class InstallerEngine:
 
         if config.installs_worker:
             if config.role == DeploymentRole.WORKER:
-                existing_worker = self._read_env(worker_env_path)
                 token_path = (
                     Path(config.enrollment_token_file)
                     if config.enrollment_token_file
@@ -1313,16 +1316,26 @@ class InstallerEngine:
                 controller_url = "http://127.0.0.1:8000"
             if not token or any(character.isspace() for character in token):
                 raise InstallerError("Enrollment token is empty or contains whitespace")
+            worker_values = {
+                "DEVCLOUD_CONTROLLER_URL": controller_url,
+                "DEVCLOUD_MASTER_URL": controller_url,
+                "DEVCLOUD_NODE_ID": worker_id,
+                "DEVCLOUD_NODE_TOKEN": token,
+                "DEVCLOUD_WORKER_NAME": config.worker_name,
+                "STORAGE_ROOT": config.workspace_root,
+            }
+            # Preserve operator-managed Jupyter AI settings across repair and
+            # update runs. worker.env remains mode 0600.
+            for key in (
+                "JUPYTER_AI_GATEWAY_URL",
+                "JUPYTER_AI_MODEL",
+                "JUPYTER_AI_GATEWAY_TOKEN",
+            ):
+                if existing_worker.get(key):
+                    worker_values[key] = existing_worker[key]
             self._write_env(
                 worker_env_path,
-                {
-                    "DEVCLOUD_CONTROLLER_URL": controller_url,
-                    "DEVCLOUD_MASTER_URL": controller_url,
-                    "DEVCLOUD_NODE_ID": worker_id,
-                    "DEVCLOUD_NODE_TOKEN": token,
-                    "DEVCLOUD_WORKER_NAME": config.worker_name,
-                    "STORAGE_ROOT": config.workspace_root,
-                },
+                worker_values,
                 podman=config.containerized_worker,
             )
 

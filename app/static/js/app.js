@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initLogPolling();
   initQuotaForms();
   initDirectorySettings();
+  initJupyterAiSettings();
   initNodeManagement();
   initMlflowSettings();
   initDownloadSettings();
@@ -33,6 +34,56 @@ function initAdminFilters() {
         item.hidden = Boolean(query) && !haystack.includes(query);
       });
     });
+  });
+}
+
+function initJupyterAiSettings() {
+  const form = document.getElementById("jupyter-ai-settings-form");
+  if (!form) return;
+  const saveButton = document.getElementById("btn-save-jupyter-ai");
+  const status = document.getElementById("jupyter-ai-form-status");
+  const badge = document.getElementById("jupyter-ai-status-badge");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const token = String(data.get("shared_token") || "");
+    const clearToken = form.elements.clear_token.checked;
+    saveButton.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/jupyter-ai-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          enabled: form.elements.enabled.checked,
+          gateway_url: String(data.get("gateway_url") || "").trim(),
+          model_id: String(data.get("model_id") || "").trim(),
+          shared_token: clearToken ? "" : (token || null),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        let detail = result.detail || `Ayarlar kaydedilemedi (${response.status})`;
+        if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; ");
+        throw new Error(detail);
+      }
+      form.elements.shared_token.value = "";
+      form.elements.clear_token.checked = false;
+      form.elements.shared_token.placeholder = result.has_shared_token
+        ? "Kayıtlı tokenı korumak için boş bırakın"
+        : "Ortak gateway tokenını girin";
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      status.textContent = "Jupyter AI ayarları kaydedildi; worker'lar en geç 30 saniye içinde alacak.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      saveButton.disabled = false;
+    }
   });
 }
 
