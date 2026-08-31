@@ -558,6 +558,35 @@ async def test_admin_worker_upgrade_skips_same_version(
 
 
 @pytest.mark.asyncio
+async def test_admin_worker_upgrade_check_compares_versions(
+    client: AsyncClient,
+    db_session,
+    tmp_path: Path,
+    monkeypatch,
+):
+    headers = await _admin_headers(client)
+    releases = tmp_path / "releases"
+    releases.mkdir()
+    bundle = releases / "devcloud-platform-update-v99.0.0-abcdef1.tar.gz"
+    bundle.write_bytes(b"future-release")
+    monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(tmp_path))
+    worker = await db_session.get(Node, TEST_WORKER_ID)
+    worker.agent_version = "3.4.9"
+    db_session.add(worker)
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/admin/nodes/{TEST_WORKER_ID}/upgrade-check",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["installed_version"] == "3.4.9"
+    assert response.json()["published_version"] == "99.0.0"
+    assert response.json()["update_available"] is True
+
+
+@pytest.mark.asyncio
 async def test_agent_manager_event_broadcasting():
     from app.agents.manager import agent_manager
     queue = agent_manager.subscribe_events()

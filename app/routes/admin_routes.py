@@ -4,12 +4,24 @@ import json
 import os
 import secrets
 import shlex
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from sqlalchemy import select, func, update
+
+import httpx
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_admin_user
@@ -53,7 +65,11 @@ from app.schemas.workspace_image import (
 from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.config import settings
 from app.installer.platform import InstallerError
-from app.installer.update_source import validate_git_source
+from app.installer.update_source import (
+    CHANNEL_FILENAME,
+    parse_channel,
+    validate_git_source,
+)
 from app.release_catalog import semantic_version
 from app.ingress_settings import (
     MAX_CERTIFICATE_BYTES,
@@ -100,8 +116,49 @@ def _read_update_status() -> dict:
                         value.setdefault("state", "running")
                     return value
             except (OSError, json.JSONDecodeError):
-                return {"state": "unknown", "error": f"Cannot read {name}"}
+                return {
+                    "state": "unknown",
+                    "error": (
+                        f"Güncelleme durum dosyası okunamadı ({name}). "
+                        "Updater servisinin dosya izinlerini kontrol edin."
+                    ),
+                }
     return {"state": "idle"}
+
+
+def _github_channel_url(repository: str, ref: str) -> str:
+    repository, ref = validate_git_source(repository, ref)
+    parsed = urllib.parse.urlparse(repository)
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if parsed.scheme != "https" or parsed.hostname != "github.com" or len(parts) != 2:
+        raise InstallerError(
+            "Sürüm kontrolü yalnızca HTTPS GitHub repository adresleri için destekleniyor."
+        )
+    owner, project = parts
+    if project.endswith(".git"):
+        project = project[:-4]
+    if not owner or not project:
+        raise InstallerError("GitHub repository adresi geçersiz.")
+    return (
+        "https://raw.githubusercontent.com/"
+        f"{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(project, safe='')}/"
+        f"{urllib.parse.quote(ref, safe='/')}/{CHANNEL_FILENAME}"
+    )
+
+
+async def _fetch_release_channel(repository: str, ref: str):
+    channel_url = _github_channel_url(repository, ref)
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            response = await client.get(
+                channel_url, headers={"User-Agent": "DevCloud-Controller/1"}
+            )
+            response.raise_for_status()
+            return parse_channel(response.json())
+    except (httpx.HTTPError, ValueError, InstallerError) as exc:
+        raise InstallerError(
+            "Yayın kanalı okunamadı. Repository, branch/tag ve GitHub erişimini kontrol edin."
+        ) from exc
 
 
 def _worker_image_state(node: Node) -> list[dict]:
@@ -761,6 +818,36 @@ async def upgrade_node(
         )
 
 
+@admin_router.get("/nodes/{node_id}/upgrade-check")
+async def check_node_upgrade(
+    node_id: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Compare the installed worker agent with the published release."""
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    release = current_platform_release()
+    current_semantic = semantic_version(node.agent_version)
+    target_semantic = semantic_version(release.version)
+    update_available = node.agent_version != release.version
+    if (
+        current_semantic is not None
+        and target_semantic is not None
+        and target_semantic <= current_semantic
+    ):
+        update_available = False
+    return {
+        "node_id": node.id,
+        "node_name": node.name,
+        "connected": agent_manager.is_connected(node.id),
+        "installed_version": node.agent_version or "bilinmiyor",
+        "published_version": release.version,
+        "update_available": update_available,
+    }
+
+
 def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
     return DirectorySettingsOut(
         enabled=record.enabled,
@@ -1132,12 +1219,46 @@ async def get_release_upload_status(
     return _read_update_status()
 
 
+@admin_router.post("/system/release-check")
+async def check_git_release_update(
+    repository: Annotated[str, Form()],
+    ref: Annotated[str, Form()],
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+):
+    """Compare the installed controller version with a GitHub release channel."""
+    if not settings.UPDATES_ENABLED:
+        raise HTTPException(status_code=503, detail="Release güncellemeleri devre dışı.")
+    try:
+        repository, ref = validate_git_source(repository, ref)
+        channel = await _fetch_release_channel(repository, ref)
+    except InstallerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    installed_semantic = semantic_version(settings.APP_VERSION)
+    published_semantic = semantic_version(channel.version)
+    update_available = settings.APP_VERSION != channel.version
+    published_is_older = False
+    if installed_semantic is not None and published_semantic is not None:
+        update_available = published_semantic > installed_semantic
+        published_is_older = published_semantic < installed_semantic
+    return {
+        "installed_version": settings.APP_VERSION,
+        "published_version": channel.version,
+        "update_available": update_available,
+        "published_is_older": published_is_older,
+        "repository": repository,
+        "ref": ref,
+        "filename": channel.filename,
+        "size": channel.size,
+    }
+
+
 @admin_router.post("/system/release-source", status_code=status.HTTP_202_ACCEPTED)
 async def queue_git_release_update(
     repository: Annotated[str, Form()],
     ref: Annotated[str, Form()],
     _admin: Annotated[User, Depends(get_current_admin_user)],
     allow_unsigned: Annotated[bool, Form()] = False,
+    target_version: Annotated[str, Form()] = "",
 ):
     """Queue a platform release selected through a Git channel file."""
     if not settings.UPDATES_ENABLED:
@@ -1146,6 +1267,8 @@ async def queue_git_release_update(
         repository, ref = validate_git_source(repository, ref)
     except InstallerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if target_version and semantic_version(target_version) is None:
+        raise HTTPException(status_code=422, detail="Hedef sürüm geçersiz.")
     root = _update_queue_root()
     root.mkdir(parents=True, exist_ok=True)
     if (root / "pending.json").exists() or (root / "running.json").exists():
@@ -1160,6 +1283,7 @@ async def queue_git_release_update(
         "repository": repository,
         "ref": ref,
         "filename": f"{repository}@{ref}",
+        "target_version": target_version or None,
         "allow_unsigned": allow_unsigned,
     }
     marker_tmp = root / "pending.tmp"
@@ -1171,6 +1295,7 @@ async def queue_git_release_update(
         "source_type": "git",
         "repository": repository,
         "ref": ref,
+        "target_version": target_version or None,
         "allow_unsigned": allow_unsigned,
     }
 

@@ -42,7 +42,8 @@ jobs:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_KEY_ID: ${{ secrets.RELEASE_GPG_KEY_ID }}
       PUBLISH_QUAY: ${{ github.event_name == 'push' || inputs.publish_quay }}
-      SIGN_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_release }}
+      # Official tag releases are consumed by strict worker OTA clients.
+      SIGN_RELEASE: ${{ github.event_name == 'push' || inputs.sign_release }}
       GH_TOKEN: ${{ github.token }}
 
     steps:

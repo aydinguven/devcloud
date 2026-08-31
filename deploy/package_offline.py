@@ -298,6 +298,15 @@ def copy_tracked_source(
         shutil.copy2(source, target)
 
 
+def copy_release_keyring(source: Path, bundle_root: Path) -> Path:
+    source = source.resolve()
+    if not source.is_file() or source.is_symlink() or not source.stat().st_size:
+        raise PackageError("Release verification keyring is missing or invalid")
+    target = bundle_root / "release-keyring.gpg"
+    shutil.copy2(source, target)
+    return target
+
+
 def download_wheels(
     root_dir: Path,
     wheels_dir: Path,
@@ -1092,6 +1101,8 @@ def build_bundle(args: argparse.Namespace) -> tuple[Path, Path]:
     with tempfile.TemporaryDirectory(prefix="devcloud-airgap-") as temp_dir:
         bundle_root = Path(temp_dir) / bundle_root_name
         copy_tracked_source(root_dir, bundle_root)
+        if args.release_keyring:
+            copy_release_keyring(Path(args.release_keyring), bundle_root)
         wheels_dir = bundle_root / "offline" / "wheels"
         controller_images_dir = bundle_root / "offline" / "controller-images"
         worker_images_dir = bundle_root / "offline" / "worker-images"
@@ -1189,6 +1200,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="target CPython major.minor; repeat for multiple targets (default: 3.12)",
     )
     parser.add_argument("--output-dir", help="output directory (default: ./dist)")
+    parser.add_argument(
+        "--release-keyring",
+        type=Path,
+        help="public GPG keyring to embed for subsequent signed updates",
+    )
     parser.add_argument(
         "--podman-bin",
         default=os.getenv("PODMAN_BIN", "podman"),

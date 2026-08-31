@@ -110,6 +110,7 @@ def build(
     controller_source: str = "",
     worker_source: str = "",
     signing_key: str = "",
+    release_keyring: Path | None = None,
     allow_dirty: bool = False,
 ) -> Path:
     if not allow_dirty and command(root, "git", "status", "--porcelain", "--untracked-files=no"):
@@ -129,6 +130,11 @@ def build(
         stage = Path(temporary) / f"devcloud-{release_version}"
         stage.mkdir()
         _copy_tracked(root, stage)
+        if release_keyring is not None:
+            keyring = release_keyring.resolve()
+            if not keyring.is_file() or keyring.is_symlink() or not keyring.stat().st_size:
+                raise ReleaseBuildError("Release verification keyring is missing or invalid")
+            shutil.copy2(keyring, stage / "release-keyring.gpg")
         controller_archive = stage / "offline/controller-images/devcloud-controller.tar"
         worker_archive = stage / "offline/worker-images/devcloud-worker.tar"
         _save_image(root, podman, controller_image, controller_archive)
@@ -199,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--controller-source", default="")
     parser.add_argument("--worker-source", default="")
     parser.add_argument("--signing-key", default="")
+    parser.add_argument("--release-keyring", type=Path)
     parser.add_argument(
         "--channel-output",
         default="",
@@ -220,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             controller_source=args.controller_source,
             worker_source=args.worker_source,
             signing_key=args.signing_key,
+            release_keyring=args.release_keyring,
             allow_dirty=args.allow_dirty,
         )
         print(built)

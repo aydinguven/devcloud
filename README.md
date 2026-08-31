@@ -179,21 +179,23 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.9-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.10-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
-Güncelleme**. The controller Git form is prefilled with the official GitHub
-repository and explicitly preselects **İmzasız güncellemeye izin ver** for the
-current internal release workflow; clear that checkbox to require a signature.
-The UI presents a second warning before an unsigned request is queued. A
-root-owned systemd service creates a pre-update backup, loads immutable OCI
-archives, applies migrations, and restarts Quadlet services. Worker inventory
-shows each running agent version and its latest OTA state. Workspace images
-remain independently managed in the image catalogue. Worker OTA refuses
-downgrades, skips downloads when the worker already matches the published
-release, and shows the final updater message or bounded command-output tail
-directly below the version badge when an update fails.
+Güncelleme**. Select **Güncellemeyi Kontrol Et** first; the page shows the
+installed and published versions before enabling **Güncellemeyi Yükle**.
+Signed releases are the default. **İmzasız güncellemeye izin ver** remains an
+explicit recovery/development opt-in with a second warning. During the expected
+controller restart, the page reports that it is reconnecting instead of
+presenting the proxy's temporary HTTP 502 as an update failure. A root-owned
+systemd service creates a pre-update backup, loads immutable OCI archives,
+applies migrations, and restarts Quadlet services. Worker inventory shows each
+running agent version and its latest OTA state. Workspace images remain
+independently managed in the image catalogue. Worker OTA refuses downgrades,
+compares installed and published versions before confirmation, skips downloads
+when they match, and shows the final updater message or bounded command-output
+tail directly below the version badge when an update fails.
 
 Verify the result:
 

@@ -981,6 +981,21 @@ class InstallerEngine:
                     ]
                 )
 
+    def _install_release_keyring(self, release_root: Path) -> None:
+        bundled_keyring = release_root / "release-keyring.gpg"
+        if not bundled_keyring.is_file() or bundled_keyring.is_symlink():
+            return
+        etc_dir = self.host_path("/etc/devcloud")
+        etc_dir.mkdir(parents=True, exist_ok=True)
+        keyring_target = etc_dir / "release-keyring.gpg"
+        temporary_keyring = etc_dir / f".release-keyring-{uuid.uuid4().hex}.tmp"
+        try:
+            shutil.copyfile(bundled_keyring, temporary_keyring)
+            os.chmod(temporary_keyring, 0o644)
+            os.replace(temporary_keyring, keyring_target)
+        finally:
+            temporary_keyring.unlink(missing_ok=True)
+
     def _install_release(self, config: InstallConfig) -> None:
         target = self.host_path(config.releases_root) / self.release_id
         if self.runner.dry_run:
@@ -1025,6 +1040,7 @@ class InstallerEngine:
             finally:
                 if temporary_release.exists():
                     shutil.rmtree(temporary_release)
+        self._install_release_keyring(target)
         install_root = self.host_path(config.install_root)
         install_root.mkdir(parents=True, exist_ok=True)
         current = install_root / "current"

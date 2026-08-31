@@ -79,9 +79,21 @@
       <span id="admin-update-state" class="badge badge-neutral">Durum yükleniyor</span>
     </div>
 
+    <div class="platform-version-summary" aria-label="Platform sürüm karşılaştırması">
+      <div class="platform-version-item">
+        <span class="platform-current-label">Kurulu sürüm</span>
+        <strong id="platform-installed-version">v{{ app_version }}</strong>
+      </div>
+      <div class="platform-version-arrow" aria-hidden="true">→</div>
+      <div class="platform-version-item">
+        <span class="platform-current-label">Yayınlanan sürüm</span>
+        <strong id="platform-published-version">Kontrol edilmedi</strong>
+      </div>
+    </div>
+
     <div class="platform-current-release">
       <div class="platform-current-release-copy">
-        <span class="platform-current-label">Aktif release</span>
+        <span class="platform-current-label">Kurulu release ayrıntısı</span>
         <code id="admin-current-commit">Yükleniyor...</code>
       </div>
       <p>Güncelleme öncesinde yapılandırma ve veritabanı yedeği otomatik alınır.</p>
@@ -89,6 +101,7 @@
 
     <div class="platform-update-options">
       <form id="platform-git-update-form" class="platform-update-option platform-update-option--primary">
+        <input id="platform-update-target-version" name="target_version" type="hidden" value="">
         <div class="platform-option-heading">
           <span class="platform-option-index" aria-hidden="true">01</span>
           <div>
@@ -107,13 +120,19 @@
           </label>
         </div>
         <label class="unsigned-update-control">
-          <input name="allow_unsigned" type="checkbox" value="true" checked>
+          <input name="allow_unsigned" type="checkbox" value="true">
           <span>
             <strong>İmzasız güncellemeye izin ver</strong>
             <small>Yalnızca kaynağa güvendiğinizde kullanın; release imzası denetlenmez.</small>
           </span>
         </label>
-        <button class="btn btn-primary" type="submit">Git Kanalından Güncelle</button>
+        <p id="platform-update-check-message" class="platform-update-check-message" role="status">
+          Önce yayınlanan sürümü kontrol edin.
+        </p>
+        <div class="platform-update-actions">
+          <button class="btn btn-secondary" id="btn-check-platform-update" type="button">Güncellemeyi Kontrol Et</button>
+          <button class="btn btn-primary" id="btn-apply-platform-update" type="submit" disabled>Güncellemeyi Yükle</button>
+        </div>
       </form>
 
       <form id="platform-bundle-update-form" class="platform-update-option">
@@ -147,6 +166,9 @@
         </div>
         <span class="platform-log-live"><span aria-hidden="true"></span> Canlı</span>
       </div>
+      <p id="platform-update-status-message" class="platform-update-status-message" role="status">
+        Güncelleme kuyruğu hazır.
+      </p>
       <pre id="admin-update-terminal" class="terminal-window" aria-live="polite">Güncelleme kuyruğu hazır.</pre>
     </section>
   </section>
@@ -417,8 +439,8 @@ cd devcloud
             {% endif %}
           </div>
           {% if physical_gpus %}
-          <label style="display:block;margin-top:.35rem;font-size:.68rem;color:var(--text-muted);">GPU başına workspace
-            <select class="form-input node-gpu-slots" style="padding:.2rem .3rem;height:auto;font-size:.72rem;">
+          <label class="node-gpu-slots-label">GPU başına workspace
+            <select class="form-input node-gpu-slots">
               <option value="0" {% if node.gpu_slots_per_device == 0 %}selected{% endif %}>Otomatik</option>
               <option value="1" {% if node.gpu_slots_per_device == 1 %}selected{% endif %}>1 (özel)</option>
               <option value="2" {% if node.gpu_slots_per_device == 2 %}selected{% endif %}>2</option>
@@ -450,7 +472,7 @@ cd devcloud
           <div class="table-actions node-actions">
             <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}">{{ 'Drain' if node.schedulable else 'Aç' }}</button>
             <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token yenile">Token</button>
-            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Controller'dan OTA güncelle">Güncelle</button>
+            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Kurulu ve yayınlanan sürümü karşılaştır">Kontrol Et</button>
             <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}">Sil</button>
           </div>
         </td>

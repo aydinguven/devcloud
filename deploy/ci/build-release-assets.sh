@@ -134,16 +134,25 @@ build_arguments=(
   --channel-output "${ASSET_DIR}/devcloud-update-channel.json"
   --channel-url "${ASSET_BASE_URL}/${PLATFORM_FILENAME}"
 )
+if [[ -n "${signing_key}" ]]; then
+  build_arguments+=(--release-keyring "${ASSET_DIR}/devcloud-release-keyring.gpg")
+fi
 python deploy/build_platform_update.py "${build_arguments[@]}" "${signing_arguments[@]}"
 
+offline_keyring_arguments=()
+if [[ -n "${signing_key}" ]]; then
+  offline_keyring_arguments=(--release-keyring "${ASSET_DIR}/devcloud-release-keyring.gpg")
+fi
 python deploy/package_offline.py \
   --bundle-role server \
   --output-dir "${ASSET_DIR}" \
-  --skip-image-build
+  --skip-image-build \
+  "${offline_keyring_arguments[@]}"
 python deploy/package_offline.py \
   --bundle-role worker \
   --output-dir "${ASSET_DIR}" \
-  --skip-image-build
+  --skip-image-build \
+  "${offline_keyring_arguments[@]}"
 
 python - "${ASSET_DIR}/${PLATFORM_FILENAME}" "${signing_key}" <<'PY'
 import os

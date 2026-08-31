@@ -55,14 +55,8 @@ def validate_git_source(location: str, ref: str) -> tuple[str, str]:
     return location, ref
 
 
-def read_channel(repository: Path) -> ReleaseChannel:
-    path = repository / CHANNEL_FILENAME
-    if not path.is_file() or path.is_symlink():
-        raise InstallerError(f"Update channel file is missing: {CHANNEL_FILENAME}")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise InstallerError(f"Update channel is invalid JSON: {exc}") from exc
+def parse_channel(value: object) -> ReleaseChannel:
+    """Validate an already decoded update channel document."""
     if not isinstance(value, dict) or value.get("format") != 1:
         raise InstallerError("Update channel format is unsupported")
     version = str(value.get("version") or "")
@@ -82,6 +76,17 @@ def read_channel(repository: Path) -> ReleaseChannel:
     if not url:
         raise InstallerError("Update channel bundle URL is missing")
     return ReleaseChannel(version, filename, url, checksum, size)
+
+
+def read_channel(repository: Path) -> ReleaseChannel:
+    path = repository / CHANNEL_FILENAME
+    if not path.is_file() or path.is_symlink():
+        raise InstallerError(f"Update channel file is missing: {CHANNEL_FILENAME}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise InstallerError(f"Update channel is invalid JSON: {exc}") from exc
+    return parse_channel(value)
 
 
 def _copy_and_verify(source, target: Path, channel: ReleaseChannel) -> None:

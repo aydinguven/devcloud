@@ -16,6 +16,8 @@ from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
 from app.routes.agent_routes import reconcile_worker_inventory
+from app.routes import admin_routes
+from app.installer.update_source import ReleaseChannel
 from app.worker_agent import WorkerAgent
 from app.release_catalog import latest_release
 from tests.conftest import TEST_WORKER_ID, TestingSessionLocal
@@ -172,6 +174,39 @@ async def test_admin_git_release_channel_accepts_explicit_unsigned_opt_in(
     marker = json.loads((queue / "pending.json").read_text(encoding="utf-8"))
     assert marker["source_type"] == "git"
     assert marker["allow_unsigned"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_checks_installed_and_published_release_before_queueing(
+    client: AsyncClient, monkeypatch
+):
+    headers = await _admin_headers(client)
+
+    async def fake_channel(repository: str, ref: str):
+        assert repository == "https://github.com/aydinguven/devcloud.git"
+        assert ref == "stable"
+        return ReleaseChannel(
+            version="99.0.0",
+            filename="devcloud-platform-update-v99.0.0-test.tar.gz",
+            url="https://github.com/aydinguven/devcloud/releases/test.tar.gz",
+            sha256="a" * 64,
+            size=1024,
+        )
+
+    monkeypatch.setattr(admin_routes, "_fetch_release_channel", fake_channel)
+    response = await client.post(
+        "/api/admin/system/release-check",
+        headers=headers,
+        data={
+            "repository": "https://github.com/aydinguven/devcloud.git",
+            "ref": "stable",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["installed_version"] == settings.APP_VERSION
+    assert response.json()["published_version"] == "99.0.0"
+    assert response.json()["update_available"] is True
 
 
 @pytest.mark.asyncio

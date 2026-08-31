@@ -931,12 +931,29 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
       const row = button.closest("tr");
       const nodeId = button.dataset.nodeId || row.dataset.nodeId;
       const nodeName = button.dataset.nodeName || "worker";
-      if (!confirm(`"${nodeName}" worker node'una OTA yükseltme komutu gönderilsin mi?`)) {
-        return;
-      }
       button.disabled = true;
-      button.textContent = "İletiliyor...";
+      button.textContent = "Kontrol ediliyor...";
       try {
+        const checkResponse = await fetch(`/api/admin/nodes/${nodeId}/upgrade-check`, {
+          cache: "no-store",
+        });
+        const check = await checkResponse.json().catch(() => ({}));
+        if (!checkResponse.ok) throw new Error(check.detail || "Worker sürümü kontrol edilemedi.");
+        const comparison = `Kurulu v${check.installed_version} · Yayınlanan v${check.published_version}`;
+        if (!check.update_available) {
+          renderWorkerUpgradeState(row, {
+            state: "succeeded",
+            target_version: check.published_version,
+            message: `${comparison} · Worker güncel.`,
+            updated_at: new Date().toISOString(),
+          });
+          return;
+        }
+        if (!check.connected) {
+          throw new Error(`${comparison} · Worker çevrimdışı; güncelleme başlatılamaz.`);
+        }
+        if (!confirm(`${nodeName}: ${comparison}. Güncelleme başlatılsın mı?`)) return;
+        button.textContent = "İletiliyor...";
         const response = await fetch(`/api/admin/nodes/${nodeId}/upgrade`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -958,7 +975,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         alert(error.message);
       } finally {
         button.disabled = false;
-        button.textContent = "Güncelle";
+        button.textContent = "Kontrol Et";
       }
     });
   });
@@ -1841,7 +1858,23 @@ function initAdminPlatformUpdater() {
   const gitUpdateForm = document.getElementById("platform-git-update-form");
   const bundleUpdateForm = document.getElementById("platform-bundle-update-form");
   const updateState = document.getElementById("admin-update-state");
+  const updateStatusMessage = document.getElementById("platform-update-status-message");
+  const installedVersion = document.getElementById("platform-installed-version");
+  const publishedVersion = document.getElementById("platform-published-version");
+  const checkMessage = document.getElementById("platform-update-check-message");
+  const checkButton = document.getElementById("btn-check-platform-update");
+  const applyButton = document.getElementById("btn-apply-platform-update");
+  const targetVersionInput = document.getElementById("platform-update-target-version");
   let lastUpdateStatus = "";
+  let checkedRelease = null;
+  let updateWasActive = false;
+  let refreshFailures = 0;
+
+  const setStatusMessage = (text, tone = "") => {
+    if (!updateStatusMessage) return;
+    updateStatusMessage.textContent = text;
+    updateStatusMessage.className = `platform-update-status-message${tone ? ` is-${tone}` : ""}`;
+  };
 
   const renderQueuedUpdateStatus = (value) => {
     if (!updateState) return;
@@ -1858,12 +1891,36 @@ function initAdminPlatformUpdater() {
           ? "badge-starting"
           : "badge-neutral";
     updateState.className = `badge ${stateClass}`;
+    const target = value.target_version ? `v${value.target_version}` : "Güncelleme";
+    const friendly = {
+      idle: "Bekleyen güncelleme yok. Önce yayınlanan sürümü kontrol edebilirsiniz.",
+      queued: `${target} root updater kuyruğuna alındı.`,
+      running: `${target} uygulanıyor. Controller kısa süreliğine yeniden başlayabilir.`,
+      succeeded: `${target} başarıyla uygulandı.`,
+      failed: `${target} uygulanamadı. Teknik ayrıntı aşağıda gösteriliyor.`,
+      unknown: value.error || "Güncelleme durumu doğrulanamadı.",
+    }[value.state] || "Güncelleme durumu alındı.";
+    setStatusMessage(friendly, value.state === "failed" || value.state === "unknown"
+      ? "error"
+      : value.state === "succeeded" ? "success" : "");
+    if (["queued", "running"].includes(value.state)) updateWasActive = true;
     const serialized = JSON.stringify(value);
     if (serialized !== lastUpdateStatus && updateTerminal) {
       lastUpdateStatus = serialized;
-      const detail = value.output || value.error || value.filename || "Güncelleme kuyruğu hazır.";
+      const detail = value.output || value.error || (
+        ["queued", "running"].includes(value.state)
+          ? "Teknik çıktı, updater işlemi tamamlandığında burada gösterilecek."
+          : friendly
+      );
       updateTerminal.textContent = detail;
       updateTerminal.scrollTop = updateTerminal.scrollHeight;
+    }
+    if (
+      value.state === "succeeded"
+      && value.target_version
+      && installedVersion?.textContent !== `v${value.target_version}`
+    ) {
+      window.setTimeout(reloadWithoutCache, 1200);
     }
   };
 
@@ -1871,11 +1928,88 @@ function initAdminPlatformUpdater() {
     try {
       const response = await fetch("/api/admin/system/release-upload/status", { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      refreshFailures = 0;
       renderQueuedUpdateStatus(await response.json());
     } catch (error) {
-      renderQueuedUpdateStatus({ state: "unknown", error: error.message });
+      refreshFailures += 1;
+      if (updateWasActive) {
+        updateState.textContent = "Yeniden bağlanıyor";
+        updateState.className = "badge badge-starting";
+        setStatusMessage(
+          "Controller güncelleme için yeniden başlatılıyor; bağlantı otomatik olarak tekrar denenecek."
+        );
+        return;
+      }
+      if (refreshFailures >= 2) {
+        renderQueuedUpdateStatus({
+          state: "unknown",
+          error: "Güncelleme durum servisine ulaşılamadı. Sayfayı yenileyin veya controller servis durumunu kontrol edin.",
+        });
+      }
     }
   };
+
+  const invalidateReleaseCheck = () => {
+    checkedRelease = null;
+    if (targetVersionInput) targetVersionInput.value = "";
+    if (publishedVersion) publishedVersion.textContent = "Kontrol edilmedi";
+    if (checkMessage) {
+      checkMessage.textContent = "Repository veya branch/tag değişti; yeniden kontrol edin.";
+      checkMessage.className = "platform-update-check-message";
+    }
+    if (applyButton) applyButton.disabled = true;
+  };
+
+  checkButton?.addEventListener("click", async () => {
+    if (!gitUpdateForm?.reportValidity()) return;
+    checkButton.disabled = true;
+    checkButton.textContent = "Kontrol ediliyor...";
+    if (checkMessage) {
+      checkMessage.textContent = "Yayın kanalı okunuyor...";
+      checkMessage.className = "platform-update-check-message";
+    }
+    try {
+      const response = await fetch("/api/admin/system/release-check", {
+        method: "POST",
+        body: new FormData(gitUpdateForm),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Yayınlanan sürüm kontrol edilemedi.");
+      checkedRelease = data;
+      if (installedVersion) installedVersion.textContent = `v${data.installed_version}`;
+      if (publishedVersion) publishedVersion.textContent = `v${data.published_version}`;
+      if (targetVersionInput) targetVersionInput.value = data.published_version;
+      if (data.published_is_older) {
+        checkMessage.textContent = "Yayınlanan sürüm kurulu sürümden eski; sürüm düşürme engellendi.";
+        checkMessage.className = "platform-update-check-message is-error";
+        applyButton.disabled = true;
+      } else if (data.update_available) {
+        checkMessage.textContent = `v${data.published_version} kurulabilir. Bundle doğrulandı; yüklemeyi başlatabilirsiniz.`;
+        checkMessage.className = "platform-update-check-message is-success";
+        applyButton.disabled = false;
+      } else {
+        checkMessage.textContent = `Platform güncel: v${data.installed_version}.`;
+        checkMessage.className = "platform-update-check-message is-success";
+        applyButton.disabled = true;
+      }
+    } catch (error) {
+      checkedRelease = null;
+      if (publishedVersion) publishedVersion.textContent = "Kontrol başarısız";
+      if (targetVersionInput) targetVersionInput.value = "";
+      if (applyButton) applyButton.disabled = true;
+      if (checkMessage) {
+        checkMessage.textContent = error.message;
+        checkMessage.className = "platform-update-check-message is-error";
+      }
+    } finally {
+      checkButton.disabled = false;
+      checkButton.textContent = "Güncellemeyi Kontrol Et";
+    }
+  });
+
+  ["platform-update-repository", "platform-update-ref"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", invalidateReleaseCheck);
+  });
 
   const submitQueuedUpdate = async (form, endpoint, signedConfirmation) => {
     const allowUnsigned = form.elements.namedItem("allow_unsigned")?.checked === true;
@@ -1887,21 +2021,31 @@ function initAdminPlatformUpdater() {
     const defaultButtonText = button.textContent;
     button.disabled = true;
     button.textContent = "Kuyruğa alınıyor...";
+    let queued = false;
     try {
       const response = await fetch(endpoint, { method: "POST", body: new FormData(form) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      queued = true;
+      updateWasActive = true;
       renderQueuedUpdateStatus(data);
     } catch (error) {
       renderQueuedUpdateStatus({ state: "failed", error: error.message });
     } finally {
-      button.disabled = false;
+      button.disabled = queued || (button === applyButton && !checkedRelease);
       button.textContent = defaultButtonText;
     }
   };
 
   gitUpdateForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!checkedRelease?.update_available) {
+      if (checkMessage) {
+        checkMessage.textContent = "Güncellemeyi yüklemeden önce yayınlanan sürümü kontrol edin.";
+        checkMessage.className = "platform-update-check-message is-error";
+      }
+      return;
+    }
     submitQueuedUpdate(
       gitUpdateForm,
       "/api/admin/system/release-source",

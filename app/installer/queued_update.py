@@ -14,6 +14,16 @@ from app.installer.update_source import validate_git_source
 def _write_json(path: Path, value: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    # The updater runs as root while the controller and worker agent run as
+    # the owner of this queue directory. Preserve that ownership so they can
+    # read the durable result after systemd finishes the update.
+    if hasattr(os, "chown"):
+        owner = path.parent.stat()
+        try:
+            os.chown(temporary, owner.st_uid, owner.st_gid)
+        except PermissionError:
+            # Non-root development/test runs already own the temporary file.
+            pass
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
 

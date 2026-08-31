@@ -61,6 +61,18 @@ def test_copy_tracked_source_rejects_secrets_and_runtime_data(tmp_path: Path):
         package_offline.copy_tracked_source(source, destination, [".env"])
 
 
+def test_copy_release_keyring_embeds_public_key(tmp_path: Path):
+    source = tmp_path / "release-keyring.gpg"
+    source.write_bytes(b"public-key")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+
+    target = package_offline.copy_release_keyring(source, bundle)
+
+    assert target == bundle / "release-keyring.gpg"
+    assert target.read_bytes() == b"public-key"
+
+
 def test_manifest_verification_detects_tampered_artifact(tmp_path: Path):
     bundle_root = tmp_path / "devcloud"
     wheels_dir = bundle_root / "offline" / "wheels"

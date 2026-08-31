@@ -139,6 +139,7 @@ def test_worker_inventory_fits_admin_width_and_collapses_to_cards():
         "Durum",
         "CPU",
         "RAM",
+        "GPU",
         "Disk / Container",
         "Etiketler",
         "İşlemler",
@@ -166,7 +167,10 @@ def test_platform_update_has_clear_methods_release_summary_and_live_log():
     assert 'class="card platform-update-card"' in template
     assert 'class="platform-current-release"' in template
     assert "platform-update-option--primary" in template
-    assert "Git Kanalından Güncelle" in template
+    assert "Güncellemeyi Kontrol Et" in template
+    assert "Güncellemeyi Yükle" in template
+    assert 'id="platform-installed-version"' in template
+    assert 'id="platform-published-version"' in template
     assert "Yerel platform bundle" in template
     assert 'class="platform-update-log"' in template
     assert 'aria-live="polite"' in template
@@ -176,12 +180,14 @@ def test_platform_update_has_clear_methods_release_summary_and_live_log():
     assert template.count('name="allow_unsigned"') == 2
     assert template.count('class="unsigned-update-control"') == 2
     assert 'value="https://github.com/aydinguven/devcloud.git"' in template
-    assert 'name="allow_unsigned" type="checkbox" value="true" checked' in template
+    assert 'name="allow_unsigned" type="checkbox" value="true" checked' not in template
     assert ".unsigned-update-control:has(input:checked)" in css
     assert 'form.elements.namedItem("allow_unsigned")' in javascript
     assert "Release imzası doğrulanmayacak" in javascript
     assert '"badge-error"' in javascript
     assert '"Kuyruğa alınıyor..."' in javascript
+    assert "/api/admin/system/release-check" in javascript
+    assert "Controller güncelleme için yeniden başlatılıyor" in javascript
 
 
 def test_worker_inventory_shows_version_and_live_upgrade_state():
@@ -206,6 +212,8 @@ def test_worker_inventory_shows_version_and_live_upgrade_state():
     assert 'class="node-upgrade-detail' in template
     assert "upgrade.message" in javascript
     assert 'result.status === "already_current"' in javascript
+    assert "/upgrade-check" in javascript
+    assert 'button.textContent = "Kontrol Et"' in javascript
     assert ".node-upgrade-detail.is-error" in css
 
 

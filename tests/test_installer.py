@@ -100,6 +100,28 @@ def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
     assert status["target_version"] == "3.4.5"
 
 
+def test_root_updater_status_keeps_queue_directory_owner(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    captured = {}
+
+    def fake_chown(path, uid, gid):
+        captured.update(path=Path(path), uid=uid, gid=gid)
+
+    monkeypatch.setattr(queued_update.os, "chown", fake_chown, raising=False)
+    target = queue / "status.json"
+
+    queued_update._write_json(target, {"state": "succeeded"})
+
+    owner = queue.stat()
+    assert captured == {
+        "path": queue / "status.tmp",
+        "uid": owner.st_uid,
+        "gid": owner.st_gid,
+    }
+    assert json.loads(target.read_text(encoding="utf-8"))["state"] == "succeeded"
+
+
 def test_install_plans_share_one_role_aware_engine(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
@@ -207,6 +229,26 @@ def test_same_semver_sources_receive_distinct_immutable_release_ids(tmp_path):
 
     assert first_engine.release_id.startswith("3.0.0-")
     assert first_engine.release_id != second_engine.release_id
+
+
+def test_install_release_persists_bundled_public_keyring(tmp_path):
+    source = tmp_path / "source"
+    (source / "app").mkdir(parents=True)
+    (source / "app/__init__.py").write_text(
+        '__version__ = "3.0.0"\n', encoding="utf-8"
+    )
+    (source / "release-keyring.gpg").write_bytes(b"public-release-key")
+    host = tmp_path / "host"
+
+    engine = InstallerEngine(
+        project_root=source,
+        filesystem_root=host,
+        runner=CommandRunner(),
+    )
+    engine._install_release_keyring(source)
+
+    installed = host / "etc/devcloud/release-keyring.gpg"
+    assert installed.read_bytes() == b"public-release-key"
 
 
 def test_installation_state_never_persists_secrets(tmp_path):

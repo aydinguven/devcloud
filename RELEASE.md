@@ -46,14 +46,17 @@ Add these environment or repository secrets when Quay publishing is enabled:
 - `QUAY_USERNAME`: preferably a repository-scoped robot account;
 - `QUAY_PASSWORD`: the corresponding robot token.
 
-Optional release-signing secrets:
+Required release-signing secrets for formal `vMAJOR.MINOR.PATCH` tags:
 
 - `RELEASE_GPG_PRIVATE_KEY`: ASCII-armored private release key;
 - `RELEASE_GPG_KEY_ID`: fingerprint of that key.
 
-The signing key must be usable non-interactively in the release job. The
-workflow exports its public key as `devcloud-release-keyring.gpg` alongside
-the bundles.
+The signing key must be usable non-interactively in the release job. Tagged
+releases always require signing because worker OTA clients reject unsigned
+bundles. Manual workflow runs may remain unsigned for development. The workflow
+exports its public key as `devcloud-release-keyring.gpg` alongside the bundles,
+embeds it in signed installation/update archives, and installs it as
+`/etc/devcloud/release-keyring.gpg` for subsequent updates.
 
 The default Quay destination is
 `quay.io/aaslangoren/devcloud`. Change `QUAY_REPOSITORY` in the release
@@ -105,6 +108,19 @@ For temporary unsigned development releases, the installed controller must
 explicitly allow unsigned updates and the command must add
 `--allow-unsigned`. Production releases should enable signing and install the
 published public key as `/etc/devcloud/release-keyring.gpg`.
+
+Hosts installed from an older unsigned release need a one-time trust bootstrap
+before their first signed worker OTA. Download
+`devcloud-release-keyring.gpg` from the matching GitHub Release, verify its
+fingerprint against the release environment's configured key, and install it:
+
+```bash
+sudo install -D -o root -g root -m 0644 \
+  devcloud-release-keyring.gpg /etc/devcloud/release-keyring.gpg
+```
+
+New offline installs and successfully applied platform updates persist the
+embedded public key automatically.
 
 On success, the controller republishes the same platform bundle to enrolled
 workers. Workers obtain it through authenticated controller endpoints; they do
