@@ -176,6 +176,12 @@ class WorkerAgent:
                     if line.strip()
                 ]
                 message = "\n".join(output_lines[-12:])[-2000:]
+            if state == "failed" and "release manifest signature is missing" in message.lower():
+                message = (
+                    "Release manifest imzası bulunamadı. Geçici imzasız OTA için controller "
+                    "üzerinde WORKER_OTA_ALLOW_UNSIGNED=true ayarlayıp devcloud-controller "
+                    "servisini yeniden başlatın. Teknik hata: release manifest signature is missing"
+                )
             if state == "failed" and target_version == __version__:
                 state = "succeeded"
                 message = (

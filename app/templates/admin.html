@@ -472,7 +472,7 @@ cd devcloud
           <div class="table-actions node-actions">
             <button type="button" class="btn btn-secondary btn-sm node-toggle-schedule" data-schedulable="{{ 'true' if node.schedulable else 'false' }}">{{ 'Drain' if node.schedulable else 'Aç' }}</button>
             <button type="button" class="btn btn-secondary btn-sm node-rotate-token-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Token yenile">Token</button>
-            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Kurulu ve yayınlanan sürümü karşılaştır">Kontrol Et</button>
+            <button type="button" class="btn btn-secondary btn-sm node-upgrade-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" title="Kurulu ve yayınlanan sürümü karşılaştırıp güncelle">Güncelle</button>
             <button type="button" class="btn btn-danger btn-sm node-delete-btn" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}">Sil</button>
           </div>
         </td>

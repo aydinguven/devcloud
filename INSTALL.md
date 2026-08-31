@@ -122,7 +122,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.12-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.4.13-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -150,7 +150,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.4.12-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-v3.4.13-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

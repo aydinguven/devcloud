@@ -975,7 +975,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
         alert(error.message);
       } finally {
         button.disabled = false;
-        button.textContent = "Kontrol Et";
+        button.textContent = "Güncelle";
       }
     });
   });

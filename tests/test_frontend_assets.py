@@ -217,7 +217,7 @@ def test_worker_inventory_shows_version_and_live_upgrade_state():
     assert "upgrade.message" in javascript
     assert 'result.status === "already_current"' in javascript
     assert "/upgrade-check" in javascript
-    assert 'button.textContent = "Kontrol Et"' in javascript
+    assert 'button.textContent = "Güncelle"' in javascript
     assert ".node-upgrade-detail.is-error" in css
 
 

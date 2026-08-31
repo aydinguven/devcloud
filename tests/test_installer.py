@@ -169,6 +169,21 @@ def test_all_in_one_writes_one_ordinary_enrolled_worker(tmp_path):
     )
 
 
+def test_controller_update_preserves_unsigned_worker_ota_opt_in(tmp_path):
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=CommandRunner())
+    env_path = tmp_path / "etc/devcloud/controller.env"
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text(
+        "WORKER_OTA_ALLOW_UNSIGNED=true\n",
+        encoding="utf-8",
+    )
+
+    engine._write_configuration(config(DeploymentRole.CONTROLLER))
+
+    controller = engine._read_env(env_path)
+    assert controller["WORKER_OTA_ALLOW_UNSIGNED"] == "true"
+
+
 def test_worker_bootstrap_answers_can_cross_pre_python_shell_boundary(
     monkeypatch, tmp_path
 ):

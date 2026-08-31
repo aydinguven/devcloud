@@ -1235,6 +1235,10 @@ class InstallerEngine:
                 "UPDATE_SOURCE": config.update_source,
                 "UPDATE_REF": config.update_ref,
             }
+            if "WORKER_OTA_ALLOW_UNSIGNED" in existing:
+                controller_values["WORKER_OTA_ALLOW_UNSIGNED"] = existing[
+                    "WORKER_OTA_ALLOW_UNSIGNED"
+                ]
             if config.containerized_controller:
                 controller_values.update(
                     {

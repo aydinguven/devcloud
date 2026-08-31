@@ -25,7 +25,7 @@ enrolled workers; workers verify its SHA-256 and apply it through their
 root-owned update queue.
 
 The worker inventory displays each OTA phase and its detailed result. Selecting
-**Kontrol Et** first shows the installed and published versions, then asks for
+**Güncelle** first checks the installed and published versions, then asks for
 confirmation only when an update is available. A worker that already matches
 the published release is reported as current without downloading or queuing the
 bundle. Downgrades are blocked. If the root updater fails, the inventory shows
@@ -51,8 +51,10 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --allow-unsigned
 ```
 
-After that one-time transition, the worker inventory's **Kontrol Et** action can
+After that one-time transition, the worker inventory's **Güncelle** action can
 apply later unsigned releases while the controller switch remains enabled.
+Managed controller updates preserve this opt-in in
+`/etc/devcloud/controller.env`.
 
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.

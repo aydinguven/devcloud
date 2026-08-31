@@ -133,6 +133,29 @@ def test_worker_reports_root_updater_failure_output(tmp_path, monkeypatch):
     assert "image archive missing" in status["message"]
 
 
+def test_worker_explains_missing_signature_configuration(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    monkeypatch.setattr(settings, "UPDATE_QUEUE_ROOT", str(queue))
+    (queue / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "failed",
+                "target_version": "99.0.0",
+                "return_code": 1,
+                "output": "release manifest signature is missing\n",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = WorkerAgent()._reported_upgrade_status()
+
+    assert status["state"] == "failed"
+    assert "WORKER_OTA_ALLOW_UNSIGNED=true" in status["message"]
+    assert "devcloud-controller" in status["message"]
+
+
 def test_worker_closes_stale_same_version_failure(tmp_path, monkeypatch):
     queue = tmp_path / "update-queue"
     queue.mkdir()
