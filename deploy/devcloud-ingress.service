@@ -11,4 +11,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/etc/nginx/conf.d /etc/devcloud/tls /var/lib/devcloud/ingress
+ReadWritePaths=/etc/nginx/conf.d /etc/devcloud/tls /var/lib/devcloud/ingress /var/log/nginx /run

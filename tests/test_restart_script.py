@@ -147,6 +147,9 @@ def test_clean_installers_configure_nginx_ingress_on_port_80():
     path_unit = (PROJECT_ROOT / "deploy" / "devcloud-ingress.path").read_text(
         encoding="utf-8"
     )
+    ingress_unit = (
+        PROJECT_ROOT / "deploy" / "devcloud-ingress.service"
+    ).read_text(encoding="utf-8")
 
     assert "nginx" in next(line for line in online.splitlines() if "apt-get install" in line)
     assert "nginx" in next(line for line in online.splitlines() if "dnf install" in line)
@@ -158,6 +161,12 @@ def test_clean_installers_configure_nginx_ingress_on_port_80():
     assert "devcloud-ingress.path" in ingress_installer
     assert "setsebool -P httpd_can_network_connect on" in ingress_installer
     assert "PathChanged=/var/lib/devcloud/ingress/apply.request" in path_unit
+    assert "ProtectSystem=strict" in ingress_unit
+    writable_paths = next(
+        line for line in ingress_unit.splitlines() if line.startswith("ReadWritePaths=")
+    )
+    assert "/var/log/nginx" in writable_paths
+    assert "/run" in writable_paths
     assert "NOPASSWD" not in ingress_installer
 
 
