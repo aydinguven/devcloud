@@ -23,7 +23,13 @@ def test_release_publishes_versioned_jupyter_workspace_image():
     assert "Build and smoke-test Jupyter AI image" in workflow
     assert '"jupyter-python-${DEVCLOUD_VERSION}"' in workflow
     assert '"jupyter-python-${DEVCLOUD_VERSION}-${SHORT_SHA}"' in workflow
-    assert "needs: jupyter-workspace" in workflow
+    assert "Resolve release build scope" in workflow
+    assert "git diff --quiet" in workflow
+    assert "containers/jupyter-python" in workflow
+    assert "rebuild_jupyter" in workflow
+    assert "needs: release_scope" in workflow
+    assert "needs: [release_scope, jupyter_workspace]" in workflow
+    assert "needs.jupyter_workspace.result == 'skipped'" in workflow
 
 
 def test_worker_forwards_shared_gateway_token_only_in_jupyter_configuration():

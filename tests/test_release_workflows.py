@@ -70,6 +70,17 @@ def test_platform_release_publishes_quay_release_assets_and_stable_channel():
     assert "contents: write" in content
 
 
+def test_platform_release_skips_unchanged_jupyter_workspace_image():
+    content = workflow("release-platform.yml")
+
+    assert "Resolve release build scope" in content
+    assert "rebuild_jupyter:" in content
+    assert "git diff --quiet" in content
+    assert "-- containers/jupyter-python" in content
+    assert "if: needs.release_scope.outputs.build_jupyter == 'true'" in content
+    assert "needs.jupyter_workspace.result == 'skipped'" in content
+
+
 def test_release_operator_guide_documents_required_controls():
     content = (ROOT / "RELEASE.md").read_text(encoding="utf-8")
 

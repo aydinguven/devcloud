@@ -189,8 +189,10 @@ Production updates are build-once/deploy-many. Git is the release channel, not
 the runtime artifact: every application release builds the controller and
 worker OCI images once on a trusted builder, exports them into one signed
 platform bundle, and deploys that same bundle without building on the VMs.
-Workspace images are not embedded in platform bundles; the release publishes
-the maintained Jupyter image separately for controller-managed import.
+Workspace images are not embedded in platform bundles. The release publishes
+the maintained Jupyter image separately for controller-managed import only when
+its image build context changed; ordinary controller or worker updates reuse the
+currently enabled workspace image.
 
 The automated GitHub Actions release process, Rocky 10 runner requirements,
 Quay secrets, signing configuration, release assets, and the machine-managed

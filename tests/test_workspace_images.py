@@ -16,6 +16,7 @@ from app.models.user import User, UserRole
 from app.models.workspace_image import WorkspaceImage
 from app.orchestrator.podman_service import podman_service
 from app.orchestrator.scheduler import _has_workspace_image
+from app.orchestrator.templates import TEMPLATES
 from app.worker_agent import WorkerAgent
 from tests.conftest import TEST_WORKER_ID
 
@@ -165,6 +166,8 @@ async def test_admin_catalog_and_authenticated_worker_download(
     assert 'id="workspace-image-registry-form"' in page.text
     assert 'id="workspace-image-upload-form"' in page.text
     assert 'value="custom-rust"' in page.text
+    assert 'value="__new__"' in page.text
+    assert 'id="workspace-image-new-template-fields"' in page.text
 
     catalog = await client.get("/api/admin/workspace-images", headers=admin_headers)
     assert catalog.status_code == 200
@@ -189,6 +192,82 @@ async def test_admin_catalog_and_authenticated_worker_download(
     assert download.status_code == 200
     assert download.content == b"managed-image"
     assert download.headers["x-devcloud-sha256"] == digest
+
+
+@pytest.mark.asyncio
+async def test_registry_import_can_create_workspace_template(
+    client, db_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "WORKSPACE_IMAGES_ROOT", str(tmp_path))
+    template_id = "custom-registry-jupyter"
+
+    def fake_registry_import(*, image_ref, source_ref, username, password):
+        assert image_ref == f"localhost/devcloud-{template_id}:latest"
+        assert source_ref == "quay.io/example/notebook:2026.09"
+        assert username == "robot"
+        assert password == "registry-token"
+        archive = image_service.image_archive_path("custom-registry-jupyter.tar")
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes(b"managed-registry-image")
+        return {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "image_ref": image_ref,
+            "digest": "sha256:" + "d" * 64,
+            "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "filename": archive.name,
+            "size": archive.stat().st_size,
+            "architecture": "amd64",
+        }
+
+    monkeypatch.setattr(admin_routes, "import_registry_image", fake_registry_import)
+    registration = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "registry-template-admin",
+            "email": "registry-template-admin@example.com",
+            "password": "AdminPassword123!",
+        },
+    )
+    admin_id = registration.json()["user"]["id"]
+    await db_session.execute(
+        update(User).where(User.id == admin_id).values(role=UserRole.ADMIN)
+    )
+    await db_session.commit()
+    headers = {"Authorization": f"Bearer {registration.json()['access_token']}"}
+
+    try:
+        response = await client.post(
+            "/api/admin/workspace-images/import",
+            headers=headers,
+            json={
+                "template_id": template_id,
+                "display_name": "Notebook 2026.09",
+                "source_ref": "quay.io/example/notebook:2026.09",
+                "username": "robot",
+                "password": "registry-token",
+                "new_template": {
+                    "id": template_id,
+                    "name": "Registry Jupyter",
+                    "description": "Imported notebook environment",
+                    "category": "Data Science",
+                    "default_port": 8888,
+                    "ide_type": "jupyter",
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["template_id"] == template_id
+        custom = await db_session.get(CustomTemplate, template_id)
+        assert custom is not None
+        assert custom.name == "Registry Jupyter"
+        assert custom.image_tag == f"localhost/devcloud-{template_id}:latest"
+        assert custom.default_port == 8888
+        assert custom.ide_type == "jupyter"
+        assert custom.containerfile == "FROM quay.io/example/notebook:2026.09"
+        assert TEMPLATES[template_id].container_workdir == "/home/jovyan/work"
+    finally:
+        TEMPLATES.pop(template_id, None)
 
 
 @pytest.mark.asyncio

@@ -8,9 +8,14 @@ on:
         required: false
         type: string
       publish_quay:
-        description: Push versioned controller, worker, and Jupyter images to Quay
+        description: Push versioned runtime images and any required Jupyter image to Quay
         required: true
         default: true
+        type: boolean
+      rebuild_jupyter:
+        description: Force a Jupyter workspace image rebuild even when its build context is unchanged
+        required: true
+        default: false
         type: boolean
       sign_release:
         description: Sign release.json with the configured GPG release key
@@ -29,8 +34,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  jupyter-workspace:
+  release_scope:
+    name: Resolve release build scope
+    runs-on: ubuntu-24.04
+    outputs:
+      build_jupyter: ${{ steps.scope.outputs.build_jupyter }}
+    env:
+      FORCE_JUPYTER_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_jupyter }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Jupyter workspace image changes
+        id: scope
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
+            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
+            echo "Jupyter image rebuild explicitly requested."
+            exit 0
+          fi
+
+          tag_base="${GITHUB_SHA}"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && git rev-parse --verify "${GITHUB_SHA}^" >/dev/null 2>&1; then
+            tag_base="${GITHUB_SHA}^"
+          fi
+          mapfile -t previous_tags < <(
+            git tag --merged "${tag_base}" --sort=-version:refname --list 'v*.*.*'
+          )
+          previous_tag="${previous_tags[0]:-}"
+          if [[ -z "${previous_tag}" ]]; then
+            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
+            echo "No previous platform release tag exists; building the Jupyter image."
+          elif git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- containers/jupyter-python; then
+            echo "build_jupyter=false" >> "${GITHUB_OUTPUT}"
+            echo "Jupyter build context is unchanged since ${previous_tag}; skipping image build."
+          else
+            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
+            echo "Jupyter build context changed since ${previous_tag}; building image."
+          fi
+
+  jupyter_workspace:
     name: Build and publish Jupyter AI workspace
+    needs: release_scope
+    if: needs.release_scope.outputs.build_jupyter == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: release
@@ -98,7 +148,11 @@ jobs:
 
   release:
     name: Build and publish Rocky 10 platform
-    needs: jupyter-workspace
+    needs: [release_scope, jupyter_workspace]
+    if: >-
+      always() &&
+      needs.release_scope.result == 'success' &&
+      (needs.jupyter_workspace.result == 'success' || needs.jupyter_workspace.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     environment: release

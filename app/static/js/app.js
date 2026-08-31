@@ -151,6 +151,18 @@ function initWorkspaceImageManager() {
   const globalStatus = document.getElementById("workspace-image-global-status");
   const registryForm = document.getElementById("workspace-image-registry-form");
   const uploadForm = document.getElementById("workspace-image-upload-form");
+  const registryTemplateSelect = document.getElementById("workspace-image-template-select");
+  const newTemplateFields = document.getElementById("workspace-image-new-template-fields");
+
+  const syncRegistryTemplateMode = () => {
+    const creating = registryTemplateSelect?.value === "__new__";
+    if (newTemplateFields) newTemplateFields.hidden = !creating;
+    newTemplateFields?.querySelectorAll("[data-new-template-field]").forEach((field) => {
+      field.disabled = !creating;
+    });
+  };
+  registryTemplateSelect?.addEventListener("change", syncRegistryTemplateMode);
+  syncRegistryTemplateMode();
 
   const escapeHtml = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -220,9 +232,23 @@ function initWorkspaceImageManager() {
     status.className = "quota-form-status";
     try {
       let body;
+      let createdTemplate = null;
       const options = { method: "POST" };
       if (json) {
         const values = Object.fromEntries(new FormData(form).entries());
+        if (values.template_id === "__new__") {
+          createdTemplate = {
+            id: values.new_template_id,
+            name: values.new_template_name,
+            description: values.new_template_description || "",
+            category: values.new_template_category || "Custom",
+            default_port: Number(values.new_template_default_port || 8080),
+            ide_type: values.new_template_ide_type || "vscode",
+          };
+          values.template_id = createdTemplate.id;
+          values.new_template = createdTemplate;
+          Object.keys(values).filter((key) => key.startsWith("new_template_")).forEach((key) => delete values[key]);
+        }
         body = JSON.stringify(values);
         options.headers = { "Content-Type": "application/json" };
       } else {
@@ -234,6 +260,16 @@ function initWorkspaceImageManager() {
       if (!response.ok) throw new Error(result.detail || `Image içe aktarılamadı (${response.status})`);
       setStatus(status, "Image doğrulandı, etkinleştirildi ve worker kataloğuna eklendi.");
       form.reset();
+      if (createdTemplate) {
+        [registryTemplateSelect, uploadForm?.elements.template_id].forEach((select) => {
+          if (!select || select.querySelector(`option[value="${CSS.escape(createdTemplate.id)}"]`)) return;
+          const option = new Option(`${createdTemplate.name} — ${result.image_ref}`, createdTemplate.id);
+          const createOption = select.querySelector('option[value="__new__"]');
+          select.insertBefore(option, createOption);
+        });
+        registryTemplateSelect.value = createdTemplate.id;
+      }
+      syncRegistryTemplateMode();
       await loadImages();
     } catch (error) {
       setStatus(status, error.message, true);

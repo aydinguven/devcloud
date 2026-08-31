@@ -23,12 +23,46 @@
     <form id="workspace-image-registry-form" autocomplete="off">
       <label class="form-group">
         <span class="form-label">Workspace Şablonu</span>
-        <select class="form-input" name="template_id" required>
+        <select class="form-input" id="workspace-image-template-select" name="template_id" required>
           {% for template in workspace_image_templates %}
           <option value="{{ template.id }}">{{ template.name }} — {{ template.image_tag }}</option>
           {% endfor %}
+          <option value="__new__">＋ Yeni workspace şablonu oluştur…</option>
         </select>
       </label>
+      <fieldset id="workspace-image-new-template-fields" class="image-new-template-fields" hidden>
+        <legend>Yeni Şablon</legend>
+        <p class="admin-section-description">Registry image'ı için yeni bir şablon tanımlanır; ayrıca Containerfile derlenmez.</p>
+        <div class="grid grid-cols-2" style="gap:.75rem;">
+          <label class="form-group">
+            <span class="form-label">Şablon ID</span>
+            <input class="form-input" name="new_template_id" placeholder="custom-pytorch" pattern="^[a-z0-9-]+$" minlength="2" maxlength="50" data-new-template-field required>
+          </label>
+          <label class="form-group">
+            <span class="form-label">Şablon Adı</span>
+            <input class="form-input" name="new_template_name" placeholder="PyTorch + Jupyter" minlength="2" maxlength="100" data-new-template-field required>
+          </label>
+          <label class="form-group">
+            <span class="form-label">IDE Türü</span>
+            <select class="form-input" name="new_template_ide_type" data-new-template-field>
+              <option value="vscode">VS Code</option>
+              <option value="jupyter">JupyterLab</option>
+            </select>
+          </label>
+          <label class="form-group">
+            <span class="form-label">Varsayılan Port</span>
+            <input class="form-input" type="number" name="new_template_default_port" value="8080" min="1" max="65535" data-new-template-field required>
+          </label>
+        </div>
+        <label class="form-group">
+          <span class="form-label">Kategori</span>
+          <input class="form-input" name="new_template_category" value="Custom" maxlength="50" data-new-template-field required>
+        </label>
+        <label class="form-group">
+          <span class="form-label">Açıklama</span>
+          <input class="form-input" name="new_template_description" placeholder="Kullanıcılara gösterilecek kısa açıklama" maxlength="255" data-new-template-field>
+        </label>
+      </fieldset>
       <label class="form-group">
         <span class="form-label">Registry Image Referansı</span>
         <input class="form-input" name="source_ref" placeholder="quay.io/company/devcloud-python:2026.08" required>

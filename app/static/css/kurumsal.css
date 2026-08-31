@@ -1120,6 +1120,19 @@ code { color: #8d0022; }
   margin-bottom: 1rem;
   padding: 1rem;
 }
+.image-new-template-fields {
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 10px;
+  margin: 0 0 1rem;
+  padding: 0.9rem;
+}
+.image-new-template-fields legend {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0 0.35rem;
+}
 #workspace-image-table {
   min-width: 0;
   table-layout: fixed;

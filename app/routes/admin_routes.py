@@ -22,6 +22,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_admin_user
@@ -87,7 +88,11 @@ from app.ingress_settings import (
     ingress_manager,
     normalize_https_hostname,
 )
-from app.orchestrator.templates import BUILTIN_TEMPLATE_IDS, TEMPLATES
+from app.orchestrator.templates import (
+    BUILTIN_TEMPLATE_IDS,
+    TEMPLATES,
+    register_custom_template,
+)
 from app.workspace_image_service import (
     WorkspaceImageError,
     image_archive_path,
@@ -263,6 +268,7 @@ async def _register_workspace_image(
     source_type: str,
     source_ref: str,
     metadata: dict[str, object],
+    custom_template: CustomTemplate | None = None,
 ) -> WorkspaceImage:
     await db.execute(
         update(WorkspaceImage)
@@ -283,6 +289,8 @@ async def _register_workspace_image(
         architecture=str(metadata["architecture"]),
         enabled=True,
     )
+    if custom_template is not None:
+        db.add(custom_template)
     db.add(record)
     try:
         await db.commit()
@@ -314,7 +322,27 @@ async def import_workspace_image_from_registry(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    template_name, image_ref = await _workspace_template(db, payload.template_id)
+    custom_template = None
+    if payload.new_template is not None:
+        definition = payload.new_template
+        if definition.id in BUILTIN_TEMPLATE_IDS or await db.get(CustomTemplate, definition.id):
+            raise HTTPException(status_code=409, detail="Bu şablon ID zaten kullanılıyor")
+        image_ref = f"localhost/devcloud-{definition.id}:latest"
+        template_name = definition.name
+        custom_template = CustomTemplate(
+            id=definition.id,
+            name=definition.name,
+            description=definition.description,
+            category=definition.category,
+            icon="cube",
+            image_tag=image_ref,
+            default_port=definition.default_port,
+            ide_type=definition.ide_type,
+            containerfile=f"FROM {payload.source_ref.removeprefix('docker://')}",
+            is_ready=True,
+        )
+    else:
+        template_name, image_ref = await _workspace_template(db, payload.template_id)
     try:
         metadata = await asyncio.to_thread(
             import_registry_image,
@@ -331,9 +359,23 @@ async def import_workspace_image_from_registry(
             source_type="registry",
             source_ref=payload.source_ref.removeprefix("docker://"),
             metadata=metadata,
+            custom_template=custom_template,
         )
     except WorkspaceImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Bu şablon ID zaten kullanılıyor") from exc
+    if custom_template is not None:
+        register_custom_template(
+            template_id=custom_template.id,
+            name=custom_template.name,
+            description=custom_template.description,
+            category=custom_template.category,
+            image_tag=custom_template.image_tag,
+            default_port=custom_template.default_port,
+            ide_type=custom_template.ide_type,
+            icon=custom_template.icon,
+        )
     nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
     return _workspace_image_out(record, nodes)
 

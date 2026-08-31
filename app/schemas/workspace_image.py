@@ -1,6 +1,18 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class WorkspaceImageTemplateCreate(BaseModel):
+    id: str = Field(min_length=2, max_length=50, pattern=r"^[a-z0-9-]+$")
+    name: str = Field(min_length=2, max_length=100)
+    description: str = Field(default="", max_length=255)
+    category: str = Field(default="Custom", min_length=1, max_length=50)
+    default_port: int = Field(default=8080, ge=1, le=65535)
+    ide_type: Literal["vscode", "jupyter"] = "vscode"
+
+    model_config = {"str_strip_whitespace": True}
 
 
 class WorkspaceImageRegistryImport(BaseModel):
@@ -9,6 +21,7 @@ class WorkspaceImageRegistryImport(BaseModel):
     source_ref: str = Field(min_length=3, max_length=1024)
     username: str = Field(default="", max_length=255)
     password: str = Field(default="", max_length=4096)
+    new_template: WorkspaceImageTemplateCreate | None = None
 
     @field_validator("source_ref")
     @classmethod
@@ -17,6 +30,12 @@ class WorkspaceImageRegistryImport(BaseModel):
         if "://" in normalized and not normalized.startswith("docker://"):
             raise ValueError("Only docker:// registry references are supported")
         return normalized
+
+    @model_validator(mode="after")
+    def matching_new_template_id(self):
+        if self.new_template and self.template_id != self.new_template.id:
+            raise ValueError("template_id must match new_template.id")
+        return self
 
 
 class WorkspaceImageUpdate(BaseModel):
