@@ -86,6 +86,34 @@ class JupyterAiSettingsOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class JupyterAiConnectivityTestRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=255)
+
+    @field_validator("model_id", mode="after")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        value = value.strip()
+        if any(character.isspace() for character in value):
+            raise ValueError("Model kimligi bosluk iceremez.")
+        return value
+
+
+class JupyterAiConnectivityTargetResult(BaseModel):
+    node_id: str
+    node_name: str
+    ok: bool
+    model_id: str
+    status_code: int | None = None
+    latency_ms: int | None = None
+    message: str
+
+
+class JupyterAiConnectivityTestResult(BaseModel):
+    ok: bool
+    model_id: str
+    workers: list[JupyterAiConnectivityTargetResult]
+
+
 class WorkerJupyterAiSettings(BaseModel):
     managed: bool
     enabled: bool

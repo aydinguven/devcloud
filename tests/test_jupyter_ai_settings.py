@@ -284,3 +284,90 @@ async def test_admin_rejects_duplicate_jupyter_ai_models(client, db_session):
         },
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_tests_selected_litellm_model_from_worker(
+    client, db_session, monkeypatch
+):
+    registration = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "jupyter-ai-tester",
+            "email": "jupyter-ai-tester@example.com",
+            "password": "AdminPassword123!",
+        },
+    )
+    admin_id = registration.json()["user"]["id"]
+    await db_session.execute(
+        update(User).where(User.id == admin_id).values(role=UserRole.ADMIN)
+    )
+    await db_session.commit()
+    admin_headers = {
+        "Authorization": f"Bearer {registration.json()['access_token']}"
+    }
+    saved = await client.put(
+        "/api/admin/jupyter-ai-settings",
+        headers=admin_headers,
+        json={
+            "enabled": True,
+            "gateway_url": "http://idmvopenuit1:5003",
+            "model_id": "qwen3.6-35b",
+            "models": default_model_catalog(),
+            "shared_token": "litellm-master-key",
+        },
+    )
+    assert saved.status_code == 200
+
+    captured = {}
+
+    class FakeGatewayClient:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured["request"] = kwargs
+            return httpx.Response(
+                200,
+                json={
+                    "id": "msg-test",
+                    "type": "message",
+                    "content": [{"type": "text", "text": "OK"}],
+                },
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(worker_module.httpx, "AsyncClient", FakeGatewayClient)
+    response = await client.post(
+        "/api/admin/jupyter-ai-settings/test",
+        headers=admin_headers,
+        json={"model_id": "qwen3.6-35b"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["ok"] is True
+    assert result["model_id"] == "qwen3.6-35b"
+    assert result["workers"][0]["node_name"] == "test-worker"
+    assert result["workers"][0]["status_code"] == 200
+    assert captured["url"] == "http://idmvopenuit1:5003/v1/messages"
+    assert captured["request"]["headers"]["Authorization"] == (
+        "Bearer litellm-master-key"
+    )
+    assert captured["request"]["json"]["model"] == "qwen3.6-35b"
+    assert captured["request"]["json"]["max_tokens"] == 4
+    assert "litellm-master-key" not in json.dumps(result)
+
+    unknown = await client.post(
+        "/api/admin/jupyter-ai-settings/test",
+        headers=admin_headers,
+        json={"model_id": "missing-model"},
+    )
+    assert unknown.status_code == 422

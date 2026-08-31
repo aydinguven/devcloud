@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.jupyter_ai import model_environment, parse_model_catalog
+from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 
@@ -278,9 +279,20 @@ class PodmanService:
                 "-e", "DISABLE_TELEMETRY=true",
             ])
         elif "jupyter" in template_id:
+            model_catalog = parse_model_catalog(
+                settings.JUPYTER_AI_MODEL_CATALOG_JSON,
+                settings.JUPYTER_AI_MODEL,
+            )
             cmd_args.extend([
                 "-e", f"JUPYTER_TOKEN={workspace_token}",
                 "-e", "JUPYTER_ENABLE_LAB=yes",
+                "-e", "CLAUDE_CONFIG_DIR=/tmp/devcloud-claude",
+                "-e", "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude",
+                "-e", "DEVCLOUD_CLAUDE_SETTINGS_JSON=" + json.dumps(
+                    claude_settings(settings.JUPYTER_AI_MODEL, model_catalog),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
             ])
             if settings.JUPYTER_AI_GATEWAY_URL:
                 cmd_args.extend([
@@ -293,10 +305,7 @@ class PodmanService:
                 ])
             for key, value in model_environment(
                 settings.JUPYTER_AI_MODEL,
-                parse_model_catalog(
-                    settings.JUPYTER_AI_MODEL_CATALOG_JSON,
-                    settings.JUPYTER_AI_MODEL,
-                ),
+                model_catalog,
                 discovery_enabled=settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY,
             ).items():
                 cmd_args.extend(["-e", f"{key}={value}"])
@@ -321,7 +330,14 @@ class PodmanService:
 
         if "jupyter" in template_id:
             cmd_args.extend([
-                "start-notebook.py",
+                "bash",
+                "-lc",
+                "install -d -m 700 \"$CLAUDE_CONFIG_DIR\""
+                " && printf '%s' \"$DEVCLOUD_CLAUDE_SETTINGS_JSON\""
+                " > \"$CLAUDE_CONFIG_DIR/settings.json\""
+                " && chmod 600 \"$CLAUDE_CONFIG_DIR/settings.json\""
+                " && exec start-notebook.py \"$@\"",
+                "devcloud-jupyter",
                 "--ServerApp.ip=0.0.0.0",
                 f"--ServerApp.port={template.default_port}",
                 f"--ServerApp.root_dir={template.container_workdir}",

@@ -42,5 +42,6 @@ def test_worker_forwards_shared_gateway_token_only_in_jupyter_configuration():
     )[1].split("for k, v in template.env_vars.items():", 1)[0]
     assert "ANTHROPIC_AUTH_TOKEN" in jupyter_branch
     assert "ANTHROPIC_BASE_URL" in jupyter_branch
-    assert "CLAUDE_CODE_EXECUTABLE=" not in jupyter_branch
+    assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in jupyter_branch
+    assert "DEVCLOUD_CLAUDE_SETTINGS_JSON=" in jupyter_branch
     assert "CLAUDE_CODE_DISABLE_1M_CONTEXT=1" in jupyter_branch

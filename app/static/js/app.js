@@ -46,6 +46,8 @@ function initJupyterAiSettings() {
   const modelList = document.getElementById("jupyter-ai-model-list");
   const defaultModel = form.elements.model_id;
   const addModelButton = document.getElementById("btn-add-jupyter-ai-model");
+  const testButton = document.getElementById("btn-test-jupyter-ai");
+  const testResults = document.getElementById("jupyter-ai-test-results");
 
   function models() {
     return Array.from(modelList.querySelectorAll("[data-jupyter-ai-model-row]"))
@@ -96,6 +98,47 @@ function initJupyterAiSettings() {
     syncDefaultModels();
   });
   addModelButton.addEventListener("click", () => addModelRow());
+
+  testButton.addEventListener("click", async () => {
+    testButton.disabled = true;
+    testResults.hidden = true;
+    testResults.replaceChildren();
+    status.textContent = "Seçili model worker'lardan test ediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/jupyter-ai-settings/test", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({model_id: String(defaultModel.value || "").trim()}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        let detail = result.detail || `Bağlantı testi çalıştırılamadı (${response.status})`;
+        if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; ");
+        throw new Error(detail);
+      }
+      result.workers.forEach((worker) => {
+        const row = document.createElement("div");
+        const latency = Number.isInteger(worker.latency_ms)
+          ? ` · ${worker.latency_ms} ms`
+          : "";
+        const httpStatus = worker.status_code ? ` · HTTP ${worker.status_code}` : "";
+        row.textContent = `${worker.ok ? "✓" : "✗"} ${worker.node_name}${httpStatus}${latency} — ${worker.message}`;
+        row.className = worker.ok ? "quota-status-success" : "quota-status-error";
+        testResults.appendChild(row);
+      });
+      testResults.hidden = false;
+      status.textContent = result.ok
+        ? `${result.model_id} tüm etkin worker'larda çalışıyor.`
+        : `${result.model_id} testi bir veya daha fazla worker'da başarısız.`;
+      status.className = `quota-form-status ${result.ok ? "quota-status-success" : "quota-status-error"}`;
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      testButton.disabled = false;
+    }
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

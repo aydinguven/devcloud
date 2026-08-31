@@ -66,13 +66,20 @@ from app.schemas.workspace_image import (
 )
 from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.schemas.jupyter_ai_settings import (
+    JupyterAiConnectivityTargetResult,
+    JupyterAiConnectivityTestRequest,
+    JupyterAiConnectivityTestResult,
     JupyterAiModel,
     JupyterAiSettingsOut,
     JupyterAiSettingsUpdate,
 )
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.config import settings
-from app.security.secrets import encrypt_secret
+from app.security.secrets import (
+    SecretDecryptionError,
+    decrypt_secret,
+    encrypt_secret,
+)
 from app.installer.platform import InstallerError
 from app.installer.update_source import (
     CHANNEL_FILENAME,
@@ -1021,6 +1028,96 @@ async def update_jupyter_ai_settings(
     await db.commit()
     await db.refresh(record)
     return _jupyter_ai_settings_out(record)
+
+
+@admin_router.post(
+    "/jupyter-ai-settings/test",
+    response_model=JupyterAiConnectivityTestResult,
+)
+async def test_jupyter_ai_settings(
+    request: JupyterAiConnectivityTestRequest,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Run one minimal LiteLLM inference from every enabled workspace worker."""
+    record = await db.get(JupyterAiSettings, 1)
+    if record is None or not record.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Once etkin Jupyter AI ayarlarini kaydedin.",
+        )
+    catalog = parse_model_catalog(record.model_catalog_json, record.model_id)
+    if request.model_id not in {item["model_id"] for item in catalog}:
+        raise HTTPException(
+            status_code=422,
+            detail="Test modeli kayitli Jupyter AI katalogunda bulunmuyor.",
+        )
+    try:
+        shared_token = decrypt_secret(record.encrypted_shared_token)
+    except SecretDecryptionError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Jupyter AI ortak tokeni cozulemedi.",
+        ) from exc
+    if not shared_token:
+        raise HTTPException(
+            status_code=409,
+            detail="Jupyter AI ortak gateway tokeni kayitli degil.",
+        )
+
+    node_result = await db.execute(
+        select(Node).where(Node.enabled.is_(True)).order_by(Node.name)
+    )
+    nodes = list(node_result.scalars().all())
+    if not nodes:
+        raise HTTPException(
+            status_code=409,
+            detail="Test edilecek etkin worker bulunamadi.",
+        )
+
+    async def test_node(node: Node) -> JupyterAiConnectivityTargetResult:
+        if not agent_manager.is_connected(node.id):
+            return JupyterAiConnectivityTargetResult(
+                node_id=node.id,
+                node_name=node.name,
+                ok=False,
+                model_id=request.model_id,
+                message="Worker cevrimdisi veya controller tunnel'ina bagli degil.",
+            )
+        try:
+            result = await agent_manager.get(node.id).request(
+                "system.jupyter_ai_test",
+                {
+                    "gateway_url": record.gateway_url,
+                    "model_id": request.model_id,
+                    "shared_token": shared_token,
+                },
+                timeout=40,
+            )
+            return JupyterAiConnectivityTargetResult(
+                node_id=node.id,
+                node_name=node.name,
+                ok=result.get("ok") is True,
+                model_id=request.model_id,
+                status_code=result.get("status_code"),
+                latency_ms=result.get("latency_ms"),
+                message=str(result.get("message") or "Worker yanit vermedi."),
+            )
+        except Exception as exc:
+            return JupyterAiConnectivityTargetResult(
+                node_id=node.id,
+                node_name=node.name,
+                ok=False,
+                model_id=request.model_id,
+                message=f"Worker testi calistirilamadi: {exc}",
+            )
+
+    workers = list(await asyncio.gather(*(test_node(node) for node in nodes)))
+    return JupyterAiConnectivityTestResult(
+        ok=bool(workers) and all(worker.ok for worker in workers),
+        model_id=request.model_id,
+        workers=workers,
+    )
 
 
 async def _get_or_create_directory_settings(

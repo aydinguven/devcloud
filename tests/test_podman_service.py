@@ -144,24 +144,46 @@ async def test_jupyter_launch_uses_secure_workspace_base_url(monkeypatch):
     startup_command = run_command[image_index + 1:]
 
     assert "/workspace:/home/jovyan/work:Z,U" in run_command
-    assert startup_command[0] == "start-notebook.py"
+    assert startup_command[:2] == ("bash", "-lc")
+    assert "exec start-notebook.py \"$@\"" in startup_command[2]
+    assert startup_command[3] == "devcloud-jupyter"
     assert f"--ServerApp.base_url=/proxy/{workspace_id}/" in startup_command
     assert "--ServerApp.default_url=/lab" in startup_command
     assert "-e" in run_command
     assert "JUPYTER_TOKEN=secret-workspace-token" in run_command
     assert "ANTHROPIC_BASE_URL=https://llm-gateway.internal" in run_command
     assert "ANTHROPIC_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_DEFAULT_MODEL=local-coder" in run_command
     assert "ANTHROPIC_DEFAULT_OPUS_MODEL=local-coder" in run_command
     assert "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=Local Coder" in run_command
-    assert "ANTHROPIC_DEFAULT_SONNET_MODEL=qwen3.6-35b" in run_command
-    assert "ANTHROPIC_DEFAULT_FABLE_MODEL=openrouter/z-ai/glm-5.2" in run_command
-    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL=openrouter/deepseek/deepseek-v4-pro" in run_command
-    assert "ANTHROPIC_SMALL_FAST_MODEL=local-coder" in run_command
-    assert "ANTHROPIC_CUSTOM_MODEL_OPTION=openrouter/qwen/qwen3-coder" in run_command
-    assert any(value.startswith("CLAUDE_AVAILABLE_MODELS=local-coder,") for value in run_command)
+    assert "ANTHROPIC_DEFAULT_SONNET_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_DEFAULT_FABLE_MODEL=local-coder" in run_command
+    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL=local-coder" in run_command
+    assert "CLAUDE_CONFIG_DIR=/tmp/devcloud-claude" in run_command
+    assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in run_command
+    raw_claude_settings = next(
+        value.removeprefix("DEVCLOUD_CLAUDE_SETTINGS_JSON=")
+        for value in run_command
+        if value.startswith("DEVCLOUD_CLAUDE_SETTINGS_JSON=")
+    )
+    claude_settings = json.loads(raw_claude_settings)
+    expected_model_ids = [model["model_id"] for model in catalog]
+    assert claude_settings["model"] == "local-coder"
+    assert claude_settings["availableModels"] == expected_model_ids
+    assert claude_settings["enforceAvailableModels"] is True
+    assert claude_settings["modelPicker"]["mode"] == "replace"
+    assert [
+        option["model"] for option in claude_settings["modelPicker"]["options"]
+    ] == expected_model_ids
+    assert claude_settings["modelPicker"]["options"][0] == {
+        "model": "local-coder",
+        "label": "Local Coder",
+        "description": "On-Prem",
+    }
+    assert not any(value.startswith("CLAUDE_AVAILABLE_MODELS=") for value in run_command)
+    assert not any(value.startswith("ANTHROPIC_CUSTOM_MODEL_OPTION=") for value in run_command)
     assert "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1" in run_command
     assert "ANTHROPIC_AUTH_TOKEN=shared-ai-token" in run_command
-    assert not any(value.startswith("CLAUDE_CODE_EXECUTABLE=") for value in run_command)
     assert "CLAUDE_CODE_DISABLE_FAST_MODE=1" in run_command
     assert "CLAUDE_CODE_ENABLE_AUTO_MODE=0" in run_command
     assert "CLAUDE_CODE_DISABLE_1M_CONTEXT=1" in run_command

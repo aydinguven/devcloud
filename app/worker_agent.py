@@ -14,6 +14,7 @@ import socket
 import ssl
 import tempfile
 import hashlib
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -911,6 +912,112 @@ class WorkerAgent:
             await target.send(base64.b64decode(data, validate=True))
 
     async def handle_system_command(self, action: str, payload: dict) -> dict:
+        if action == "system.jupyter_ai_test":
+            gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
+            model_id = str(payload.get("model_id") or "").strip()
+            shared_token = payload.get("shared_token")
+            parsed = urlsplit(gateway_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("Gecersiz Jupyter AI gateway URL.")
+            if (
+                not model_id
+                or len(model_id) > 255
+                or any(character.isspace() for character in model_id)
+            ):
+                raise ValueError("Gecersiz Jupyter AI model kimligi.")
+            if (
+                not isinstance(shared_token, str)
+                or not shared_token
+                or len(shared_token) > 4096
+            ):
+                raise ValueError("Gecersiz Jupyter AI gateway tokeni.")
+
+            started_at = time.perf_counter()
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(30.0, connect=5.0),
+                    follow_redirects=False,
+                ) as client:
+                    response = await client.post(
+                        f"{gateway_url}/v1/messages",
+                        headers={
+                            "Authorization": f"Bearer {shared_token}",
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                            "user-agent": "devcloud-jupyter-ai-connectivity-test",
+                        },
+                        json={
+                            "model": model_id,
+                            "max_tokens": 4,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Reply with exactly: OK",
+                                }
+                            ],
+                        },
+                    )
+            except httpx.TimeoutException:
+                return {
+                    "ok": False,
+                    "model_id": model_id,
+                    "latency_ms": round((time.perf_counter() - started_at) * 1000),
+                    "message": "Gateway istegi 30 saniyede zaman asimina ugradi.",
+                }
+            except httpx.HTTPError as exc:
+                return {
+                    "ok": False,
+                    "model_id": model_id,
+                    "latency_ms": round((time.perf_counter() - started_at) * 1000),
+                    "message": f"Gateway baglantisi kurulamadi: {exc}",
+                }
+
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            if response.is_success:
+                return {
+                    "ok": True,
+                    "model_id": model_id,
+                    "status_code": response.status_code,
+                    "latency_ms": latency_ms,
+                    "message": "LiteLLM model istegi basariyla yanitlandi.",
+                }
+
+            detail = ""
+            try:
+                error_payload = response.json()
+                error_value = error_payload.get("error")
+                if isinstance(error_value, dict):
+                    detail = str(
+                        error_value.get("message")
+                        or error_value.get("detail")
+                        or ""
+                    )
+                elif error_value:
+                    detail = str(error_value)
+                if not detail:
+                    detail = str(error_payload.get("detail") or "")
+            except (TypeError, ValueError):
+                detail = response.text
+            detail = " ".join(detail.split())[:500]
+            return {
+                "ok": False,
+                "model_id": model_id,
+                "status_code": response.status_code,
+                "latency_ms": latency_ms,
+                "message": (
+                    f"LiteLLM HTTP {response.status_code}: {detail}"
+                    if detail
+                    else f"LiteLLM HTTP {response.status_code} dondurdu."
+                ),
+            }
+
         if action == "system.upgrade":
             controller_url = (
                 os.environ.get("DEVCLOUD_CONTROLLER_URL", "").strip()

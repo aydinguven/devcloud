@@ -537,7 +537,7 @@ cd devcloud
       <div class="card-header" style="padding: 0 0 0.5rem;">
         <div>
           <h3 class="card-title" style="font-size: 1rem;">Kullanıcı Model Kataloğu</h3>
-          <p class="admin-section-description">Sıra, Claude model seçicisindeki uyumluluk slotlarını belirler. İlk model varsayılan Opus slotudur.</p>
+          <p class="admin-section-description">Sıra, Jupyter AI model seçicisindeki sıradır. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
         </div>
         <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
       </div>
@@ -566,8 +566,11 @@ cd devcloud
     <p class="text-muted">Token controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Yeni Jupyter container'larında kullanıcılar bu ortak tokenı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın.</p>
     <div class="table-actions">
       <button id="btn-save-jupyter-ai" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
+      <button id="btn-test-jupyter-ai" type="button" class="btn btn-secondary">Seçili Modeli Test Et</button>
       <span id="jupyter-ai-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
     </div>
+    <div id="jupyter-ai-test-results" class="text-muted" style="margin-top: 0.75rem;" hidden></div>
+    <p class="text-muted" style="margin-top: 0.5rem;">Test, kaydedilmiş gateway ve token ile her etkin worker'dan seçili modele en fazla 4 tokenlık gerçek bir istek gönderir.</p>
   </form>
 </section>
 

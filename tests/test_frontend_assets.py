@@ -108,10 +108,24 @@ def test_admin_exposes_central_jupyter_ai_settings():
     assert 'name="shared_token"' in template
     assert 'data-jupyter-ai-model-row' in template
     assert 'name="gateway_model_discovery"' in template
+    assert 'id="btn-test-jupyter-ai"' in template
+    assert 'id="jupyter-ai-test-results"' in template
     assert "initJupyterAiSettings()" in javascript
-    assert "/api/admin/jupyter-ai-settings" in javascript
+    assert "/api/admin/jupyter-ai-settings/test" in javascript
+    assert "result.workers.forEach" in javascript
     assert "CLAUDE_AVAILABLE_MODELS" not in template
     assert "syncDefaultModels" in javascript
+
+
+def test_application_sources_do_not_contain_replacement_or_control_characters():
+    for suffix in ("*.py", "*.html", "*.js"):
+        for path in (PROJECT_ROOT / "app").rglob(suffix):
+            content = path.read_text(encoding="utf-8")
+            assert "\ufffd" not in content, path
+            assert not any(
+                ord(character) < 32 and character not in "\n\r\t"
+                for character in content
+            ), path
 
 
 def test_workspace_flavor_picker_separates_gpu_and_uses_radio_controls():

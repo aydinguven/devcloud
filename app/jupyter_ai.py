@@ -82,7 +82,7 @@ def model_environment(
     *,
     discovery_enabled: bool,
 ) -> dict[str, str]:
-    """Translate the central catalog into Claude Code picker configuration."""
+    """Translate the central catalog into Claude Code gateway configuration."""
     catalog = parse_model_catalog(json.dumps(models), default_model)
     if not default_model or not catalog:
         return {
@@ -93,24 +93,54 @@ def model_environment(
 
     environment = {
         "ANTHROPIC_MODEL": default_model,
-        "ANTHROPIC_SMALL_FAST_MODEL": default_model,
-        "CLAUDE_AVAILABLE_MODELS": ",".join(
-            item["model_id"] for item in catalog
-        ),
+        "ANTHROPIC_DEFAULT_MODEL": default_model,
         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": (
             "1" if discovery_enabled else "0"
         ),
     }
-    slots = (
+    # Claude Code's built-in aliases can be used by subagents even when the
+    # main session is running against a custom gateway model. Keep every
+    # family pinned to the known-good central default. Arbitrary catalog
+    # entries are exposed separately through the supported modelPicker setting.
+    aliases = (
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_CUSTOM_MODEL_OPTION",
     )
-    for prefix, model in zip(slots, catalog):
-        environment[prefix] = model["model_id"]
-        environment[f"{prefix}_NAME"] = model["name"]
-        environment[f"{prefix}_DESCRIPTION"] = model["description"]
+    default_entry = next(
+        item for item in catalog if item["model_id"] == default_model
+    )
+    for prefix in aliases:
+        environment[prefix] = default_model
+        environment[f"{prefix}_NAME"] = default_entry["name"]
+        environment[f"{prefix}_DESCRIPTION"] = default_entry["description"]
         environment[f"{prefix}_SUPPORTED_CAPABILITIES"] = "none"
     return environment
+
+
+def claude_settings(
+    default_model: str,
+    models: list[dict[str, str]],
+) -> dict[str, object]:
+    """Build Claude Code settings for an exact, multi-model gateway picker."""
+    catalog = parse_model_catalog(json.dumps(models), default_model)
+    if not default_model or not catalog:
+        return {}
+
+    return {
+        "model": default_model,
+        "availableModels": [item["model_id"] for item in catalog],
+        "enforceAvailableModels": True,
+        "modelPicker": {
+            "mode": "replace",
+            "options": [
+                {
+                    "model": item["model_id"],
+                    "label": item["name"],
+                    "description": item["description"],
+                }
+                for item in catalog
+            ],
+        },
+    }
