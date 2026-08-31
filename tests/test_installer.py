@@ -139,6 +139,27 @@ def test_install_plans_share_one_role_aware_engine(tmp_path):
     assert "worker-image" in [step.key for step in worker.steps]
 
 
+def test_update_plan_refreshes_ingress_only_for_controller_roles(tmp_path):
+    engine = InstallerEngine(
+        filesystem_root=tmp_path, runner=CommandRunner(dry_run=True)
+    )
+
+    controller_keys = [
+        step.key
+        for step in engine.build_update_plan(
+            config(DeploymentRole.CONTROLLER)
+        ).steps
+    ]
+    worker_keys = [
+        step.key
+        for step in engine.build_update_plan(config(DeploymentRole.WORKER)).steps
+    ]
+
+    assert controller_keys.index("services") < controller_keys.index("ingress")
+    assert controller_keys.index("ingress") < controller_keys.index("migrations")
+    assert "ingress" not in worker_keys
+
+
 def test_all_in_one_dry_run_installs_controller_and_worker_services(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
@@ -463,10 +484,11 @@ def test_controller_public_url_drives_ingress_and_https_default(tmp_path):
         return subprocess.CompletedProcess(command, 0, "", "")
 
     runner.run = capture
-    engine._install_ingress(candidate)
+    engine._install_ingress(candidate, apply_initial=False)
 
     assert calls[0][1]["env"] == {
-        "DEVCLOUD_HTTPS_HOSTNAME": "10.253.6.174"
+        "DEVCLOUD_HTTPS_HOSTNAME": "10.253.6.174",
+        "DEVCLOUD_INGRESS_APPLY_INITIAL": "0",
     }
 
 

@@ -424,6 +424,19 @@ class InstallerEngine:
                     "Install the release systemd unit definitions",
                     lambda: self._install_services(config),
                 ),
+                *(
+                    [
+                        PlanStep(
+                            "ingress",
+                            "Refresh the controller ingress helper and systemd watcher",
+                            lambda: self._install_ingress(
+                                config, apply_initial=False
+                            ),
+                        )
+                    ]
+                    if config.installs_controller
+                    else []
+                ),
                 PlanStep(
                     "migrations",
                     "Apply explicit database migrations for the new release",
@@ -1079,6 +1092,7 @@ class InstallerEngine:
             runner=self.runner,
         )
         previous_engine._install_services(config)
+        previous_engine._install_ingress(config, apply_initial=False)
         previous_engine._restart_services(config)
 
     def _install_python_dependencies(self, config: InstallConfig) -> None:
@@ -1641,14 +1655,19 @@ class InstallerEngine:
         # controller after its service starts. Legacy bundles can still opt in
         # to loading their embedded archives through preload_images.
 
-    def _install_ingress(self, config: InstallConfig) -> None:
+    def _install_ingress(
+        self, config: InstallConfig, *, apply_initial: bool = True
+    ) -> None:
         if not config.installs_controller:
             return
         script = self.host_path(config.install_root) / "current" / "deploy" / "install_ingress.sh"
         owner = "10001" if config.containerized_controller else config.service_user
         self.runner.run(
             ["bash", str(script), owner],
-            env={"DEVCLOUD_HTTPS_HOSTNAME": self._public_hostname(config.public_url)},
+            env={
+                "DEVCLOUD_HTTPS_HOSTNAME": self._public_hostname(config.public_url),
+                "DEVCLOUD_INGRESS_APPLY_INITIAL": "1" if apply_initial else "0",
+            },
         )
 
     def _start_services(self, config: InstallConfig) -> None:
