@@ -26,6 +26,10 @@ def test_app_version_cannot_be_pinned_by_stale_environment(monkeypatch):
     assert Settings(_env_file=None).APP_VERSION == __version__
 
 
+def test_unsigned_worker_ota_is_disabled_without_explicit_configuration():
+    assert Settings(_env_file=None).WORKER_OTA_ALLOW_UNSIGNED is False
+
+
 def test_platform_updater_waits_for_new_healthy_service():
     javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
 

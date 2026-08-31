@@ -51,6 +51,7 @@ async def test_worker_release_catalog_requires_enrollment_token(
     release = releases / "devcloud-release-v3.0.0-abcdef1.zip"
     release.write_bytes(b"verified-release")
     monkeypatch.setattr(settings, "DOWNLOADS_ROOT", str(tmp_path))
+    monkeypatch.setattr(settings, "WORKER_OTA_ALLOW_UNSIGNED", True)
     token = "release-worker-secret"
     await db_session.execute(
         update(Node)
@@ -79,6 +80,7 @@ async def test_worker_release_catalog_requires_enrollment_token(
     assert checked.status_code == 200
     assert checked.json()["connected"] is True
     assert metadata.json()["sha256"] == hashlib.sha256(release.read_bytes()).hexdigest()
+    assert metadata.json()["allow_unsigned"] is True
     downloaded = await client.get(metadata.json()["url"], headers=headers)
     assert downloaded.status_code == 200
     assert downloaded.content == b"verified-release"

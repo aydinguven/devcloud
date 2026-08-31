@@ -32,6 +32,28 @@ bundle. Downgrades are blocked. If the root updater fails, the inventory shows
 its final message and a bounded tail of the installer output instead of only a
 generic error badge.
 
+## Temporary unsigned OTA transition
+
+Unsigned worker OTA is disabled by default. To temporarily enable it, set
+`WORKER_OTA_ALLOW_UNSIGNED=true` in `/etc/devcloud/controller.env` and restart
+`devcloud-controller`. Release downloads remain authenticated and SHA-256
+verified, but the bundle signature is not checked. Restore the value to `false`
+after signed releases and trusted keyrings are deployed.
+
+Workers running v3.4.9 or older do not understand this controller approval and
+still reject unsigned OTA. Upgrade each such worker once from its host:
+
+```bash
+sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
+  --source-type git \
+  --repository https://github.com/aydinguven/devcloud.git \
+  --ref stable \
+  --allow-unsigned
+```
+
+After that one-time transition, the worker inventory's **Kontrol Et** action can
+apply later unsigned releases while the controller switch remains enabled.
+
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.
 

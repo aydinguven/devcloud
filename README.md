@@ -179,14 +179,15 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.4.10-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-v3.4.11-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
 Güncelleme**. Select **Güncellemeyi Kontrol Et** first; the page shows the
 installed and published versions before enabling **Güncellemeyi Yükle**.
-Signed releases are the default. **İmzasız güncellemeye izin ver** remains an
-explicit recovery/development opt-in with a second warning. During the expected
+The current internal release channel is temporarily unsigned.
+**İmzasız güncellemeye izin ver** remains an explicit opt-in with a second
+warning; signing should be restored after trusted keyrings reach all hosts. During the expected
 controller restart, the page reports that it is reconnecting instead of
 presenting the proxy's temporary HTTP 502 as an update failure. A root-owned
 systemd service creates a pre-update backup, loads immutable OCI archives,

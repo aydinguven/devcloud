@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     UPDATE_REF: str = "stable"
     UPDATE_QUEUE_ROOT: str = "/var/lib/devcloud/update-queue"
     UPDATE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024 * 1024
+    # Temporary, deployment-scoped compatibility switch. Keep disabled unless
+    # the operator explicitly accepts checksum-only worker OTA verification.
+    WORKER_OTA_ALLOW_UNSIGNED: bool = False
     WORKSPACE_IMAGES_ROOT: str = "/srv/devcloud-downloads/workspace-images"
     WORKSPACE_IMAGE_MAX_UPLOAD_BYTES: int = 16 * 1024 * 1024 * 1024
     WORKSPACE_IMAGE_IMPORT_TIMEOUT_SECONDS: int = 1800

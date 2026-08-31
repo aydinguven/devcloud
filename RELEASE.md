@@ -46,17 +46,16 @@ Add these environment or repository secrets when Quay publishing is enabled:
 - `QUAY_USERNAME`: preferably a repository-scoped robot account;
 - `QUAY_PASSWORD`: the corresponding robot token.
 
-Required release-signing secrets for formal `vMAJOR.MINOR.PATCH` tags:
+Optional release-signing secrets:
 
 - `RELEASE_GPG_PRIVATE_KEY`: ASCII-armored private release key;
 - `RELEASE_GPG_KEY_ID`: fingerprint of that key.
 
-The signing key must be usable non-interactively in the release job. Tagged
-releases always require signing because worker OTA clients reject unsigned
-bundles. Manual workflow runs may remain unsigned for development. The workflow
-exports its public key as `devcloud-release-keyring.gpg` alongside the bundles,
-embeds it in signed installation/update archives, and installs it as
-`/etc/devcloud/release-keyring.gpg` for subsequent updates.
+The signing key must be usable non-interactively in the release job. During the
+current compatibility period, tag-triggered releases are unsigned and manual
+workflow runs can opt into signing. Signed runs export the public key as
+`devcloud-release-keyring.gpg`, embed it in installation/update archives, and
+install it as `/etc/devcloud/release-keyring.gpg` for subsequent updates.
 
 The default Quay destination is
 `quay.io/aaslangoren/devcloud`. Change `QUAY_REPOSITORY` in the release
@@ -108,6 +107,11 @@ For temporary unsigned development releases, the installed controller must
 explicitly allow unsigned updates and the command must add
 `--allow-unsigned`. Production releases should enable signing and install the
 published public key as `/etc/devcloud/release-keyring.gpg`.
+
+Unsigned worker OTA is independently gated by the controller environment. Set
+`WORKER_OTA_ALLOW_UNSIGNED=true` in `/etc/devcloud/controller.env` and restart
+`devcloud-controller` only after accepting checksum-only verification. The
+default is `false`. Set it back to `false` when signed releases are enabled.
 
 Hosts installed from an older unsigned release need a one-time trust bootstrap
 before their first signed worker OTA. Download

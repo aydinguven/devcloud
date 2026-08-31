@@ -4,7 +4,14 @@ import pytest
 
 from app import __version__
 from app.config import settings
-from app.worker_agent import WorkerAgent
+from app.worker_agent import WorkerAgent, _unsigned_ota_approved
+
+
+def test_worker_unsigned_ota_requires_explicit_controller_approval():
+    assert _unsigned_ota_approved({"allow_unsigned": True}) is True
+    assert _unsigned_ota_approved({"allow_unsigned": False}) is False
+    assert _unsigned_ota_approved({"allow_unsigned": "true"}) is False
+    assert _unsigned_ota_approved({}) is False
 
 
 @pytest.mark.asyncio

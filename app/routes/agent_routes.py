@@ -152,6 +152,7 @@ async def worker_latest_release(
         ),
         "sha256": release.sha256,
         "size": release.size,
+        "allow_unsigned": settings.WORKER_OTA_ALLOW_UNSIGNED,
     }
 
 

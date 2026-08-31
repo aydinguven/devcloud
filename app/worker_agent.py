@@ -30,6 +30,11 @@ from app.worker_gpu import discover_nvidia_capabilities
 logger = logging.getLogger("devcloud.worker")
 
 
+def _unsigned_ota_approved(metadata: dict) -> bool:
+    """Honor only an explicit boolean approval from the enrolled controller."""
+    return metadata.get("allow_unsigned") is True
+
+
 def _required_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -907,7 +912,7 @@ class WorkerAgent:
                     "size": size,
                     "sha256": digest.hexdigest(),
                     "target_version": target_version,
-                    "allow_unsigned": False,
+                    "allow_unsigned": _unsigned_ota_approved(metadata),
                 }
                 marker_tmp = queue_root / "pending.tmp"
                 marker_tmp.write_text(

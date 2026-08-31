@@ -51,7 +51,7 @@ def test_platform_release_builds_and_verifies_every_distribution_artifact():
     assert "prepare_release" in builder
     assert "load_platform_release" in builder
     assert '--release-keyring "${ASSET_DIR}/devcloud-release-keyring.gpg"' in builder
-    assert "github.event_name == 'push' || inputs.sign_release" in workflow_content
+    assert "github.event_name == 'workflow_dispatch' && inputs.sign_release" in workflow_content
 
 
 def test_platform_release_publishes_quay_release_assets_and_stable_channel():
