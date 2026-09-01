@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 class MigrationError(RuntimeError):
@@ -421,6 +421,9 @@ async def upgrade() -> None:
         if 10 not in applied:
             await _add_jupyter_ai_model_catalog(conn)
             await _record_version(conn, 10, "Jupyter AI multi-model catalog")
+        if 11 not in applied:
+            # init_db creates the portable per-flavor availability table.
+            await _record_version(conn, 11, "admin-managed flavor availability")
 
 
 async def current_version() -> int:

@@ -92,7 +92,8 @@ async def test_admin_access_controls(client: AsyncClient):
         "/admin/integrations", headers=admin_headers
     )
     assert integrations_page.status_code == 200
-    assert "Jupyter AI · On-Prem LLM" in integrations_page.text
+    assert "Workspace AI · Jupyter + Cline" in integrations_page.text
+    assert "Ortak Jupyter AI ve Cline erişimini etkinleştir" in integrations_page.text
     assert 'id="jupyter-ai-settings-form"' in integrations_page.text
     assert 'id="jupyter-ai-model-list"' in integrations_page.text
     assert 'name="gateway_model_discovery"' in integrations_page.text

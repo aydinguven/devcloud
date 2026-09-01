@@ -13,6 +13,7 @@ class WorkspaceTemplate:
     container_workdir: str
     image_tag: str
     features: list[str]
+    ide_type: str
     env_vars: dict[str, str] = field(default_factory=dict)
     startup_command: list[str] = field(default_factory=list)
 
@@ -39,7 +40,8 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         default_port=8080,
         container_workdir="/home/coder/project",
         image_tag="localhost/devcloud-vscode-empty:latest",
-        features=["VS Code Web (code-server)", "Git & Terminal", "Boş ve temiz çalışma alanı"],
+        features=["VS Code Web (code-server)", "Cline AI Assistant", "Git & Terminal", "Boş ve temiz çalışma alanı"],
+        ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
     ),
     "vscode-python": WorkspaceTemplate(
@@ -51,7 +53,8 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         default_port=8080,
         container_workdir="/home/coder/project",
         image_tag="localhost/devcloud-vscode-python:latest",
-        features=["Python 3.14 Runtime", "VS Code Python Extension", "uv & pip", "Jupyter Interactive Extension"],
+        features=["Python 3.14 Runtime", "VS Code Python Extension", "Cline AI Assistant", "uv & pip", "Jupyter Interactive Extension"],
+        ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
     ),
     "vscode-react": WorkspaceTemplate(
@@ -63,7 +66,8 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         default_port=8080,
         container_workdir="/home/coder/project",
         image_tag="localhost/devcloud-vscode-react:latest",
-        features=["Node.js 22 LTS", "React & TypeScript Tooling", "npm, pnpm & Yarn", "ESLint & Prettier Extensions"],
+        features=["Node.js 22 LTS", "React & TypeScript Tooling", "Cline AI Assistant", "npm, pnpm & Yarn", "ESLint & Prettier Extensions"],
+        ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
     ),
     "jupyter-python": WorkspaceTemplate(
@@ -76,6 +80,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         container_workdir="/home/jovyan/work",
         image_tag="localhost/devcloud-jupyter-python:latest",
         features=["JupyterLab & Notebooks", "Jupyter AI", "Claude ACP", "Veri bilimi araçları"],
+        ide_type="jupyter",
         env_vars={"JUPYTER_ENABLE_LAB": "yes"},
     ),
     "vscode-java": WorkspaceTemplate(
@@ -87,7 +92,8 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         default_port=8080,
         container_workdir="/home/coder/project",
         image_tag="localhost/devcloud-vscode-java:latest",
-        features=["OpenJDK 21 LTS", "Language Support for Java", "Maven & Gradle", "Java Debugger Extension"],
+        features=["OpenJDK 21 LTS", "Language Support for Java", "Cline AI Assistant", "Maven & Gradle", "Java Debugger Extension"],
+        ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
     ),
 }
@@ -131,6 +137,7 @@ def register_custom_template(
         container_workdir=workdir,
         image_tag=image_tag,
         features=features,
+        ide_type=ide_type,
         env_vars={"DOCKER_USER": "coder"} if ide_type != "jupyter" else {"JUPYTER_ENABLE_LAB": "yes"},
     )
     TEMPLATES[template_id] = tpl

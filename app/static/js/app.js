@@ -21,7 +21,54 @@ document.addEventListener("DOMContentLoaded", () => {
   initAdminPlatformUpdater();
   initAdminFilters();
   initWorkspaceImageManager();
+  initAdminFlavorSettings();
 });
+
+function initAdminFlavorSettings() {
+  const table = document.getElementById("admin-flavor-settings-table");
+  if (!table) return;
+  const status = document.getElementById("admin-flavor-settings-status");
+
+  table.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-flavor-toggle]");
+    if (!button) return;
+    const flavorId = button.dataset.flavorToggle;
+    const enabled = button.dataset.enabled !== "true";
+    button.disabled = true;
+    if (status) {
+      status.textContent = `${flavorId} güncelleniyor...`;
+      status.className = "quota-form-status";
+    }
+    try {
+      const response = await fetch(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({enabled}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
+      const row = button.closest("tr");
+      const badge = row.querySelector("[data-flavor-status]");
+      button.dataset.enabled = String(result.enabled);
+      button.textContent = result.enabled ? "Devre Dışı Bırak" : "Etkinleştir";
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-neutral"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      if (status) {
+        status.textContent = result.enabled
+          ? `${flavorId} yeniden oluşturma menüsünde gösteriliyor.`
+          : `${flavorId} yeni çalışma alanları için gizlendi.`;
+        status.className = "quota-form-status quota-status-success";
+      }
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message;
+        status.className = "quota-form-status quota-status-error";
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
 
 function initAdminFilters() {
   document.querySelectorAll("[data-admin-filter]").forEach((input) => {

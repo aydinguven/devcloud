@@ -20,8 +20,8 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.flavors import Flavor, get_flavor, list_flavors
-from app.orchestrator.templates import get_template, list_templates, resolve_template
+from app.orchestrator.flavors import Flavor, get_flavor
+from app.orchestrator.templates import get_template, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import (
     accelerator_availability_details,
@@ -38,6 +38,12 @@ from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceOut,
     WorkspaceStatusOut,
+)
+from app.workspace_catalog import (
+    flavor_enabled,
+    list_enabled_flavors,
+    list_enabled_templates,
+    template_enabled,
 )
 
 logger = logging.getLogger("devcloud.routes.workspaces")
@@ -164,16 +170,16 @@ async def get_quota_error(
 
 
 @workspace_router.get("/templates", response_model=list[TemplateInfo])
-async def get_templates():
+async def get_templates(db: Annotated[AsyncSession, Depends(get_db)]):
     """List available project environment templates."""
-    return list_templates()
+    return await list_enabled_templates(db)
 
 
 @workspace_router.get("/flavors", response_model=list[FlavorInfo])
 async def get_flavors(db: Annotated[AsyncSession, Depends(get_db)]):
     """List available resource flavors."""
     catalog = []
-    for item in list_flavors():
+    for item in await list_enabled_flavors(db):
         flavor = get_flavor(item.id)
         available, message = await flavor_availability(db, flavor)
         details = (
@@ -246,9 +252,11 @@ async def create_workspace(
     template = await resolve_template(db, data.template_id)
     if not template:
         raise HTTPException(status_code=400, detail=f"Geçersiz şablon ID: {data.template_id}")
+    if not await template_enabled(db, data.template_id):
+        raise HTTPException(status_code=400, detail=f"Şablon devre dışı: {data.template_id}")
 
     flavor = get_flavor(data.flavor_id)
-    if not flavor or not flavor.selectable:
+    if not flavor or not await flavor_enabled(db, data.flavor_id):
         raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
 
     quota_error = await get_quota_error(db, current_user, flavor)
@@ -332,9 +340,12 @@ async def deploy_workspace_stream(
             if not template:
                 await emit_error(f"Geçersiz şablon: {data.template_id}")
                 return
+            if not await template_enabled(db, data.template_id):
+                await emit_error(f"Şablon devre dışı: {data.template_id}")
+                return
 
             flavor = get_flavor(data.flavor_id)
-            if not flavor or not flavor.selectable:
+            if not flavor or not await flavor_enabled(db, data.flavor_id):
                 await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
                 return
 

@@ -62,7 +62,7 @@ class JupyterAiSettingsUpdate(BaseModel):
     def require_enabled_fields(self):
         if self.enabled and (not self.gateway_url or not self.model_id):
             raise ValueError(
-                "Jupyter AI etkinleştirildiğinde gateway URL ve model kimliği zorunludur."
+                "Workspace AI etkinleştirildiğinde gateway URL ve model kimliği zorunludur."
             )
         if self.models is not None:
             if len(self.models) > 50:

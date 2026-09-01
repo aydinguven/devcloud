@@ -71,3 +71,18 @@ def test_worker_image_and_quadlet_use_rootful_host_podman_socket():
     assert "SecurityLabelDisable=true" in quadlet
     assert "Privileged=true" not in quadlet
 
+
+def test_all_builtin_vscode_images_install_cline():
+    for template_id in (
+        "vscode-empty",
+        "vscode-python",
+        "vscode-react",
+        "vscode-java",
+    ):
+        containerfile = (
+            ROOT / "containers" / template_id / "Containerfile"
+        ).read_text(encoding="utf-8")
+        install = "RUN code-server --install-extension saoudrizwan.claude-dev"
+        assert containerfile.count(install) == 1
+        assert f"{install} || true" not in containerfile
+

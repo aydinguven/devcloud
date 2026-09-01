@@ -21,6 +21,7 @@ class FlavorInfo(BaseModel):
     eligible_accelerator_models: list[str] = Field(default_factory=list)
     allocation_modes: list[str] = Field(default_factory=list)
     gpu_quota_remaining: int | None = None
+    enabled: bool = True
 
 
 class TemplateInfo(BaseModel):

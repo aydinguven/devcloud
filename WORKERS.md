@@ -59,6 +59,36 @@ Managed controller updates preserve this opt-in in
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.
 
+## Workspace AI connectivity and settings rollout
+
+Jupyter AI and Cline settings are controller-managed. Every enrolled worker fetches the
+shared LiteLLM root URL, restricted virtual key, default model, and exact model
+catalogue on startup and every 30 seconds. New workers therefore need no local
+Jupyter AI or Cline credential file.
+
+Use **Admin > Entegrasyonlar > Workspace AI > Seçili Modeli Test Et** before
+starting user workspaces. The controller sends a small real request through
+every enabled worker, so the result validates the same worker-to-gateway network
+path used by workspace containers. The gateway value must be a root URL such as
+`http://llm-gateway:5003`, without `/v1`. Model IDs must exactly match the
+LiteLLM aliases allowed for the shared key.
+
+Maintained VS Code images contain `saoudrizwan.claude-dev`. At container
+creation DevCloud writes both Cline's legacy state and current
+`settings/providers.json`, selecting the OpenAI-compatible `<gateway>/v1`
+profile with the Admin API key and model.
+
+Settings are injected when a workspace container is created. To roll changed
+settings into an existing workspace:
+
+1. Stop the workspace in DevCloud.
+2. On its assigned worker, run `podman rm -f <container-name>`.
+3. Start the workspace again from DevCloud.
+
+The workspace directory is bind-mounted and survives container recreation.
+Do not use the dashboard Delete action as a recreation shortcut; Delete removes
+the persistent workspace storage and releases its allocation.
+
 ## NVIDIA GPU workers and workspace allocation
 
 Use the same one-line registration command for CPU and GPU workers. The script

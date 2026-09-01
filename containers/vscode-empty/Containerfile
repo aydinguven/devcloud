@@ -18,6 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER coder
 WORKDIR /home/coder/project
 
+# Cline is available in every managed VS Code workspace. Gateway credentials
+# are injected centrally when the workspace container starts.
+RUN code-server --install-extension saoudrizwan.claude-dev
+
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "--auth", "none", "/home/coder/project"]

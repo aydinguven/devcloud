@@ -26,6 +26,7 @@ WORKDIR /home/coder/project
 # Install popular VS Code Python extensions
 RUN code-server --install-extension ms-python.python || true
 RUN code-server --install-extension ms-toolsai.jupyter || true
+RUN code-server --install-extension saoudrizwan.claude-dev
 
 EXPOSE 8080
 

@@ -20,17 +20,18 @@ from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.orchestrator.flavors import get_flavor, list_flavors
+from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import (
     accelerator_availability_details,
     flavor_availability,
 )
-from app.orchestrator.templates import list_builtin_templates, list_templates
+from app.orchestrator.templates import list_builtin_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
+from app.workspace_catalog import configured_flavors, list_enabled_flavors, list_enabled_templates
 from app.static_assets import STATIC_ASSET_VERSION
 
 logger = logging.getLogger("devcloud.views")
@@ -157,7 +158,7 @@ async def dashboard_page(
     )
 
     flavor_catalog = []
-    for item in list_flavors():
+    for item in await list_enabled_flavors(db):
         available = True
         message = ""
         flavor = get_flavor(item.id)
@@ -176,25 +177,12 @@ async def dashboard_page(
             **details,
         }))
 
-    from app.models.custom_template import CustomTemplate
-    from app.orchestrator.templates import register_custom_template
-
-    custom_res = await db.execute(select(CustomTemplate))
-    custom_db_templates = custom_res.scalars().all()
-    all_tpls = list_templates()
-    for ct in custom_db_templates:
-        tpl_obj = register_custom_template(
-            template_id=ct.id,
-            name=ct.name,
-            description=ct.description,
-            category=ct.category,
-            image_tag=ct.image_tag,
-            default_port=ct.default_port,
-            ide_type=ct.ide_type,
-            icon=ct.icon,
-        )
-        if not any(t.id == ct.id for t in all_tpls):
-            all_tpls.append(tpl_obj.to_schema())
+    all_tpls = await list_enabled_templates(db)
+    default_flavor_id = (
+        "t1.micro"
+        if any(item.id == "t1.micro" for item in flavor_catalog)
+        else (flavor_catalog[0].id if flavor_catalog else "")
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -205,6 +193,7 @@ async def dashboard_page(
             "workspaces": ws_list,
             "templates": all_tpls,
             "flavors": flavor_catalog,
+            "default_flavor_id": default_flavor_id,
             "system_usage": system_usage,
             "user_usage": user_usage,
         },
@@ -493,6 +482,7 @@ async def admin_page(
         context["all_workspaces"] = (
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
+        context["admin_flavors"] = await configured_flavors(db)
     elif section == "images":
         image_templates = list_builtin_templates()
         from app.models.custom_template import CustomTemplate

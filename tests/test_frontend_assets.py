@@ -152,6 +152,16 @@ def test_workspace_flavor_picker_separates_gpu_and_uses_radio_controls():
     assert 'input[name="flavor_id"]:checked' in javascript
 
 
+def test_admin_workspace_page_exposes_persisted_flavor_toggles():
+    template = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
+
+    assert 'id="admin-flavor-settings-table"' in template
+    assert 'data-flavor-toggle="{{ flavor.id }}"' in template
+    assert "initAdminFlavorSettings();" in javascript
+    assert "/api/admin/flavors/" in javascript
+
+
 def test_dense_data_views_have_responsive_overflow_guards():
     base_css = (PROJECT_ROOT / "app/static/css/style.css").read_text(
         encoding="utf-8"

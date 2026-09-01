@@ -10,7 +10,7 @@
     <h1>Çalışma Alanlarım</h1>
     <p>İzole container geliştirme ortamlarınızı yönetin ve IDE bağlantılarını başlatın.</p>
   </div>
-  <button id="btn-open-create-modal" class="btn btn-primary" style="padding: 0.7rem 1.25rem; font-weight: 600;">
+  <button id="btn-open-create-modal" class="btn btn-primary" style="padding: 0.7rem 1.25rem; font-weight: 600;" {% if not templates or not flavors %}disabled title="Etkin şablon ve kaynak profili gerekli"{% endif %}>
     <span>+</span>
     <span>Yeni Çalışma Alanı</span>
   </button>
@@ -155,6 +155,7 @@
       <button id="btn-close-create-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
     </div>
 
+    {% if templates and flavors %}
     <form id="create-workspace-form">
       <input type="hidden" id="input-template-id" value="{{ templates[0].id }}">
 
@@ -219,8 +220,8 @@
           </div>
           <div class="flavor-grid flavor-grid-cpu">
             {% for flav in flavors if not flav.accelerator_count %}
-            <label class="selectable-card flavor-card {% if flav.id == 't1.micro' %}selected{% endif %}" data-flavor-id="{{ flav.id }}" data-flavor-summary="{{ flav.display_name }} · {{ flav.cpus }} CPU · {{ flav.memory_display }}">
-              <input class="flavor-choice-input" type="radio" name="flavor_id" value="{{ flav.id }}" {% if flav.id == 't1.micro' %}checked{% endif %}>
+            <label class="selectable-card flavor-card {% if flav.id == default_flavor_id %}selected{% endif %}" data-flavor-id="{{ flav.id }}" data-flavor-summary="{{ flav.display_name }} · {{ flav.cpus }} CPU · {{ flav.memory_display }}">
+              <input class="flavor-choice-input" type="radio" name="flavor_id" value="{{ flav.id }}" {% if flav.id == default_flavor_id %}checked{% endif %}>
               <span class="flavor-selected-mark" aria-hidden="true">✓</span>
               <span class="flavor-card-title">{{ flav.display_name or flav.name }}</span>
               <span class="flavor-card-code">{{ flav.id }}</span>
@@ -301,6 +302,12 @@
         <button type="submit" id="btn-submit-deploy" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Çalışma Alanını Kur</button>
       </div>
     </form>
+    {% else %}
+    <div class="empty-state" style="padding: 2rem 1rem;">
+      <h3>Yeni çalışma alanı oluşturma şu anda kapalı</h3>
+      <p>Yöneticinin en az bir çalışma alanı şablonunu ve kaynak profilini etkinleştirmesi gerekiyor.</p>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

@@ -49,6 +49,7 @@ from app.models.workspace_image import WorkspaceImage
 from app.models.custom_template import CustomTemplate
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.flavor_settings import FlavorSettings
 from app.agents.manager import agent_manager
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -57,6 +58,8 @@ from app.schemas.directory import (
     DirectoryTestResult,
 )
 from app.schemas.workspace import WorkspaceOut
+from app.schemas.workspace import FlavorInfo
+from app.schemas.flavor_settings import FlavorSettingsUpdate
 from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate, NodeLabelsUpdate
 from app.schemas.download_settings import DownloadSettingsOut, DownloadSettingsUpdate
 from app.schemas.workspace_image import (
@@ -100,6 +103,8 @@ from app.orchestrator.templates import (
     TEMPLATES,
     register_custom_template,
 )
+from app.orchestrator.flavors import get_flavor
+from app.workspace_catalog import configured_flavors
 from app.workspace_image_service import (
     WorkspaceImageError,
     image_archive_path,
@@ -459,6 +464,34 @@ async def update_workspace_image(
     await db.refresh(record)
     nodes = (await db.execute(select(Node).order_by(Node.name))).scalars().all()
     return _workspace_image_out(record, nodes)
+
+
+@admin_router.get("/flavors", response_model=list[FlavorInfo])
+async def list_admin_flavors(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await configured_flavors(db)
+
+
+@admin_router.patch("/flavors/{flavor_id}", response_model=FlavorInfo)
+async def update_flavor_settings(
+    flavor_id: str,
+    payload: FlavorSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    flavor = get_flavor(flavor_id)
+    if not flavor or not flavor.selectable:
+        raise HTTPException(status_code=404, detail="Kaynak profili bulunamadı")
+    record = await db.get(FlavorSettings, flavor_id)
+    if record is None:
+        record = FlavorSettings(flavor_id=flavor_id, enabled=payload.enabled)
+    else:
+        record.enabled = payload.enabled
+    db.add(record)
+    await db.commit()
+    return flavor.to_schema().model_copy(update={"enabled": record.enabled})
 
 
 @admin_router.delete("/workspace-images/{image_id}")
@@ -991,7 +1024,7 @@ async def update_jupyter_ai_settings(
     ):
         raise HTTPException(
             status_code=422,
-            detail="Jupyter AI etkinleştirildiğinde ortak gateway tokenı zorunludur.",
+            detail="Workspace AI etkinleştirildiğinde ortak gateway API anahtarı zorunludur.",
         )
     if record is None:
         record = JupyterAiSettings(id=1)

@@ -4,6 +4,7 @@ import json
 import pytest
 
 from app.config import settings
+from app.cline import managed_cline_files, openai_compatible_base_url
 from app.jupyter_ai import default_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
@@ -79,6 +80,120 @@ async def test_podman_service_mock_lifecycle():
     # 6. Delete
     assert await svc.delete_container(container_name) is True
     assert await svc.container_exists(container_name) is False
+
+
+def test_managed_cline_files_cover_legacy_and_sdk_storage():
+    files = managed_cline_files(
+        "https://llm-gateway.internal/",
+        "shared-api-key",
+        "local-coder",
+    )
+
+    assert openai_compatible_base_url("https://llm-gateway.internal") == (
+        "https://llm-gateway.internal/v1"
+    )
+    assert openai_compatible_base_url("https://llm-gateway.internal/v1") == (
+        "https://llm-gateway.internal/v1"
+    )
+    global_state = json.loads(files["globalState.json"])
+    secrets = json.loads(files["secrets.json"])
+    providers = json.loads(files["settings/providers.json"])
+    assert global_state["planModeApiProvider"] == "openai"
+    assert global_state["actModeApiProvider"] == "openai"
+    assert global_state["openAiBaseUrl"] == "https://llm-gateway.internal/v1"
+    assert global_state["planModeOpenAiModelId"] == "local-coder"
+    assert global_state["actModeOpenAiModelId"] == "local-coder"
+    assert secrets == {"openAiApiKey": "shared-api-key"}
+    assert providers["lastUsedProvider"] == "openai-compatible"
+    assert providers["providers"]["openai-compatible"]["settings"] == {
+        "provider": "openai-compatible",
+        "apiKey": "shared-api-key",
+        "model": "local-coder",
+        "baseUrl": "https://llm-gateway.internal/v1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
+    svc = PodmanService(podman_bin="podman")
+    svc._mock_mode = False
+    commands = []
+
+    async def fake_run_cmd(*args, timeout=None):
+        commands.append(args)
+        return (0, "container-id", "") if args[0] == "run" else (0, "", "")
+
+    async def fake_ensure_image_exists(*args, **kwargs):
+        return True
+
+    class FakeWriter:
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def fake_open_connection(*args, **kwargs):
+        return object(), FakeWriter()
+
+    monkeypatch.setattr(
+        svc, "ensure_workspace_storage", lambda user_id, workspace_id: "/workspace"
+    )
+    monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(svc, "ensure_image_exists", fake_ensure_image_exists)
+    monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+    monkeypatch.setattr(
+        settings, "JUPYTER_AI_GATEWAY_URL", "https://llm-gateway.internal"
+    )
+    monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
+    monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-api-key")
+
+    await svc.create_workspace_container(
+        workspace_id="12345678-1234-1234-1234-123456789abc",
+        user_id=1,
+        container_name="devcloud-1-12345678",
+        template_id="vscode-python",
+        flavor_id="t1.micro",
+        host_port=10100,
+        workspace_token="secret-workspace-token",
+    )
+
+    run_command = next(args for args in commands if args[0] == "run")
+    assert "/workspace:/home/coder/project:Z,U" in run_command
+    assert run_command[run_command.index("--entrypoint") + 1] == "/bin/bash"
+    assert "CLINE_DATA_DIR=/home/coder/.cline/data" in run_command
+    global_state = json.loads(
+        next(
+            value.removeprefix("DEVCLOUD_CLINE_GLOBAL_STATE_JSON=")
+            for value in run_command
+            if value.startswith("DEVCLOUD_CLINE_GLOBAL_STATE_JSON=")
+        )
+    )
+    secrets = json.loads(
+        next(
+            value.removeprefix("DEVCLOUD_CLINE_SECRETS_JSON=")
+            for value in run_command
+            if value.startswith("DEVCLOUD_CLINE_SECRETS_JSON=")
+        )
+    )
+    providers = json.loads(
+        next(
+            value.removeprefix("DEVCLOUD_CLINE_PROVIDERS_JSON=")
+            for value in run_command
+            if value.startswith("DEVCLOUD_CLINE_PROVIDERS_JSON=")
+        )
+    )
+    assert global_state["openAiBaseUrl"] == "https://llm-gateway.internal/v1"
+    assert global_state["actModeOpenAiModelId"] == "local-coder"
+    assert secrets["openAiApiKey"] == "shared-api-key"
+    assert providers["lastUsedProvider"] == "openai-compatible"
+    image_index = run_command.index("localhost/devcloud-vscode-python:latest")
+    startup_command = run_command[image_index + 1:]
+    assert startup_command[0] == "-lc"
+    assert "$CLINE_DATA_DIR/settings/providers.json" in startup_command[1]
+    assert "chmod 600" in startup_command[1]
+    assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
+    assert "--bind-addr 0.0.0.0:8080" in startup_command[1]
 
 
 @pytest.mark.asyncio

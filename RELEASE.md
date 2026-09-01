@@ -79,9 +79,9 @@ The workflow rejects a version tag that does not match `app.__version__`.
 The workflow publishes:
 
 - immutable and versioned controller and worker tags to Quay;
-- when `containers/jupyter-python/**` changed since the previous platform tag,
-  an immutable, smoke-tested Jupyter AI workspace image to Quay as
-  `jupyter-python-VERSION` and `jupyter-python-VERSION-SHORT_SHA`;
+- for every maintained workspace build context changed since the previous
+  platform tag, an immutable, smoke-tested workspace image to Quay as
+  `TEMPLATE-VERSION` and `TEMPLATE-VERSION-SHORT_SHA`;
 - one controller-managed platform update bundle;
 - one complete server offline bundle;
 - one complete worker offline bundle;
@@ -90,9 +90,9 @@ The workflow publishes:
 - the public GPG keyring when signing is enabled.
 
 Workspace images have an independent lifecycle and are not embedded in platform
-bundles. Releases therefore skip the Jupyter image job when its build context is
-unchanged. A manual workflow dispatch can select `rebuild_jupyter` to force a
-rebuild, for example after an interrupted registry publication.
+bundles. Releases therefore skip every workspace image whose build context is
+unchanged. A manual workflow dispatch can select `rebuild_jupyter` to force the
+Jupyter image, for example after an interrupted registry publication.
 
 Each generated archive is verified before publication. The `stable` branch is
 owned by the workflow and contains only `devcloud-update-channel.json`. Do not

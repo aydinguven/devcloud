@@ -7,6 +7,7 @@ from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.flavor_settings import FlavorSettings
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "WorkspaceImage",
     "WorkerBootstrapTicket",
     "JupyterAiSettings",
+    "FlavorSettings",
 ]

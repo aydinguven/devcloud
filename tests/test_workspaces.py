@@ -1,9 +1,10 @@
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.workspace_image import WorkspaceImage
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.podman_service import podman_service
 from tests.conftest import TEST_WORKER_ID
@@ -106,6 +107,147 @@ async def test_legacy_flavor_cannot_be_used_for_new_workspace(client: AsyncClien
     assert streamed.status_code == 200
     assert "Geçersiz kaynak profili: t1.mini" in streamed.text
     assert '"type": "done"' not in streamed.text
+
+
+@pytest.mark.asyncio
+async def test_admin_catalog_toggles_hide_new_choices_but_preserve_existing_workspace(
+    client: AsyncClient, db_session
+):
+    admin_headers = await get_authenticated_headers(client, "catalog_admin")
+    admin = (
+        await db_session.execute(
+            select(User).where(User.username == "catalog_admin")
+        )
+    ).scalar_one()
+    await db_session.execute(
+        update(User).where(User.id == admin.id).values(role=UserRole.ADMIN)
+    )
+    await db_session.commit()
+
+    user_headers = await get_authenticated_headers(client, "catalog_user")
+    existing = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Existing Catalog Workspace",
+            "description": "Must remain restartable",
+            "template_id": "vscode-python",
+            "flavor_id": "t1.nano",
+        },
+        headers=user_headers,
+    )
+    assert existing.status_code == 201, existing.text
+    workspace_id = existing.json()["id"]
+    assert (
+        await client.post(f"/api/workspaces/{workspace_id}/stop", headers=user_headers)
+    ).status_code == 200
+
+    image = WorkspaceImage(
+        id="77777777-7777-7777-7777-777777777777",
+        template_id="vscode-python",
+        display_name="Python managed",
+        image_ref="localhost/devcloud-vscode-python:latest",
+        source_type="upload",
+        source_ref="python.tar",
+        digest="sha256:" + "7" * 64,
+        sha256="8" * 64,
+        filename="catalog-toggle-python.tar",
+        size=1024,
+        architecture="amd64",
+        enabled=True,
+    )
+    db_session.add(image)
+    await db_session.commit()
+
+    disabled_image = await client.patch(
+        f"/api/admin/workspace-images/{image.id}",
+        json={"enabled": False},
+        headers=admin_headers,
+    )
+    assert disabled_image.status_code == 200
+    assert disabled_image.json()["enabled"] is False
+
+    disabled_flavor = await client.patch(
+        "/api/admin/flavors/t1.nano",
+        json={"enabled": False},
+        headers=admin_headers,
+    )
+    assert disabled_flavor.status_code == 200
+    assert disabled_flavor.json()["enabled"] is False
+
+    template_ids = {
+        item["id"] for item in (await client.get("/api/workspaces/templates")).json()
+    }
+    flavor_ids = {
+        item["id"] for item in (await client.get("/api/workspaces/flavors")).json()
+    }
+    assert "vscode-python" not in template_ids
+    assert "t1.nano" not in flavor_ids
+    hidden_dashboard = await client.get("/", headers=user_headers)
+    assert 'data-template-id="vscode-python"' not in hidden_dashboard.text
+    assert 'name="flavor_id" value="t1.nano"' not in hidden_dashboard.text
+
+    disabled_template_create = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Blocked Template",
+            "template_id": "vscode-python",
+            "flavor_id": "t1.micro",
+        },
+        headers=user_headers,
+    )
+    assert disabled_template_create.status_code == 400
+    assert disabled_template_create.json()["detail"] == "Şablon devre dışı: vscode-python"
+
+    disabled_flavor_stream = await client.post(
+        "/api/workspaces/deploy-stream",
+        json={
+            "name": "Blocked Flavor",
+            "template_id": "vscode-empty",
+            "flavor_id": "t1.nano",
+        },
+        headers=user_headers,
+    )
+    assert disabled_flavor_stream.status_code == 200
+    assert "Geçersiz kaynak profili: t1.nano" in disabled_flavor_stream.text
+    assert '"type": "done"' not in disabled_flavor_stream.text
+
+    admin_page = await client.get("/admin/workspaces", headers=admin_headers)
+    assert admin_page.status_code == 200
+    assert 'id="admin-flavor-settings-table"' in admin_page.text
+    assert 'data-flavor-toggle="t1.nano" data-enabled="false"' in admin_page.text
+
+    restarted = await client.post(
+        f"/api/workspaces/{workspace_id}/start", headers=user_headers
+    )
+    assert restarted.status_code == 200
+    assert restarted.json()["status"] == "running"
+
+    assert (
+        await client.patch(
+            f"/api/admin/workspace-images/{image.id}",
+            json={"enabled": True},
+            headers=admin_headers,
+        )
+    ).status_code == 200
+    assert (
+        await client.patch(
+            "/api/admin/flavors/t1.nano",
+            json={"enabled": True},
+            headers=admin_headers,
+        )
+    ).status_code == 200
+
+    template_ids = {
+        item["id"] for item in (await client.get("/api/workspaces/templates")).json()
+    }
+    flavor_ids = {
+        item["id"] for item in (await client.get("/api/workspaces/flavors")).json()
+    }
+    assert "vscode-python" in template_ids
+    assert "t1.nano" in flavor_ids
+    restored_dashboard = await client.get("/", headers=user_headers)
+    assert 'data-template-id="vscode-python"' in restored_dashboard.text
+    assert 'name="flavor_id" value="t1.nano"' in restored_dashboard.text
 
 
 @pytest.mark.asyncio

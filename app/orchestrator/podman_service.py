@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
+from app.cline import managed_cline_files
 from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
@@ -212,6 +213,8 @@ class PodmanService:
             raise ValueError("CPU profiline GPU CDI cihazı atanamaz.")
 
         storage_path = self.ensure_workspace_storage(user_id, workspace_id)
+        is_vscode = template.ide_type == "vscode"
+        is_jupyter = template.ide_type == "jupyter"
 
         if self._mock_mode:
             container_id = f"mock-cid-{workspace_id[:12]}"
@@ -273,12 +276,29 @@ class PodmanService:
             ])
 
         # Injected environment variables for auth & config
-        if "vscode" in template_id:
+        cline_files: dict[str, str] = {}
+        if is_vscode:
             cmd_args.extend([
                 "-e", f"PASSWORD={workspace_token}",
                 "-e", "DISABLE_TELEMETRY=true",
             ])
-        elif "jupyter" in template_id:
+            cline_files = managed_cline_files(
+                settings.JUPYTER_AI_GATEWAY_URL,
+                settings.JUPYTER_AI_GATEWAY_TOKEN,
+                settings.JUPYTER_AI_MODEL,
+            )
+            if cline_files:
+                cmd_args.extend([
+                    "--entrypoint", "/bin/bash",
+                    "-e", "CLINE_DATA_DIR=/home/coder/.cline/data",
+                    "-e", "DEVCLOUD_CLINE_GLOBAL_STATE_JSON="
+                    + cline_files["globalState.json"],
+                    "-e", "DEVCLOUD_CLINE_SECRETS_JSON="
+                    + cline_files["secrets.json"],
+                    "-e", "DEVCLOUD_CLINE_PROVIDERS_JSON="
+                    + cline_files["settings/providers.json"],
+                ])
+        elif is_jupyter:
             model_catalog = parse_model_catalog(
                 settings.JUPYTER_AI_MODEL_CATALOG_JSON,
                 settings.JUPYTER_AI_MODEL,
@@ -328,7 +348,7 @@ class PodmanService:
         # Image tag
         cmd_args.append(template.image_tag)
 
-        if "jupyter" in template_id:
+        if is_jupyter:
             cmd_args.extend([
                 "bash",
                 "-lc",
@@ -345,6 +365,23 @@ class PodmanService:
                 "--ServerApp.default_url=/lab",
                 "--ServerApp.trust_xheaders=True",
                 "--PersonaManager.default_persona_id=jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
+            ])
+        elif is_vscode and cline_files:
+            cmd_args.extend([
+                "-lc",
+                "install -d -m 700 \"$CLINE_DATA_DIR/settings\""
+                " && printf '%s' \"$DEVCLOUD_CLINE_GLOBAL_STATE_JSON\""
+                " > \"$CLINE_DATA_DIR/globalState.json\""
+                " && printf '%s' \"$DEVCLOUD_CLINE_SECRETS_JSON\""
+                " > \"$CLINE_DATA_DIR/secrets.json\""
+                " && printf '%s' \"$DEVCLOUD_CLINE_PROVIDERS_JSON\""
+                " > \"$CLINE_DATA_DIR/settings/providers.json\""
+                " && chmod 600 \"$CLINE_DATA_DIR/globalState.json\""
+                " \"$CLINE_DATA_DIR/secrets.json\""
+                " \"$CLINE_DATA_DIR/settings/providers.json\""
+                " && exec /usr/bin/entrypoint.sh"
+                f" --bind-addr 0.0.0.0:{template.default_port}"
+                f" --auth none {template.container_workdir}",
             ])
         elif template.startup_command:
             cmd_args.extend(template.startup_command)

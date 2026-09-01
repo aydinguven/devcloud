@@ -63,6 +63,9 @@ automatically.
 Workspace images are not part of the controller or worker base installation.
 An administrator imports a maintained template image under **Admin > Workspace
 Image'ları** from Quay, another reachable OCI registry, or an OCI/Docker archive.
+All four maintained VS Code images bake in the Cline extension; its gateway,
+API key, and model are injected from the controller-managed Workspace AI record
+when a workspace container starts.
 The controller converts registry and Docker inputs to a normalized Linux/amd64
 OCI archive, records its size and SHA-256, and stores registry credentials only
 in a temporary authentication file for the duration of the import.

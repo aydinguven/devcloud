@@ -490,8 +490,8 @@ cd devcloud
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Jupyter AI · On-Prem LLM</h2>
-      <p class="admin-section-description">Ortak gateway ayarını tüm kayıtlı worker'lara ve yeni Jupyter workspace'lerine dağıtın.</p>
+      <h2 class="card-title">Workspace AI · Jupyter + Cline</h2>
+      <p class="admin-section-description">Ortak gateway ayarını tüm kayıtlı worker'lara ve yeni veya yeniden oluşturulan Jupyter ve VS Code workspace'lerine dağıtın.</p>
     </div>
     <span id="jupyter-ai-status-badge" class="badge {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">
       {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}Etkin{% else %}Devre Dışı{% endif %}
@@ -501,11 +501,11 @@ cd devcloud
   <form id="jupyter-ai-settings-form" autocomplete="off">
     <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
       <input type="checkbox" name="enabled" {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}checked{% endif %}>
-      <span>Jupyter AI ortak erişimini etkinleştir</span>
+      <span>Ortak Jupyter AI ve Cline erişimini etkinleştir</span>
     </label>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">
-        <span class="form-label">Anthropic uyumlu gateway URL</span>
+        <span class="form-label">LiteLLM gateway root URL</span>
         <input class="form-input" name="gateway_url" type="url" value="{{ jupyter_ai_settings.gateway_url if jupyter_ai_settings else '' }}" placeholder="https://llm-gateway.internal.example">
       </label>
       <label class="form-group" style="margin: 0;">
@@ -519,12 +519,12 @@ cd devcloud
     </div>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">
-        <span class="form-label">Ortak gateway tokenı</span>
-        <input class="form-input" name="shared_token" type="password" autocomplete="new-password" placeholder="{% if jupyter_ai_settings and jupyter_ai_settings.encrypted_shared_token %}Kayıtlı tokenı korumak için boş bırakın{% else %}Ortak gateway tokenını girin{% endif %}">
+        <span class="form-label">Ortak gateway API anahtarı</span>
+        <input class="form-input" name="shared_token" type="password" autocomplete="new-password" placeholder="{% if jupyter_ai_settings and jupyter_ai_settings.encrypted_shared_token %}Kayıtlı anahtarı korumak için boş bırakın{% else %}Ortak gateway API anahtarını girin{% endif %}">
       </label>
       <label style="display: flex; gap: 0.5rem; align-items: center; align-self: end; min-height: 2.75rem;">
         <input type="checkbox" name="clear_token">
-        <span>Kayıtlı tokenı temizle</span>
+        <span>Kayıtlı API anahtarını temizle</span>
       </label>
     </div>
     <label style="display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0;">
@@ -537,7 +537,7 @@ cd devcloud
       <div class="card-header" style="padding: 0 0 0.5rem;">
         <div>
           <h3 class="card-title" style="font-size: 1rem;">Kullanıcı Model Kataloğu</h3>
-          <p class="admin-section-description">Sıra, Jupyter AI model seçicisindeki sıradır. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
+          <p class="admin-section-description">Sıra, Jupyter AI model seçicisindeki sıradır; varsayılan seçim Cline'a da uygulanır. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
         </div>
         <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
       </div>
@@ -563,7 +563,7 @@ cd devcloud
         {% endfor %}
       </div>
     </div>
-    <p class="text-muted">Token controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Yeni Jupyter container'larında kullanıcılar bu ortak tokenı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın.</p>
+    <p class="text-muted">API anahtarı controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Jupyter ve VS Code container kullanıcıları bu ortak anahtarı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın. Cline, root URL'ye otomatik olarak <code>/v1</code> ekler.</p>
     <div class="table-actions">
       <button id="btn-save-jupyter-ai" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
       <button id="btn-test-jupyter-ai" type="button" class="btn btn-secondary">Seçili Modeli Test Et</button>
@@ -790,6 +790,40 @@ cd devcloud
 {% endif %}
 
 {% if admin_section == 'workspaces' %}
+<section class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Oluşturulabilir Kaynak Profilleri</h2>
+      <p class="admin-section-description">Devre dışı bırakılan profiller kullanıcıların yeni çalışma alanı menüsünden kaldırılır. Mevcut çalışma alanları etkilenmez.</p>
+    </div>
+  </div>
+  <div class="data-table-shell responsive-card-table-shell">
+    <table class="table responsive-card-table" id="admin-flavor-settings-table">
+      <thead>
+        <tr>
+          <th>Profil</th>
+          <th>Kaynaklar</th>
+          <th>Tür</th>
+          <th>Durum</th>
+          <th>İşlemler</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for flavor in admin_flavors %}
+        <tr>
+          <td data-label="Profil"><strong>{{ flavor.display_name }}</strong><br><code>{{ flavor.id }}</code></td>
+          <td data-label="Kaynaklar">{{ flavor.cpus }} CPU · {{ flavor.memory_display }}</td>
+          <td data-label="Tür">{% if flavor.accelerator_count %}GPU{% else %}CPU{% endif %}</td>
+          <td data-label="Durum"><span data-flavor-status class="badge {% if flavor.enabled %}badge-running{% else %}badge-neutral{% endif %}">{% if flavor.enabled %}Etkin{% else %}Devre Dışı{% endif %}</span></td>
+          <td data-label="İşlemler"><button type="button" class="btn btn-secondary btn-sm" data-flavor-toggle="{{ flavor.id }}" data-enabled="{{ flavor.enabled|lower }}">{% if flavor.enabled %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="admin-flavor-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
+</section>
+
 <section class="card">
   <div class="card-header">
     <div>

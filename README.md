@@ -9,10 +9,10 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Podman Container Orchestration**: Rootless container lifecycle management with memory & CPU quotas.
 - **Persistent Workspace Storage**: Host bind-mounts maintain project files across container restarts and updates.
 - **Integrated Browser IDEs**:
-  - **VS Code (Empty Project)**: Clean environment with git and essential tools.
-  - **VS Code (Python 3.14 / 3.12)**: Preloaded with Python, `pip`, `uv`, and the official Python/Jupyter VS Code extensions.
+  - **VS Code (Empty Project)**: Clean environment with git, essential tools, and Cline.
+  - **VS Code (Python 3.14 / 3.12)**: Preloaded with Python, `pip`, `uv`, the official Python/Jupyter extensions, and Cline.
   - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
-  - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, and Red Hat Java Language Support.
+  - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, Red Hat Java Language Support, and Cline.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
   - `t1.micro`: 1 CPU, 1 GB RAM (Default profile for newly registered users)
@@ -179,7 +179,7 @@ sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
   --source-type git --repository https://git.example/devcloud.git --ref stable
 
 sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-  --bundle /root/devcloud-platform-update-v3.5.2-COMMIT.tar.gz
+  --bundle /root/devcloud-platform-update-VERSION-COMMIT.tar.gz
 ```
 
 The same two choices are available under **Admin > System > Platform
@@ -242,6 +242,36 @@ chmod +x containers/build_images.sh
 Import the resulting OCI/Docker archives, or a Quay/internal-registry image
 reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
 enabled images from the controller; the base installation does not build them.
+
+### Workspace AI through LiteLLM
+
+The maintained `jupyter-python` template includes Jupyter AI, Claude Code, and
+the Claude ACP adapter. Every built-in VS Code image includes Cline. Configure
+their shared gateway access under **Admin > Entegrasyonlar > Workspace AI**:
+
+1. Enter the LiteLLM root URL, for example `http://llm-gateway:5003`. Do not add
+   `/v1`; Claude Code appends its Anthropic paths and the managed Cline profile
+   uses the same root at `/v1` through its OpenAI-compatible provider.
+2. Store a restricted LiteLLM virtual key intended for all workspace users.
+   Never distribute the LiteLLM master key.
+3. Publish the exact LiteLLM aliases in **Kullanıcı Model Kataloğu**, save the
+   settings, and run **Seçili Modeli Test Et**. The test calls the selected model
+   from every enabled worker and reports HTTP status and latency.
+4. Start a new workspace. JupyterLab opens Claude through ACP, while VS Code
+   opens Cline with the gateway URL, shared API key, and default model already
+   configured. The Admin default is the initial model for both surfaces.
+
+New workers fetch these settings automatically. New workspace containers get
+the current settings at creation time. To update an existing workspace, stop
+it, remove only its stopped Podman container on the assigned worker with
+`podman rm -f <container-name>`, then start it again from DevCloud. Its
+bind-mounted workspace data is preserved. Do not use the dashboard **Delete**
+action for this operation because Delete removes persistent workspace storage.
+
+Platform and workspace-image releases are independent. A controller or worker
+update does not require a new workspace image unless its image definition or
+bundled dependencies changed. See [INSTALL.md](INSTALL.md#workspace-ai-and-the-on-prem-model-gateway)
+for the full gateway, security, and troubleshooting notes.
 
 #### Step 4: Configure Systemd Service
 Copy and edit `deploy/devcloud.service` into `/etc/systemd/system/`:
@@ -450,8 +480,8 @@ intelligent-nobel/
 | `POST` | `/api/auth/login` | Login and receive JWT / session cookie | No |
 | `POST` | `/api/auth/logout` | Clear session cookie | Yes |
 | `GET` | `/api/auth/me` | Get current user profile | Yes |
-| `GET` | `/api/workspaces/templates` | List all available templates | No |
-| `GET` | `/api/workspaces/flavors` | List selectable resource flavors (`t1.nano` through `t1.xlarge`) | No |
+| `GET` | `/api/workspaces/templates` | List admin-enabled templates available for new workspaces | No |
+| `GET` | `/api/workspaces/flavors` | List admin-enabled selectable resource flavors | No |
 | `GET` | `/api/workspaces` | List current user's workspaces | Yes |
 | `POST` | `/api/workspaces` | Create & deploy new workspace container | Yes |
 | `GET` | `/api/workspaces/usage` | Host usage and current user's quota summary | Yes |

@@ -47,6 +47,12 @@ Image'ları** from a Quay/internal-registry reference or an OCI/Docker tar
 archive. The controller normalizes and verifies the archive, then enrolled
 workers download it over the authenticated controller connection. Create worker
 records under **Admin > Worker'lar** and retain each one-time enrollment token.
+For a managed template, disabling its active image removes that template from
+the user creation menu and blocks direct create API requests; enabling an image
+restores it. Resource flavors can be enabled or disabled independently under
+**Admin > Çalışma Alanları**. These controls affect new workspaces only, so an
+existing workspace remains startable and restartable with its saved template
+and flavor.
 
 ## All-in-one
 
@@ -103,18 +109,19 @@ host Podman through its socket, and reports exact synchronized checksums.
 Scheduling waits until a worker reports the currently enabled checksum for the
 requested template.
 
-### Jupyter AI and the on-prem model gateway
+### Workspace AI and the on-prem model gateway
 
 The maintained jupyter-python workspace image includes Jupyter AI 3, notebook
 magic commands, Claude Code, and the Claude ACP adapter. This preserves the
 agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
-on-prem gateway.
+on-prem gateway. Every maintained VS Code image also includes Cline and receives
+an OpenAI-compatible profile generated from the same central gateway record.
 
-Configure the gateway once under **Admin > Entegrasyonlar > Jupyter AI ·
-On-Prem LLM**. The controller encrypts the shared token at rest. Every enrolled
+Configure the gateway once under **Admin > Entegrasyonlar > Workspace AI ·
+Jupyter + Cline**. The controller encrypts the shared API key at rest. Every enrolled
 worker fetches the central setting on startup and every 30 seconds, so a newly
-installed worker needs no Jupyter AI file or token provisioning.
+installed worker needs no local Jupyter AI or Cline credential provisioning.
 The same page manages the shared model catalogue, display names, descriptions,
 and the model initially selected for a new Claude session. The default catalogue
 contains the former on-prem Qwen model plus the GLM, DeepSeek, Qwen Coder, and
@@ -134,11 +141,15 @@ JUPYTER_AI_GATEWAY_MODEL_DISCOVERY=false
 JUPYTER_AI_MODEL_CATALOG_JSON=[]
 ~~~
 
-The gateway URL is the root URL; Claude Code appends the Anthropic messages
-path. It must be reachable from the workspace container network. Do not use
-127.0.0.1 unless the gateway runs inside the same workspace container. Use
-routable internal DNS/IP, and install the internal CA in the maintained
-workspace image when HTTPS uses a private certificate authority.
+The gateway URL is the root URL, for example
+`http://llm-gateway.internal.example:5003`. Do not append `/v1`: DevCloud and
+Claude Code append `/v1/messages` and `/v1/models` as needed, while Cline uses
+the same root at `/v1` through its OpenAI-compatible provider. A configured URL
+ending in `/v1` therefore causes requests such as `/v1/v1/messages` and usually
+returns HTTP 404. The root URL must be reachable from the workspace container
+network. Do not use 127.0.0.1 unless the gateway runs inside the same workspace
+container. Use routable internal DNS/IP, and install the internal CA in the
+maintained workspace image when HTTPS uses a private certificate authority.
 
 Use a restricted LiteLLM virtual key for workspaces, never the LiteLLM master
 key. Jupyter AI launches Claude through the ACP adapter rather than calling the
@@ -155,21 +166,35 @@ sudo systemctl restart devcloud-worker.service
 ~~~
 
 Only newly created workspace containers receive changed environment values.
-Existing containers must be recreated to pick up a changed gateway or model.
+Existing containers must be recreated to pick up a changed gateway, token, or
+model catalogue. Stop the workspace, run `podman rm -f <container-name>` on its
+assigned worker, and start it again from DevCloud. The workspace directory is a
+bind mount and is preserved. Do not use the dashboard Delete action for this
+operation because Delete removes the persistent workspace storage.
 
 The Admin default is only the initial model; it does not lock a workspace to a
 single model. Users can switch among the centrally published routes from
-Claude's model picker or with `/model`. Enable gateway discovery to include
-additional models returned by LiteLLM's `/v1/models` endpoint. Claude Code
-accepts discovered gateway IDs beginning with `claude` or `anthropic`, so
-give any dynamically discovered LiteLLM aliases one of those prefixes. The
-five explicit catalogue slots do not require those prefixes.
+Claude's model picker or with `/model`. Catalogue model IDs are sent to LiteLLM
+unchanged, so they must exactly match configured aliases such as
+`qwen3.6-35b` or `openrouter/provider/model`. Optional gateway discovery reads
+LiteLLM's `/v1/models` endpoint. Claude Code only exposes dynamically discovered
+gateway IDs beginning with `claude` or `anthropic`; use the explicit catalogue
+for other LiteLLM and OpenRouter aliases.
 
-The shared gateway token is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
-workspace, so users can open Claude chat without entering credentials. This
-also means each workspace user can inspect and reuse the token. Use a gateway
-credential intended for this shared audience, restrict it at the gateway, and
-rotate it regularly.
+After saving, select a catalogue entry and run **Seçili Modeli Test Et**. The
+controller asks every enabled worker to send a real Anthropic-compatible
+request with at most four output tokens using the saved gateway and token. A
+successful result confirms worker-to-gateway routing, authentication, and model
+alias resolution before a workspace is created. An HTTP 404 usually indicates
+an extra `/v1`; a model-not-found response indicates that the catalogue ID does
+not match a LiteLLM alias available to the shared key.
+
+The shared gateway API key is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
+workspace and written into Cline's managed provider state in every VS Code
+workspace, so users can open either assistant without entering credentials.
+This also means each workspace user can inspect and reuse the key. Use a
+gateway credential intended for this shared audience, restrict it at the
+gateway, and rotate it regularly.
 
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
@@ -178,10 +203,15 @@ are also installed:
 %load_ext jupyter_ai_magic_commands
 ~~~
 
-For 3.5.2, import
-`quay.io/aaslangoren/devcloud:jupyter-python-3.5.2` under **Admin > Workspace
-Image'ları** as the source for the `jupyter-python` template. Enrolled workers
-then receive the controller-managed archive automatically.
+The current maintained workspace image is
+`quay.io/aaslangoren/devcloud:jupyter-python-3.5.2`. DevCloud 3.5.5 continues to
+use that image because no Jupyter image build context changed in the 3.5.3,
+3.5.4, or 3.5.5 platform releases. Import it under **Admin > Workspace Image'ları** as the
+source for the `jupyter-python` template. Enrolled workers then receive the
+controller-managed archive automatically. A future platform release publishes
+a new Jupyter tag only when the image definition or bundled dependencies change.
+The four maintained VS Code images must likewise be rebuilt or republished after
+this change so their baked-in Cline extension is present on enrolled workers.
 
 ## Updates
 
@@ -205,7 +235,7 @@ On the release builder:
     python3 deploy/build_platform_update.py \
       --signing-key GPG_KEY_ID \
       --channel-output /tmp/release-channel/devcloud-update-channel.json \
-      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-v3.5.2-COMMIT.tar.gz
+      --channel-url https://artifacts.example/devcloud/devcloud-platform-update-VERSION-COMMIT.tar.gz
 
 Commit only `devcloud-update-channel.json` to the selected `stable` branch (or
 another configured branch/tag). Store the multi-gigabyte bundle in a Git
@@ -233,7 +263,7 @@ telemetry.
 For an air-gapped or local update:
 
     sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes update \
-      --bundle /root/devcloud-platform-update-v3.5.2-COMMIT.tar.gz
+      --bundle /root/devcloud-platform-update-VERSION-COMMIT.tar.gz
 
 Official releases contain `release.json` and `release.json.asc` and are
 verified by `/etc/devcloud/release-keyring.gpg`. Unsigned updates require an

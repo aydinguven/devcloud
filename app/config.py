@@ -73,9 +73,9 @@ class Settings(BaseSettings):
     USE_MOCK_PODMAN: bool = False
     PODMAN_RUN_TIMEOUT_SECONDS: float = 30.0
 
-    # Optional Anthropic-compatible on-prem gateway defaults for the Claude
-    # ACP persona in Jupyter AI. The shared token is intentionally forwarded
-    # to every Jupyter workspace hosted by the worker.
+    # Optional on-prem gateway defaults for Jupyter AI and Cline. The shared
+    # credential is intentionally forwarded to every AI-enabled workspace
+    # hosted by the worker.
     JUPYTER_AI_GATEWAY_URL: str = ""
     JUPYTER_AI_MODEL: str = ""
     JUPYTER_AI_GATEWAY_TOKEN: str = ""

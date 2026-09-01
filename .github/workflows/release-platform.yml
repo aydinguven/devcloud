@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       publish_quay:
-        description: Push versioned runtime images and any required Jupyter image to Quay
+        description: Push versioned runtime images and all changed workspace images to Quay
         required: true
         default: true
         type: boolean
@@ -38,7 +38,8 @@ jobs:
     name: Resolve release build scope
     runs-on: ubuntu-24.04
     outputs:
-      build_jupyter: ${{ steps.scope.outputs.build_jupyter }}
+      build_workspace: ${{ steps.scope.outputs.build_workspace }}
+      workspace_matrix: ${{ steps.scope.outputs.workspace_matrix }}
     env:
       FORCE_JUPYTER_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_jupyter }}
     steps:
@@ -47,17 +48,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Jupyter workspace image changes
+      - name: Detect changed workspace image contexts
         id: scope
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
-            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
-            echo "Jupyter image rebuild explicitly requested."
-            exit 0
-          fi
-
           tag_base="${GITHUB_SHA}"
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && git rev-parse --verify "${GITHUB_SHA}^" >/dev/null 2>&1; then
             tag_base="${GITHUB_SHA}^"
@@ -66,24 +61,39 @@ jobs:
             git tag --merged "${tag_base}" --sort=-version:refname --list 'v*.*.*'
           )
           previous_tag="${previous_tags[0]:-}"
-          if [[ -z "${previous_tag}" ]]; then
-            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
-            echo "No previous platform release tag exists; building the Jupyter image."
-          elif git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- containers/jupyter-python; then
-            echo "build_jupyter=false" >> "${GITHUB_OUTPUT}"
-            echo "Jupyter build context is unchanged since ${previous_tag}; skipping image build."
+
+          workspace_images=()
+          for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python; do
+            if [[ "${image}" == "jupyter-python" && "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
+              workspace_images+=("${image}")
+              continue
+            fi
+            if [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- "containers/${image}"; then
+              workspace_images+=("${image}")
+            fi
+          done
+
+          matrix_json="$(printf '%s\n' "${workspace_images[@]}" | python3 -c 'import json, sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))')"
+          echo "workspace_matrix=${matrix_json}" >> "${GITHUB_OUTPUT}"
+          if ((${#workspace_images[@]})); then
+            echo "build_workspace=true" >> "${GITHUB_OUTPUT}"
+            echo "Workspace images selected: ${workspace_images[*]}"
           else
-            echo "build_jupyter=true" >> "${GITHUB_OUTPUT}"
-            echo "Jupyter build context changed since ${previous_tag}; building image."
+            echo "build_workspace=false" >> "${GITHUB_OUTPUT}"
+            echo "No workspace image build contexts changed since ${previous_tag}."
           fi
 
-  jupyter_workspace:
-    name: Build and publish Jupyter AI workspace
+  workspace_images:
+    name: Build and publish ${{ matrix.image }} workspace
     needs: release_scope
-    if: needs.release_scope.outputs.build_jupyter == 'true'
+    if: needs.release_scope.outputs.build_workspace == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.release_scope.outputs.workspace_matrix) }}
     env:
       QUAY_REGISTRY: quay.io
       QUAY_REPOSITORY: aaslangoren/devcloud
@@ -111,21 +121,27 @@ jobs:
           echo "DEVCLOUD_VERSION=${version}" >> "${GITHUB_ENV}"
           echo "SHORT_SHA=${GITHUB_SHA:0:12}" >> "${GITHUB_ENV}"
 
-      - name: Build and smoke-test Jupyter AI image
+      - name: Build and smoke-test workspace image
         shell: bash
         run: |
           set -Eeuo pipefail
-          local_image="localhost/devcloud-jupyter-python:${DEVCLOUD_VERSION}"
+          image="${{ matrix.image }}"
+          local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
           docker build --pull --platform linux/amd64 \
-            --file containers/jupyter-python/Containerfile \
+            --file "containers/${image}/Containerfile" \
             --tag "${local_image}" \
-            containers/jupyter-python
-          docker run --rm --entrypoint python "${local_image}" \
-            -c "import importlib.metadata as m; print(m.version('jupyter-ai'))"
-          docker run --rm --entrypoint bash "${local_image}" -lc \
-            'node --version && claude --version && command -v claude-agent-acp && npm list --global --depth=0'
+            "containers/${image}"
+          if [[ "${image}" == "jupyter-python" ]]; then
+            docker run --rm --entrypoint python "${local_image}" \
+              -c "import importlib.metadata as m; print(m.version('jupyter-ai'))"
+            docker run --rm --entrypoint bash "${local_image}" -lc \
+              'node --version && claude --version && command -v claude-agent-acp && npm list --global --depth=0'
+          else
+            docker run --rm --entrypoint bash "${local_image}" -lc \
+              'code-server --list-extensions | grep -Fx saoudrizwan.claude-dev'
+          fi
 
-      - name: Push immutable Jupyter AI image tags
+      - name: Push immutable workspace image tags
         if: env.PUBLISH_QUAY == 'true'
         shell: bash
         run: |
@@ -137,10 +153,11 @@ jobs:
           printf '%s' "${QUAY_PASSWORD}" |
             docker login --username "${QUAY_USERNAME}" --password-stdin "${QUAY_REGISTRY}"
           trap 'docker logout "${QUAY_REGISTRY}" >/dev/null 2>&1 || true' EXIT
-          local_image="localhost/devcloud-jupyter-python:${DEVCLOUD_VERSION}"
+          image="${{ matrix.image }}"
+          local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
           for remote_tag in \
-            "jupyter-python-${DEVCLOUD_VERSION}" \
-            "jupyter-python-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
+            "${image}-${DEVCLOUD_VERSION}" \
+            "${image}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
             remote_image="${QUAY_REGISTRY}/${QUAY_REPOSITORY}:${remote_tag}"
             docker tag "${local_image}" "${remote_image}"
             docker push "${remote_image}"
@@ -148,11 +165,11 @@ jobs:
 
   release:
     name: Build and publish Rocky 10 platform
-    needs: [release_scope, jupyter_workspace]
+    needs: [release_scope, workspace_images]
     if: >-
       always() &&
       needs.release_scope.result == 'success' &&
-      (needs.jupyter_workspace.result == 'success' || needs.jupyter_workspace.result == 'skipped')
+      (needs.workspace_images.result == 'success' || needs.workspace_images.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     environment: release

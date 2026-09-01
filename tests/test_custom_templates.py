@@ -59,6 +59,7 @@ async def test_custom_template_lifecycle(client: AsyncClient, db_session):
     assert resolved is not None
     assert resolved.name == "Rust Web Backend"
     assert resolved.default_port == 8080
+    assert resolved.ide_type == "vscode"
 
     # 4. Delete custom template
     del_res = await client.delete("/api/admin/templates/custom-rust-web", headers=headers)
