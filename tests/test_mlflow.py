@@ -291,3 +291,81 @@ async def test_mlflow_run_detail_artifacts_lineage_and_comparison(
     assert compare.status_code == 200, compare.text
     assert [run["run_id"] for run in compare.json()["runs"]] == ["run-1", "run-2"]
     assert compare.json()["runs"][0]["metrics_map"]["loss"] == 0.1
+
+
+@pytest.mark.asyncio
+async def test_mlflow_overview_metric_history_and_safe_artifact_preview(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, _ = await _user_headers(client, "mlflow_analytics")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload("analytics-token", "https://analytics.internal"),
+    )
+
+    async def fake_experiments(self, page_token="", max_results=100):
+        return {"experiments": [{"experiment_id": "9", "name": "Risk"}]}
+
+    async def fake_models(self, search="", page_token="", max_results=100):
+        return {"registered_models": [{"name": "risk-model", "latest_versions": [{"version": "2"}]}]}
+
+    async def fake_runs(self, experiment_ids, filter_string="", page_token="", max_results=100):
+        return {"runs": [{"info": {"run_id": "run-9", "experiment_id": "9", "status": "FINISHED", "start_time": 10}, "data": {"metrics": [{"key": "loss", "value": 0.1}]}}]}
+
+    async def fake_history(self, run_id, metric_key, max_results=2000):
+        assert (run_id, metric_key) == ("run-9", "loss")
+        return {"metrics": [{"value": index / 1000, "step": index, "timestamp": index} for index in range(600)]}
+
+    async def fake_artifacts(self, run_id, path="", page_token=""):
+        assert run_id == "run-9"
+        return {"files": [{"path": "reports/result.json", "is_dir": False, "file_size": 12}]}
+
+    async def fake_download(self, run_id, path, *, max_bytes):
+        assert run_id == "run-9" and path == "reports/result.json"
+        assert max_bytes == 2 * 1024 * 1024
+        return b'{"ok": true}', "application/json"
+
+    monkeypatch.setattr(MlflowClient, "search_experiments", fake_experiments)
+    monkeypatch.setattr(MlflowClient, "search_registered_models", fake_models)
+    monkeypatch.setattr(MlflowClient, "search_runs", fake_runs)
+    monkeypatch.setattr(MlflowClient, "get_metric_history", fake_history)
+    monkeypatch.setattr(MlflowClient, "list_artifacts", fake_artifacts)
+    monkeypatch.setattr(MlflowClient, "download_artifact", fake_download)
+
+    overview = await client.get("/api/mlflow/overview", headers=headers)
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["experiment_count"] == 1
+    assert overview.json()["model_count"] == 1
+    assert overview.json()["status_counts"] == {"FINISHED": 1}
+
+    history = await client.get("/api/mlflow/runs/run-9/metrics/loss/history", headers=headers)
+    assert history.status_code == 200, history.text
+    assert history.json()["source_point_count"] == 600
+    assert len(history.json()["points"]) == 500
+    assert history.json()["points"][0]["step"] == 0
+    assert history.json()["points"][-1]["step"] == 599
+
+    preview = await client.get(
+        "/api/mlflow/runs/run-9/artifacts/preview",
+        headers=headers,
+        params={"path": "reports/result.json"},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["kind"] == "text"
+    assert preview.json()["content"] == '{"ok": true}'
+
+    traversal = await client.get(
+        "/api/mlflow/runs/run-9/artifacts/preview",
+        headers=headers,
+        params={"path": "../secret.txt"},
+    )
+    assert traversal.status_code == 400
+
+    unsupported = await client.get(
+        "/api/mlflow/runs/run-9/artifacts/preview",
+        headers=headers,
+        params={"path": "model.pkl"},
+    )
+    assert unsupported.status_code == 415

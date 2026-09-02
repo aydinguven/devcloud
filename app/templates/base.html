@@ -28,7 +28,7 @@
     <div class="nav-links">
       {% if user %}
         <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Çalışma Alanları</a>
-        <a href="/experiments" class="nav-link {% if request.url.path.startswith('/models') or request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}">MLflow</a>
+        <a href="/mlflow" class="nav-link {% if request.url.path.startswith('/mlflow') or request.url.path.startswith('/models') or request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}">MLflow</a>
         {% if user.role == "admin" %}
           <a href="/admin" class="nav-link nav-link-admin {% if request.url.path.startswith('/admin') %}active{% endif %}">Yönetim</a>
         {% endif %}

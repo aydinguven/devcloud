@@ -256,6 +256,7 @@ async def init_db() -> None:
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401
     from app.models.jupyter_ai_settings import JupyterAiSettings  # noqa: F401
     from app.models.flavor_settings import FlavorSettings  # noqa: F401
+    from app.models.template_settings import TemplateSettings  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

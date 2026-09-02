@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 
 
 class MigrationError(RuntimeError):
@@ -91,6 +91,28 @@ async def _record_version(conn, version: int, name: str) -> None:
             "applied_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+async def _expand_flavor_settings(conn) -> None:
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("flavor_settings")
+        }
+    )
+    definitions = {
+        "is_custom": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "display_name": "VARCHAR(100) NOT NULL DEFAULT ''",
+        "description": "VARCHAR(255) NOT NULL DEFAULT ''",
+        "cpus": "FLOAT",
+        "memory_mb": "INTEGER",
+        "accelerator_count": "INTEGER",
+        "accelerator_vendor": "VARCHAR(50) NOT NULL DEFAULT ''",
+        "accelerator_memory_mb": "INTEGER",
+    }
+    for name, definition in definitions.items():
+        if name not in columns:
+            await conn.execute(text(f"ALTER TABLE flavor_settings ADD COLUMN {name} {definition}"))
 
 
 async def _applied_versions(conn) -> set[int]:
@@ -463,6 +485,9 @@ async def upgrade() -> None:
         if 12 not in applied:
             await _sync_mlflow_settings_id_sequence(conn)
             await _record_version(conn, 12, "create MLflow settings ID sequence")
+        if 13 not in applied:
+            await _expand_flavor_settings(conn)
+            await _record_version(conn, 13, "custom and editable flavor profiles")
 
 
 async def current_version() -> int:

@@ -583,6 +583,15 @@ class WorkerAgent:
     async def handle_container_command(self, action: str, payload: dict) -> dict:
         name = str(payload.get("container_name") or "")
         if action == "container.create":
+            template_definition = payload.get("template_definition")
+            flavor_definition = payload.get("flavor_definition")
+            if isinstance(template_definition, dict):
+                from app.orchestrator.templates import get_template, register_custom_template
+                if not get_template(str(template_definition.get("template_id") or "")):
+                    register_custom_template(**template_definition)
+            if isinstance(flavor_definition, dict):
+                from app.orchestrator.flavors import Flavor, register_flavor
+                register_flavor(Flavor(**flavor_definition))
             allowed = {
                 "workspace_id", "user_id", "container_name", "template_id",
                 "flavor_id", "host_port", "workspace_token",
@@ -912,6 +921,37 @@ class WorkerAgent:
             await target.send(base64.b64decode(data, validate=True))
 
     async def handle_system_command(self, action: str, payload: dict) -> dict:
+        if action == "system.catalog_sync":
+            from app.orchestrator.flavors import BUILTIN_FLAVOR_IDS, FLAVORS, Flavor, register_flavor
+            from app.orchestrator.templates import BUILTIN_TEMPLATE_IDS, TEMPLATES, register_custom_template
+
+            flavors = payload.get("flavors") or []
+            templates = payload.get("templates") or []
+            if not isinstance(flavors, list) or not isinstance(templates, list):
+                raise ValueError("Geçersiz workspace kataloğu.")
+            desired_flavors = set()
+            for item in flavors:
+                if not isinstance(item, dict):
+                    continue
+                definition = {key: item[key] for key in Flavor.__dataclass_fields__ if key in item}
+                flavor = Flavor(**definition)
+                register_flavor(flavor)
+                desired_flavors.add(flavor.id)
+            for flavor_id in set(FLAVORS) - set(BUILTIN_FLAVOR_IDS) - desired_flavors:
+                FLAVORS.pop(flavor_id, None)
+            desired_templates = set()
+            for item in templates:
+                if not isinstance(item, dict):
+                    continue
+                definition = dict(item)
+                definition["template_id"] = definition.pop("id", "")
+                template = register_custom_template(**definition)
+                desired_templates.add(template.id)
+            for template_id in set(TEMPLATES) - set(BUILTIN_TEMPLATE_IDS) - desired_templates:
+                TEMPLATES.pop(template_id, None)
+            return {
+                "message": f"{len(desired_flavors)} flavor ve {len(desired_templates)} özel şablon güncellendi."
+            }
         if action == "system.jupyter_ai_test":
             gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
             model_id = str(payload.get("model_id") or "").strip()
