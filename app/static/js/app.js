@@ -29,44 +29,99 @@ function initAdminFlavorSettings() {
   if (!table) return;
   const status = document.getElementById("admin-flavor-settings-status");
 
+  const request = async (url, options = {}) => {
+    const response = await fetch(url, options);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
+    return result;
+  };
+  const show = (message, error = false) => {
+    status.textContent = message;
+    status.className = `quota-form-status ${error ? "quota-status-error" : "quota-status-success"}`;
+  };
+
   table.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-flavor-toggle]");
-    if (!button) return;
-    const flavorId = button.dataset.flavorToggle;
-    const enabled = button.dataset.enabled !== "true";
-    button.disabled = true;
-    if (status) {
-      status.textContent = `${flavorId} güncelleniyor...`;
-      status.className = "quota-form-status";
-    }
+    const save = event.target.closest("[data-flavor-save]");
+    const remove = event.target.closest("[data-flavor-delete]");
+    if (!button && !save && !remove) return;
+    const action = button || save || remove;
+    const flavorId = action.dataset.flavorToggle || action.dataset.flavorSave || action.dataset.flavorDelete;
+    action.disabled = true;
+    status.textContent = `${flavorId} güncelleniyor...`;
     try {
-      const response = await fetch(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({enabled}),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
-      const row = button.closest("tr");
+      if (remove) {
+        if (!window.confirm(`${flavorId} kaynak profili silinsin mi?`)) return;
+        await request(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {method:"DELETE"});
+        action.closest("tr").remove();
+        show(`${flavorId} silindi. Worker'lara Güncelle düğmesiyle kataloğu dağıtın.`);
+        return;
+      }
+      const row = action.closest("tr");
+      const payload = button
+        ? {enabled: button.dataset.enabled !== "true"}
+        : {
+            display_name: row.querySelector('[data-flavor-field="display_name"]').value.trim(),
+            cpus: Number(row.querySelector('[data-flavor-field="cpus"]').value),
+            memory_mb: Number(row.querySelector('[data-flavor-field="memory_mb"]').value),
+          };
+      const result = await request(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+      const toggle = row.querySelector("[data-flavor-toggle]");
       const badge = row.querySelector("[data-flavor-status]");
-      button.dataset.enabled = String(result.enabled);
-      button.textContent = result.enabled ? "Devre Dışı Bırak" : "Etkinleştir";
+      toggle.dataset.enabled = String(result.enabled);
+      toggle.textContent = result.enabled ? "Devre Dışı Bırak" : "Etkinleştir";
       badge.className = `badge ${result.enabled ? "badge-running" : "badge-neutral"}`;
       badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
-      if (status) {
-        status.textContent = result.enabled
-          ? `${flavorId} yeniden oluşturma menüsünde gösteriliyor.`
-          : `${flavorId} yeni çalışma alanları için gizlendi.`;
-        status.className = "quota-form-status quota-status-success";
-      }
+      show(`${flavorId} kaydedildi. Worker'lara Güncelle düğmesiyle kataloğu dağıtın.`);
     } catch (error) {
-      if (status) {
-        status.textContent = error.message;
-        status.className = "quota-form-status quota-status-error";
-      }
+      show(error.message, true);
     } finally {
-      button.disabled = false;
+      action.disabled = false;
     }
+  });
+
+  document.getElementById("admin-flavor-create-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form).entries());
+    values.cpus = Number(values.cpus); values.memory_mb = Number(values.memory_mb);
+    try {
+      await request("/api/admin/flavors", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(values)});
+      window.location.reload();
+    } catch (error) { show(error.message, true); }
+  });
+
+  document.getElementById("btn-sync-workspace-catalog")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget; button.disabled = true; status.textContent = "Worker katalogları güncelleniyor...";
+    try {
+      const result = await request("/api/admin/catalog/sync", {method:"POST"});
+      const failures = (result.workers || []).filter(item => !item.success);
+      show(`${result.success_count}/${result.total_count} worker güncellendi${failures.length ? `; ${failures.map(item => `${item.node_name}: ${item.message}`).join(", ")}` : "."}`, Boolean(failures.length));
+    } catch (error) { show(error.message, true); }
+    finally { button.disabled = false; }
+  });
+
+  const templateTable = document.getElementById("admin-custom-template-table");
+  const templateStatus = document.getElementById("admin-template-settings-status");
+  templateTable?.addEventListener("click", async (event) => {
+    const save = event.target.closest("[data-template-save]");
+    const remove = event.target.closest("[data-template-delete]");
+    if (!save && !remove) return;
+    const row = (save || remove).closest("tr"), templateId = row.dataset.templateId;
+    try {
+      if (remove) {
+        if (!window.confirm(`${templateId} workspace tipi ve controller image arşivleri silinsin mi?`)) return;
+        await request(`/api/admin/templates/${encodeURIComponent(templateId)}`, {method:"DELETE"});
+        row.remove();
+        templateStatus.textContent = `${templateId} ve ilişkili controller image arşivleri silindi.`;
+      } else {
+        const payload = {};
+        row.querySelectorAll("[data-template-field]:not(:disabled)").forEach(input => { payload[input.dataset.templateField] = input.type === "number" ? Number(input.value) : input.value.trim(); });
+        await request(`/api/admin/templates/${encodeURIComponent(templateId)}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+        templateStatus.textContent = `${templateId} kaydedildi.`;
+      }
+      templateStatus.className = "quota-form-status quota-status-success";
+    } catch (error) { templateStatus.textContent = error.message; templateStatus.className = "quota-form-status quota-status-error"; }
   });
 }
 

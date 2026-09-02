@@ -43,8 +43,39 @@ from app.workspace_catalog import (
     flavor_enabled,
     list_enabled_flavors,
     list_enabled_templates,
+    resolve_flavor,
     template_enabled,
 )
+
+
+def _template_definition(template) -> dict:
+    return {
+        "template_id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "category": template.category,
+        "image_tag": template.image_tag,
+        "default_port": template.default_port,
+        "ide_type": template.ide_type,
+        "icon": template.icon,
+    }
+
+
+def _flavor_definition(flavor: Flavor) -> dict:
+    return {
+        "id": flavor.id,
+        "name": flavor.name,
+        "display_name": flavor.display_name,
+        "description": flavor.description,
+        "cpus": flavor.cpus,
+        "memory_mb": flavor.memory_mb,
+        "memory_display": flavor.memory_display,
+        "accelerator_count": flavor.accelerator_count,
+        "accelerator_vendor": flavor.accelerator_vendor,
+        "accelerator_memory_mb": flavor.accelerator_memory_mb,
+        "accelerator_display": flavor.accelerator_display,
+        "selectable": flavor.selectable,
+    }
 
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
@@ -255,7 +286,7 @@ async def create_workspace(
     if not await template_enabled(db, data.template_id):
         raise HTTPException(status_code=400, detail=f"Şablon devre dışı: {data.template_id}")
 
-    flavor = get_flavor(data.flavor_id)
+    flavor = await resolve_flavor(db, data.flavor_id)
     if not flavor or not await flavor_enabled(db, data.flavor_id):
         raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
 
@@ -284,6 +315,8 @@ async def create_workspace(
             container_name=workspace.container_name,
             template_id=template.id,
             flavor_id=flavor.id,
+            template_definition=_template_definition(template),
+            flavor_definition=_flavor_definition(flavor),
             host_port=workspace.host_port,
             workspace_token=workspace.workspace_token,
             accelerator_cdi_name=workspace.accelerator_cdi_name or "",
@@ -344,7 +377,7 @@ async def deploy_workspace_stream(
                 await emit_error(f"Şablon devre dışı: {data.template_id}")
                 return
 
-            flavor = get_flavor(data.flavor_id)
+            flavor = await resolve_flavor(db, data.flavor_id)
             if not flavor or not await flavor_enabled(db, data.flavor_id):
                 await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
                 return
@@ -391,6 +424,8 @@ async def deploy_workspace_stream(
                 container_name=workspace.container_name,
                 template_id=template.id,
                 flavor_id=flavor.id,
+                template_definition=_template_definition(template),
+                flavor_definition=_flavor_definition(flavor),
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
@@ -487,12 +522,18 @@ async def start_workspace_endpoint(
                 workspace.container_name,
                 workspace.storage_path,
             )
+            template = await resolve_template(db, workspace.template_id)
+            flavor = await resolve_flavor(db, workspace.flavor_id)
+            if not template or not flavor:
+                raise ValueError("Workspace şablonu veya kaynak profili artık bulunamıyor.")
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=workspace.user_id,
                 container_name=workspace.container_name,
                 template_id=workspace.template_id,
                 flavor_id=workspace.flavor_id,
+                template_definition=_template_definition(template),
+                flavor_definition=_flavor_definition(flavor),
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",

@@ -16,6 +16,10 @@ class MlflowConnectionError(RuntimeError):
     pass
 
 
+class MlflowPayloadTooLargeError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class MlflowConfig:
     enabled: bool
@@ -130,6 +134,40 @@ class MlflowClient:
     async def _post(self, path: str, payload: dict) -> dict:
         return await self._request("POST", path, json=payload)
 
+    async def _request_bytes(
+        self,
+        path: str,
+        *,
+        params: dict | None = None,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
+        try:
+            async with self._client() as client:
+                async with client.stream("GET", path, params=params) as response:
+                    response.raise_for_status()
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > max_bytes:
+                        raise MlflowPayloadTooLargeError(
+                            f"Artifact önizleme sınırı {max_bytes} bayttır."
+                        )
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise MlflowPayloadTooLargeError(
+                                f"Artifact önizleme sınırı {max_bytes} bayttır."
+                            )
+                        chunks.append(chunk)
+                    return (
+                        b"".join(chunks),
+                        response.headers.get("content-type", ""),
+                    )
+        except MlflowPayloadTooLargeError:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise MlflowConnectionError(f"MLflow artifact isteği başarısız: {exc}") from exc
+
     async def search_registered_models(
         self,
         search: str = "",
@@ -215,6 +253,21 @@ class MlflowClient:
             {"run_id": run_id},
         )
 
+    async def get_metric_history(
+        self,
+        run_id: str,
+        metric_key: str,
+        max_results: int = 2000,
+    ) -> dict:
+        return await self._get(
+            "/api/2.0/mlflow/metrics/get-history",
+            {
+                "run_id": run_id,
+                "metric_key": metric_key,
+                "max_results": max(1, min(max_results, 5000)),
+            },
+        )
+
     async def list_artifacts(
         self,
         run_id: str,
@@ -227,6 +280,19 @@ class MlflowClient:
         if page_token:
             params["page_token"] = page_token
         return await self._get("/api/2.0/mlflow/artifacts/list", params)
+
+    async def download_artifact(
+        self,
+        run_id: str,
+        path: str,
+        *,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
+        return await self._request_bytes(
+            "/get-artifact",
+            params={"run_id": run_id, "path": path},
+            max_bytes=max_bytes,
+        )
 
     async def test(self) -> tuple[int, int]:
         started = time.monotonic()
@@ -288,4 +354,3 @@ def normalize_run(run: dict) -> dict:
         "metrics_map": _key_value_map(data.get("metrics")),
         "tags_map": tags_map,
     }
-
