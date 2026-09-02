@@ -30,9 +30,10 @@ RUN pip install --no-cache-dir \
     "jupyter-ai[magics]==3.1.3"
 
 # Keep the bundled Claude ACP persona implementation and stable persona ID,
-# changing only the name shown to DevCloud users.
+# changing only the name and avatar shown to DevCloud users.
 COPY rename_claude_persona.py /tmp/rename_claude_persona.py
-RUN python /tmp/rename_claude_persona.py
+COPY tcmb_emblem.svg /tmp/tcmb_emblem.svg
+RUN python /tmp/rename_claude_persona.py /tmp/tcmb_emblem.svg
 
 # Pin the agent and adapter so connected and air-gapped image builds use the
 # same known pair. Claude Code remains available in the terminal, but the ACP

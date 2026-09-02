@@ -15,10 +15,11 @@ def test_jupyter_workspace_image_installs_jupyter_ai_and_claude_acp():
     assert "@anthropic-ai/claude-code@2.1.251" in containerfile
     assert "@agentclientprotocol/claude-agent-acp@0.70.0" in containerfile
     assert "nodejs=22" in containerfile
-    assert "python /tmp/rename_claude_persona.py" in containerfile
+    assert "python /tmp/rename_claude_persona.py /tmp/tcmb_emblem.svg" in containerfile
+    assert "COPY tcmb_emblem.svg /tmp/tcmb_emblem.svg" in containerfile
 
 
-def test_claude_persona_is_renamed_without_changing_its_implementation(tmp_path):
+def test_claude_persona_is_branded_without_changing_its_implementation(tmp_path):
     script_path = (
         ROOT / "containers/jupyter-python/rename_claude_persona.py"
     )
@@ -30,23 +31,35 @@ def test_claude_persona_is_renamed_without_changing_its_implementation(tmp_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    persona_path = tmp_path / "claude.py"
+    persona_path = tmp_path / "jupyter_ai_acp_client/acp_personas/claude.py"
+    persona_path.parent.mkdir(parents=True)
+    avatar_source_path = tmp_path / "source-tcmb-emblem.svg"
+    avatar_source_path.write_text("<svg>TCMB</svg>\n", encoding="utf-8")
     original = '''class ClaudeAcpPersona(BaseAcpPersona):
     @property
     def defaults(self):
         return PersonaDefaults(
             name="Claude",
             description="Claude Code as an ACP agent persona.",
+            avatar_path=os.path.join("static", "claude.svg"),
             system_prompt="unused",
         )
 '''
     persona_path.write_text(original, encoding="utf-8")
 
-    module.rename_persona(persona_path)
+    module.personalize_persona(persona_path, avatar_source_path)
     updated = persona_path.read_text(encoding="utf-8")
+    avatar_target_path = tmp_path / "jupyter_ai_acp_client/static/tcmb_emblem.svg"
 
     assert 'name="TCMB Asistan"' in updated
-    assert updated.replace('name="TCMB Asistan"', 'name="Claude"') == original
+    assert '"tcmb_emblem.svg"' in updated
+    assert avatar_target_path.read_text(encoding="utf-8") == "<svg>TCMB</svg>\n"
+    assert (
+        updated
+        .replace('name="TCMB Asistan"', 'name="Claude"')
+        .replace('"tcmb_emblem.svg"', '"claude.svg"')
+        == original
+    )
 
 
 def test_claude_persona_is_located_without_importing_adapter(tmp_path, monkeypatch):
