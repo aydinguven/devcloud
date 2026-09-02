@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 
 DISPLAY_NAME = "TCMB Asistan"
+PACKAGE_NAME = "jupyter-ai-acp-client"
+PERSONA_MODULE = Path("jupyter_ai_acp_client/acp_personas/claude.py")
 _CLAUDE_NAME = re.compile(
     r"(?m)^(?P<prefix>\s*name\s*=\s*)['\"]Claude['\"](?P<suffix>\s*,)"
 )
@@ -26,10 +29,20 @@ def rename_persona(source_path: Path) -> None:
     source_path.write_text(updated, encoding="utf-8")
 
 
-def main() -> None:
-    from jupyter_ai_acp_client.acp_personas import claude
+def installed_persona_path() -> Path:
+    try:
+        source_path = Path(distribution(PACKAGE_NAME).locate_file(PERSONA_MODULE))
+    except PackageNotFoundError as exc:
+        raise RuntimeError(f"Required package {PACKAGE_NAME!r} is not installed") from exc
 
-    rename_persona(Path(claude.__file__).resolve())
+    source_path = source_path.resolve()
+    if not source_path.is_file():
+        raise RuntimeError(f"Claude persona module was not found at {source_path}")
+    return source_path
+
+
+def main() -> None:
+    rename_persona(installed_persona_path())
 
 
 if __name__ == "__main__":
