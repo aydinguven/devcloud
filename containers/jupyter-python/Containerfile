@@ -32,8 +32,7 @@ RUN pip install --no-cache-dir \
 # Keep the bundled Claude ACP persona implementation and stable persona ID,
 # changing only the name shown to DevCloud users.
 COPY rename_claude_persona.py /tmp/rename_claude_persona.py
-RUN python /tmp/rename_claude_persona.py \
-    && rm /tmp/rename_claude_persona.py
+RUN python /tmp/rename_claude_persona.py
 
 # Pin the agent and adapter so connected and air-gapped image builds use the
 # same known pair. Claude Code remains available in the terminal, but the ACP
