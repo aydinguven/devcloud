@@ -1,3 +1,4 @@
+import importlib.util
 from pathlib import Path
 
 
@@ -13,6 +14,38 @@ def test_jupyter_workspace_image_installs_jupyter_ai_and_claude_acp():
     assert "@anthropic-ai/claude-code@2.1.251" in containerfile
     assert "@agentclientprotocol/claude-agent-acp@0.70.0" in containerfile
     assert "nodejs=22" in containerfile
+    assert "python /tmp/rename_claude_persona.py" in containerfile
+
+
+def test_claude_persona_is_renamed_without_changing_its_implementation(tmp_path):
+    script_path = (
+        ROOT / "containers/jupyter-python/rename_claude_persona.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "rename_claude_persona",
+        script_path,
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    persona_path = tmp_path / "claude.py"
+    original = '''class ClaudeAcpPersona(BaseAcpPersona):
+    @property
+    def defaults(self):
+        return PersonaDefaults(
+            name="Claude",
+            description="Claude Code as an ACP agent persona.",
+            system_prompt="unused",
+        )
+'''
+    persona_path.write_text(original, encoding="utf-8")
+
+    module.rename_persona(persona_path)
+    updated = persona_path.read_text(encoding="utf-8")
+
+    assert 'name="TCMB Asistan"' in updated
+    assert updated.replace('name="TCMB Asistan"', 'name="Claude"') == original
 
 
 def test_release_publishes_versioned_changed_workspace_images():
