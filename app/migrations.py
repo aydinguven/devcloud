@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 
 class MigrationError(RuntimeError):
@@ -266,6 +266,42 @@ async def _make_mlflow_settings_per_user(conn) -> None:
         )
 
 
+async def _sync_mlflow_settings_id_sequence(conn) -> None:
+    """Create/advance the PostgreSQL sequence missing from the legacy table.
+
+    The original singleton MLflow configuration always inserted ``id=1``.
+    Its Python-side default also caused SQLAlchemy to create the PostgreSQL ID
+    column without a SERIAL default. The first per-user insert therefore had no
+    ID to use. SQLite allocates ``MAX(id) + 1`` itself and needs no repair.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    await conn.execute(
+        text("CREATE SEQUENCE IF NOT EXISTS mlflow_settings_id_seq")
+    )
+    await conn.execute(
+        text(
+            "ALTER SEQUENCE mlflow_settings_id_seq "
+            "OWNED BY mlflow_settings.id"
+        )
+    )
+    await conn.execute(
+        text(
+            "ALTER TABLE mlflow_settings ALTER COLUMN id "
+            "SET DEFAULT nextval('mlflow_settings_id_seq')"
+        )
+    )
+    await conn.execute(
+        text(
+            "SELECT setval("
+            "'mlflow_settings_id_seq', "
+            "COALESCE(MAX(id), 1), "
+            "MAX(id) IS NOT NULL"
+            ") FROM mlflow_settings"
+        )
+    )
+
+
 async def _add_directory_profile_fields(conn) -> None:
     """Add LDAP-backed organization fields to legacy databases idempotently."""
     user_columns = await conn.run_sync(
@@ -424,6 +460,9 @@ async def upgrade() -> None:
         if 11 not in applied:
             # init_db creates the portable per-flavor availability table.
             await _record_version(conn, 11, "admin-managed flavor availability")
+        if 12 not in applied:
+            await _sync_mlflow_settings_id_sequence(conn)
+            await _record_version(conn, 12, "create MLflow settings ID sequence")
 
 
 async def current_version() -> int:

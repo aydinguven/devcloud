@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import inspect, text
@@ -15,6 +17,7 @@ from app.migrations import (
     _add_directory_profile_fields,
     _add_jupyter_ai_model_catalog,
     _make_mlflow_settings_per_user,
+    _sync_mlflow_settings_id_sequence,
 )
 
 
@@ -182,6 +185,94 @@ async def test_legacy_mlflow_settings_receive_user_ownership(tmp_path):
     assert "user_id" in columns
     assert ("user_id",) in unique_sets
     assert legacy_user_id is None
+
+
+@pytest.mark.asyncio
+async def test_postgresql_mlflow_sequence_repair_uses_expected_statements():
+    class FakeConnection:
+        dialect = SimpleNamespace(name="postgresql")
+
+        def __init__(self):
+            self.statements: list[str] = []
+
+        async def execute(self, statement):
+            self.statements.append(str(statement))
+
+    conn = FakeConnection()
+    await _sync_mlflow_settings_id_sequence(conn)
+
+    assert len(conn.statements) == 4
+    assert conn.statements[0] == (
+        "CREATE SEQUENCE IF NOT EXISTS mlflow_settings_id_seq"
+    )
+    assert "OWNED BY mlflow_settings.id" in conn.statements[1]
+    assert "SET DEFAULT nextval('mlflow_settings_id_seq')" in conn.statements[2]
+    assert "COALESCE(MAX(id), 1)" in conn.statements[3]
+    assert "MAX(id) IS NOT NULL" in conn.statements[3]
+
+
+@pytest.mark.asyncio
+async def test_legacy_postgresql_mlflow_table_gets_working_id_sequence():
+    database_url = os.environ.get("TEST_POSTGRESQL_URL")
+    if not database_url:
+        pytest.skip("TEST_POSTGRESQL_URL is not configured")
+
+    schema = "test_mlflow_sequence_migration"
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            await conn.execute(text(f"CREATE SCHEMA {schema}"))
+            await conn.execute(text(f"SET LOCAL search_path TO {schema}"))
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_settings ("
+                    "id INTEGER NOT NULL PRIMARY KEY, "
+                    "encrypted_secret TEXT NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO mlflow_settings (id, encrypted_secret) "
+                    "VALUES (1, 'legacy-encrypted-value')"
+                )
+            )
+
+            await _sync_mlflow_settings_id_sequence(conn)
+
+            inserted_id = (
+                await conn.execute(
+                    text(
+                        "INSERT INTO mlflow_settings (encrypted_secret) "
+                        "VALUES ('new-encrypted-value') RETURNING id"
+                    )
+                )
+            ).scalar_one()
+            sequence_name = (
+                await conn.execute(
+                    text(
+                        "SELECT pg_get_serial_sequence("
+                        "'mlflow_settings', 'id')"
+                    )
+                )
+            ).scalar_one()
+        assert inserted_id == 2
+        assert sequence_name.endswith(".mlflow_settings_id_seq")
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_mlflow_sequence_repair_is_a_noop():
+    class FakeConnection:
+        dialect = SimpleNamespace(name="sqlite")
+
+        async def execute(self, statement):
+            raise AssertionError("SQLite must not run PostgreSQL sequence SQL")
+
+    await _sync_mlflow_settings_id_sequence(FakeConnection())
 
 
 @pytest.mark.asyncio

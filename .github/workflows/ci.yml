@@ -19,6 +19,22 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: devcloud_test
+          POSTGRES_USER: devcloud
+          POSTGRES_PASSWORD: devcloud
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devcloud -d devcloud_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRESQL_URL: postgresql+asyncpg://devcloud:devcloud@127.0.0.1:5432/devcloud_test
 
     steps:
       - name: Check out source
