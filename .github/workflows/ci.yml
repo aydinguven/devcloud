@@ -23,16 +23,19 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: devcloud_test
-          POSTGRES_PASSWORD: devcloud_test
           POSTGRES_DB: devcloud_test
+          POSTGRES_USER: devcloud
+          POSTGRES_PASSWORD: devcloud
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U devcloud_test -d devcloud_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "pg_isready -U devcloud -d devcloud_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      TEST_POSTGRES_URL: postgresql+asyncpg://devcloud_test:devcloud_test@localhost:5432/devcloud_test
+      TEST_POSTGRES_URL: postgresql+asyncpg://devcloud:devcloud@127.0.0.1:5432/devcloud_test
+      TEST_POSTGRESQL_URL: postgresql+asyncpg://devcloud:devcloud@127.0.0.1:5432/devcloud_test
 
     steps:
       - name: Check out source

@@ -1532,3 +1532,51 @@ code { color: #8d0022; }
   .workspace-metrics-grid { grid-template-columns: minmax(0, 1fr); }
   .tab-btn { padding-inline: 0.9rem; }
 }
+
+/* MLflow analytics */
+.mlflow-stat-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+.mlflow-stat-card { display: grid; gap: 0.35rem; }
+.mlflow-stat-card span { color: var(--text-muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+.mlflow-stat-card strong { color: var(--heading); font-size: clamp(1.45rem, 3vw, 2.25rem); }
+.mlflow-overview-grid { gap: 1rem; margin-bottom: 1rem; }
+.mlflow-status-summary { display: grid; gap: 0.55rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mlflow-status-item { align-items: center; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; display: flex; justify-content: space-between; padding: 0.7rem; }
+.mlflow-compact-list { display: grid; gap: 0.65rem; }
+.mlflow-compact-item { align-items: center; border-bottom: 1px solid #e7ecf2; display: flex; gap: 0.75rem; justify-content: space-between; padding-bottom: 0.65rem; }
+.mlflow-compact-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.mlflow-filter-builder { align-items: end; display: grid; gap: 0.65rem; grid-template-columns: 0.9fr 1.2fr 0.7fr 1.2fr auto; }
+.mlflow-filter-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.75rem 0; min-height: 1.8rem; }
+.mlflow-filter-chip { align-items: center; background: #f4f6f9; border: 1px solid var(--border-color); border-radius: 999px; display: inline-flex; gap: 0.4rem; padding: 0.35rem 0.6rem; }
+.mlflow-filter-chip button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-weight: 800; padding: 0; }
+.mlflow-saved-filter-row { align-items: end; display: grid; gap: 0.65rem; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) auto auto; margin-top: 0.75rem; }
+.mlflow-chart-shell { background: #fbfcfe; border: 1px solid var(--border-color); border-radius: 10px; min-height: 310px; overflow: hidden; padding: 0.75rem; }
+.mlflow-chart-shell svg { display: block; height: auto; width: 100%; }
+.mlflow-chart-legend { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+.mlflow-chart-legend span { align-items: center; display: inline-flex; font-size: 0.78rem; gap: 0.35rem; }
+.mlflow-chart-swatch { border-radius: 50%; height: 9px; width: 9px; }
+.mlflow-artifact-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 0.65rem; justify-content: space-between; margin-bottom: 0.75rem; }
+.mlflow-artifact-list { display: grid; gap: 0.5rem; }
+.mlflow-artifact-item { align-items: center; background: #fff; border: 1px solid var(--border-color); border-radius: 8px; display: flex; gap: 0.75rem; justify-content: space-between; padding: 0.7rem; }
+.mlflow-artifact-item code { overflow-wrap: anywhere; }
+.mlflow-artifact-preview { background: #111827; border-radius: 10px; color: #e5e7eb; margin-top: 1rem; max-height: 520px; overflow: auto; padding: 1rem; }
+.mlflow-artifact-preview pre { color: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+.mlflow-artifact-preview img { background: #fff; display: block; height: auto; margin: auto; max-width: 100%; }
+
+@media (max-width: 900px) {
+  .mlflow-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mlflow-overview-grid { grid-template-columns: minmax(0, 1fr); }
+  .mlflow-filter-builder { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mlflow-filter-builder .btn { width: 100%; }
+  .mlflow-saved-filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .mlflow-stat-grid,
+  .mlflow-filter-builder,
+  .mlflow-saved-filter-row { grid-template-columns: minmax(0, 1fr); }
+  .mlflow-status-summary { grid-template-columns: minmax(0, 1fr); }
+}

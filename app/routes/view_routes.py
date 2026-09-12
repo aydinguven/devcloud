@@ -18,6 +18,7 @@ from app.models.mlflow_settings import MlflowSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.custom_template import CustomTemplate
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
@@ -31,7 +32,7 @@ from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
-from app.workspace_catalog import configured_flavors, list_enabled_flavors, list_enabled_templates
+from app.workspace_catalog import configured_flavors, configured_templates, list_enabled_flavors, list_enabled_templates
 from app.static_assets import STATIC_ASSET_VERSION
 
 logger = logging.getLogger("devcloud.views")
@@ -265,6 +266,30 @@ async def profile_page(
     )
 
 
+@view_router.get("/mlflow", response_class=HTMLResponse)
+async def mlflow_dashboard_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    mlflow_settings = (
+        await db.execute(
+            select(MlflowSettings).where(MlflowSettings.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    return templates.TemplateResponse(
+        request=request,
+        name="mlflow_dashboard.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+        },
+    )
+
+
 @view_router.get("/models", response_class=HTMLResponse)
 async def models_page(
     request: Request,
@@ -483,10 +508,10 @@ async def admin_page(
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
         context["admin_flavors"] = await configured_flavors(db)
+        context["admin_templates"] = await configured_templates(db)
+        context["builtin_template_ids"] = set(list_builtin_templates_item.id for list_builtin_templates_item in list_builtin_templates())
     elif section == "images":
         image_templates = list_builtin_templates()
-        from app.models.custom_template import CustomTemplate
-
         custom_templates = (
             await db.execute(select(CustomTemplate).order_by(CustomTemplate.name))
         ).scalars().all()

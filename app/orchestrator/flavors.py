@@ -116,9 +116,17 @@ FLAVORS: dict[str, Flavor] = {
     ),
 }
 
+BUILTIN_FLAVOR_IDS = tuple(FLAVORS)
+
 
 def get_flavor(flavor_id: str) -> Flavor | None:
     return FLAVORS.get(flavor_id)
+
+
+def register_flavor(flavor: Flavor) -> Flavor:
+    """Install an admin-managed flavor in the process-local runtime catalog."""
+    FLAVORS[flavor.id] = flavor
+    return flavor
 
 
 def list_flavors() -> list[FlavorInfo]:

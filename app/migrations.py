@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 13
 
 
 class MigrationError(RuntimeError):
@@ -91,6 +91,28 @@ async def _record_version(conn, version: int, name: str) -> None:
             "applied_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+async def _expand_flavor_settings(conn) -> None:
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("flavor_settings")
+        }
+    )
+    definitions = {
+        "is_custom": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "display_name": "VARCHAR(100) NOT NULL DEFAULT ''",
+        "description": "VARCHAR(255) NOT NULL DEFAULT ''",
+        "cpus": "FLOAT",
+        "memory_mb": "INTEGER",
+        "accelerator_count": "INTEGER",
+        "accelerator_vendor": "VARCHAR(50) NOT NULL DEFAULT ''",
+        "accelerator_memory_mb": "INTEGER",
+    }
+    for name, definition in definitions.items():
+        if name not in columns:
+            await conn.execute(text(f"ALTER TABLE flavor_settings ADD COLUMN {name} {definition}"))
 
 
 async def _applied_versions(conn) -> set[int]:
@@ -266,6 +288,42 @@ async def _make_mlflow_settings_per_user(conn) -> None:
         )
 
 
+async def _sync_mlflow_settings_id_sequence(conn) -> None:
+    """Create/advance the PostgreSQL sequence missing from the legacy table.
+
+    The original singleton MLflow configuration always inserted ``id=1``.
+    Its Python-side default also caused SQLAlchemy to create the PostgreSQL ID
+    column without a SERIAL default. The first per-user insert therefore had no
+    ID to use. SQLite allocates ``MAX(id) + 1`` itself and needs no repair.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    await conn.execute(
+        text("CREATE SEQUENCE IF NOT EXISTS mlflow_settings_id_seq")
+    )
+    await conn.execute(
+        text(
+            "ALTER SEQUENCE mlflow_settings_id_seq "
+            "OWNED BY mlflow_settings.id"
+        )
+    )
+    await conn.execute(
+        text(
+            "ALTER TABLE mlflow_settings ALTER COLUMN id "
+            "SET DEFAULT nextval('mlflow_settings_id_seq')"
+        )
+    )
+    await conn.execute(
+        text(
+            "SELECT setval("
+            "'mlflow_settings_id_seq', "
+            "COALESCE(MAX(id), 1), "
+            "MAX(id) IS NOT NULL"
+            ") FROM mlflow_settings"
+        )
+    )
+
+
 async def _add_directory_profile_fields(conn) -> None:
     """Add LDAP-backed organization fields to legacy databases idempotently."""
     user_columns = await conn.run_sync(
@@ -424,6 +482,12 @@ async def upgrade() -> None:
         if 11 not in applied:
             # init_db creates the portable per-flavor availability table.
             await _record_version(conn, 11, "admin-managed flavor availability")
+        if 12 not in applied:
+            await _sync_mlflow_settings_id_sequence(conn)
+            await _record_version(conn, 12, "create MLflow settings ID sequence")
+        if 13 not in applied:
+            await _expand_flavor_settings(conn)
+            await _record_version(conn, 13, "custom and editable flavor profiles")
 
 
 async def current_version() -> int:

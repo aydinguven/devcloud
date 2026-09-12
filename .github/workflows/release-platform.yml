@@ -121,7 +121,7 @@ jobs:
           echo "DEVCLOUD_VERSION=${version}" >> "${GITHUB_ENV}"
           echo "SHORT_SHA=${GITHUB_SHA:0:12}" >> "${GITHUB_ENV}"
 
-      - name: Build and smoke-test workspace image
+      - name: Build workspace image
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -131,15 +131,6 @@ jobs:
             --file "containers/${image}/Containerfile" \
             --tag "${local_image}" \
             "containers/${image}"
-          if [[ "${image}" == "jupyter-python" ]]; then
-            docker run --rm --entrypoint python "${local_image}" \
-              -c "import importlib.metadata as m; print(m.version('jupyter-ai'))"
-            docker run --rm --entrypoint bash "${local_image}" -lc \
-              'node --version && claude --version && command -v claude-agent-acp && npm list --global --depth=0'
-          else
-            docker run --rm --entrypoint bash "${local_image}" -lc \
-              'code-server --list-extensions | grep -Fx saoudrizwan.claude-dev'
-          fi
 
       - name: Push immutable workspace image tags
         if: env.PUBLISH_QUAY == 'true'

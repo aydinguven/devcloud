@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}MLflow Genel Bakış - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">MLflow Tracking &amp; Registry</span>
+    <h1>MLflow Genel Bakış</h1>
+    <p>Deneylerin, son run'ların ve kayıtlı modellerin kişisel bağlantınızdan salt-okunur özeti.</p>
+  </div>
+</div>
+
+{% include "partials/mlflow_nav.html" %}
+
+{% if not mlflow_enabled %}
+<section class="card">
+  <h2 class="card-title">Bağlantı bekleniyor</h2>
+  <p class="text-muted">Genel bakışı kullanmak için kişisel MLflow bağlantınızı yapılandırın.</p>
+  <a class="btn btn-primary" href="/models">MLflow bağlantısını ayarla</a>
+</section>
+{% else %}
+<div id="mlflow-dashboard">
+  <div id="mlflow-overview-status" role="status">MLflow özeti yükleniyor...</div>
+  <div id="mlflow-overview-content" hidden>
+    <section class="mlflow-stat-grid" aria-label="MLflow özeti">
+      <article class="card mlflow-stat-card"><span>Deney</span><strong id="mlflow-stat-experiments">—</strong></article>
+      <article class="card mlflow-stat-card"><span>Kayıtlı model</span><strong id="mlflow-stat-models">—</strong></article>
+      <article class="card mlflow-stat-card"><span>Son run örneklemi</span><strong id="mlflow-stat-runs">—</strong></article>
+      <article class="card mlflow-stat-card"><span>Bağlantı süresi</span><strong id="mlflow-stat-latency">—</strong></article>
+    </section>
+
+    <section class="grid grid-cols-2 mlflow-overview-grid">
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">Run Durumları</h2><span class="badge badge-neutral">Son 100 run</span></div>
+        <div id="mlflow-status-summary" class="mlflow-status-summary"></div>
+      </article>
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">Son Modeller</h2><a href="/models">Tümünü gör</a></div>
+        <div id="mlflow-recent-models" class="mlflow-compact-list"></div>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Son Run'lar</h2><a href="/experiments">Deneylere git</a></div>
+      <div class="data-table-shell">
+        <table class="table">
+          <thead><tr><th>Run</th><th>Durum</th><th>Başlangıç</th><th>Metrik</th><th>Parametre</th><th></th></tr></thead>
+          <tbody id="mlflow-recent-runs"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if mlflow_enabled %}<script src="/static/js/mlflow.js?v={{ static_version }}"></script>{% endif %}
+{% endblock %}

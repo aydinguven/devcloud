@@ -796,7 +796,16 @@ cd devcloud
       <h2 class="card-title">Oluşturulabilir Kaynak Profilleri</h2>
       <p class="admin-section-description">Devre dışı bırakılan profiller kullanıcıların yeni çalışma alanı menüsünden kaldırılır. Mevcut çalışma alanları etkilenmez.</p>
     </div>
+    <button id="btn-sync-workspace-catalog" class="btn btn-primary btn-sm" type="button">Worker'lara Güncelle</button>
   </div>
+  <form id="admin-flavor-create-form" class="responsive-form-grid" style="margin-bottom:1rem">
+    <label class="form-group"><span class="form-label">Profil ID</span><input class="form-input" name="id" placeholder="cpu.analysis" pattern="^[a-z0-9][a-z0-9._-]{1,63}$" required></label>
+    <label class="form-group"><span class="form-label">Görünen ad</span><input class="form-input" name="display_name" placeholder="Analiz" required></label>
+    <label class="form-group"><span class="form-label">CPU</span><input class="form-input" type="number" name="cpus" min="0.1" max="256" step="0.1" value="2" required></label>
+    <label class="form-group"><span class="form-label">RAM (MB)</span><input class="form-input" type="number" name="memory_mb" min="128" max="1048576" step="128" value="4096" required></label>
+    <label class="form-group"><span class="form-label">Açıklama</span><input class="form-input" name="description" maxlength="255"></label>
+    <button class="btn btn-secondary" type="submit">Yeni Flavor Ekle</button>
+  </form>
   <div class="data-table-shell responsive-card-table-shell">
     <table class="table responsive-card-table" id="admin-flavor-settings-table">
       <thead>
@@ -811,17 +820,25 @@ cd devcloud
       <tbody>
       {% for flavor in admin_flavors %}
         <tr>
-          <td data-label="Profil"><strong>{{ flavor.display_name }}</strong><br><code>{{ flavor.id }}</code></td>
-          <td data-label="Kaynaklar">{{ flavor.cpus }} CPU · {{ flavor.memory_display }}</td>
+          <td data-label="Profil"><input class="form-input" data-flavor-field="display_name" value="{{ flavor.display_name }}" aria-label="{{ flavor.id }} görünen adı"><br><code>{{ flavor.id }}</code></td>
+          <td data-label="Kaynaklar"><div class="table-actions"><input class="form-input" style="width:90px" type="number" min="0.1" step="0.1" data-flavor-field="cpus" value="{{ flavor.cpus }}" aria-label="CPU"><input class="form-input" style="width:120px" type="number" min="128" step="128" data-flavor-field="memory_mb" value="{{ flavor.memory_mb }}" aria-label="RAM MB"></div></td>
           <td data-label="Tür">{% if flavor.accelerator_count %}GPU{% else %}CPU{% endif %}</td>
           <td data-label="Durum"><span data-flavor-status class="badge {% if flavor.enabled %}badge-running{% else %}badge-neutral{% endif %}">{% if flavor.enabled %}Etkin{% else %}Devre Dışı{% endif %}</span></td>
-          <td data-label="İşlemler"><button type="button" class="btn btn-secondary btn-sm" data-flavor-toggle="{{ flavor.id }}" data-enabled="{{ flavor.enabled|lower }}">{% if flavor.enabled %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}</button></td>
+          <td data-label="İşlemler"><div class="table-actions"><button type="button" class="btn btn-secondary btn-sm" data-flavor-save="{{ flavor.id }}">Kaydet</button><button type="button" class="btn btn-secondary btn-sm" data-flavor-toggle="{{ flavor.id }}" data-enabled="{{ flavor.enabled|lower }}">{% if flavor.enabled %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}</button>{% if flavor.id not in ['t1.nano','t1.micro','t1.small','t1.mini','t1.medium','t1.large','t1.xlarge','g1.shared'] %}<button type="button" class="btn btn-danger btn-sm" data-flavor-delete="{{ flavor.id }}">Sil</button>{% endif %}</div></td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
   <div id="admin-flavor-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
+</section>
+
+<section class="card" style="margin-bottom:2rem">
+  <div class="card-header"><div><h2 class="card-title">Workspace Tipleri</h2><p class="admin-section-description">Yerleşik ve özel şablonların görünen adını ve açıklamasını düzenleyin. Özel şablonlarda port da değiştirilebilir; kullanımda olanlar silinemez.</p></div></div>
+  <div class="data-table-shell responsive-card-table-shell"><table id="admin-custom-template-table" class="table responsive-card-table"><thead><tr><th>Şablon</th><th>Ad</th><th>Açıklama</th><th>Port</th><th>İşlemler</th></tr></thead><tbody>
+  {% for template in admin_templates %}<tr data-template-id="{{ template.id }}"><td data-label="Şablon"><code>{{ template.id }}</code></td><td data-label="Ad"><input class="form-input" data-template-field="name" value="{{ template.name }}"></td><td data-label="Açıklama"><input class="form-input" data-template-field="description" value="{{ template.description }}"></td><td data-label="Port"><input class="form-input" type="number" min="1" max="65535" data-template-field="default_port" value="{{ template.default_port }}" {% if template.id in builtin_template_ids %}disabled title="Yerleşik runtime portu değiştirilemez"{% endif %}></td><td data-label="İşlemler"><div class="table-actions"><button class="btn btn-secondary btn-sm" type="button" data-template-save>Kaydet</button>{% if template.id not in builtin_template_ids %}<button class="btn btn-danger btn-sm" type="button" data-template-delete>Sil</button>{% endif %}</div></td></tr>{% endfor %}
+  </tbody></table></div>
+  <div id="admin-template-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
 </section>
 
 <section class="card">

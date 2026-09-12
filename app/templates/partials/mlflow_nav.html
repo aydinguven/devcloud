@@ -1,4 +1,5 @@
 <nav class="workspace-tabs-nav" aria-label="MLflow bölümleri" style="margin-bottom:1rem;">
+  <a class="tab-btn {% if request.url.path == '/mlflow' %}active{% endif %}" href="/mlflow">Genel Bakış</a>
   <a class="tab-btn {% if request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}" href="/experiments">Deneyler ve Run'lar</a>
   <a class="tab-btn {% if request.url.path.startswith('/models') %}active{% endif %}" href="/models">Model Registry</a>
 </nav>

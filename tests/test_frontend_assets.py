@@ -160,6 +160,10 @@ def test_admin_workspace_page_exposes_persisted_flavor_toggles():
     assert 'data-flavor-toggle="{{ flavor.id }}"' in template
     assert "initAdminFlavorSettings();" in javascript
     assert "/api/admin/flavors/" in javascript
+    assert 'id="admin-flavor-create-form"' in template
+    assert 'id="btn-sync-workspace-catalog"' in template
+    assert 'id="admin-custom-template-table"' in template
+    assert "/api/admin/catalog/sync" in javascript
 
 
 def test_dense_data_views_have_responsive_overflow_guards():
@@ -327,13 +331,21 @@ def test_mlflow_tracking_pages_cover_runs_artifacts_comparison_and_lineage():
     run = (PROJECT_ROOT / "app/templates/run_detail.html").read_text(encoding="utf-8")
     compare = (PROJECT_ROOT / "app/templates/run_compare.html").read_text(encoding="utf-8")
     nav = (PROJECT_ROOT / "app/templates/partials/mlflow_nav.html").read_text(encoding="utf-8")
+    javascript = (PROJECT_ROOT / "app/static/js/mlflow.js").read_text(encoding="utf-8")
+    dashboard = (PROJECT_ROOT / "app/templates/mlflow_dashboard.html").read_text(encoding="utf-8")
 
     assert "Deneyler ve Run'lar" in experiments
     assert "filter_string" in detail
-    assert "data-run-select" in detail
-    assert "Artifact'lar" in run
+    assert "data-run-select" in javascript
+    assert "Artifact tarayıcısı" in run
     assert "Model Soy Ağacı" in run
-    assert "params_map" in compare
+    assert "compare-metric-chart" in compare
+    assert "/api/mlflow/overview" in javascript
+    assert "/history" in javascript
+    assert "/artifacts/preview" in javascript
+    assert "devcloud.mlflow.savedFilters.v1" in javascript
+    assert 'id="mlflow-dashboard"' in dashboard
+    assert 'href="/mlflow"' in nav
     assert 'href="/experiments"' in nav
     assert 'href="/models"' in nav
 

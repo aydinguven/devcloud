@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import time
+from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.parse import quote
 
@@ -12,6 +15,7 @@ from app.integrations.mlflow import (
     MlflowClient,
     MlflowConfigurationError,
     MlflowConnectionError,
+    MlflowPayloadTooLargeError,
     config_from_record,
     config_from_update,
     normalize_experiment,
@@ -25,6 +29,19 @@ from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTe
 from app.security.secrets import encrypt_secret
 
 mlflow_router = APIRouter(prefix="/api/mlflow", tags=["MLflow"])
+
+MAX_ARTIFACT_PREVIEW_BYTES = 2 * 1024 * 1024
+TEXT_ARTIFACT_EXTENSIONS = {
+    ".cfg", ".conf", ".csv", ".ini", ".json", ".log", ".md", ".py",
+    ".toml", ".tsv", ".txt", ".xml", ".yaml", ".yml",
+}
+IMAGE_ARTIFACT_TYPES = {
+    ".gif": "image/gif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 async def _mlflow_settings_for_user(
@@ -92,6 +109,28 @@ def _run_url(client: MlflowClient, experiment_id: str, run_id: str) -> str:
     )
 
 
+def _safe_artifact_path(value: str) -> PurePosixPath:
+    if (
+        not value
+        or value.startswith("/")
+        or "\\" in value
+        or "//" in value
+        or "\x00" in value
+    ):
+        raise HTTPException(status_code=400, detail="Geçersiz artifact yolu.")
+    path = PurePosixPath(value)
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise HTTPException(status_code=400, detail="Geçersiz artifact yolu.")
+    return path
+
+
+def _downsample_metrics(metrics: list[dict], limit: int = 500) -> list[dict]:
+    if len(metrics) <= limit:
+        return metrics
+    step = (len(metrics) - 1) / (limit - 1)
+    return [metrics[round(index * step)] for index in range(limit)]
+
+
 @mlflow_router.get("/settings", response_model=MlflowSettingsOut)
 async def get_mlflow_settings(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -149,6 +188,64 @@ async def test_mlflow_settings(
         experiment_count=count,
         model_count=0,
     )
+
+
+@mlflow_router.get("/overview")
+async def get_mlflow_overview(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    client = await get_mlflow_client(db, current_user.id)
+    started = time.monotonic()
+    try:
+        experiments_payload, models_payload = await asyncio.gather(
+            client.search_experiments(max_results=1000),
+            client.search_registered_models(max_results=200),
+        )
+        experiments = [
+            normalize_experiment(item)
+            for item in experiments_payload.get("experiments") or []
+        ]
+        experiment_ids = [
+            str(item.get("experiment_id") or "")
+            for item in experiments
+            if item.get("experiment_id") is not None
+        ]
+        runs_payload = (
+            await client.search_runs(experiment_ids, max_results=100)
+            if experiment_ids
+            else {"runs": []}
+        )
+    except MlflowConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    runs = [normalize_run(item) for item in runs_payload.get("runs") or []]
+    for run in runs:
+        run["mlflow_url"] = _run_url(client, run["experiment_id"], run["run_id"])
+    models = [
+        {
+            **normalize_model(item),
+            "mlflow_url": _mlflow_url(
+                client, f"models/{quote(str(item.get('name') or ''), safe='')}"
+            ),
+        }
+        for item in models_payload.get("registered_models") or []
+    ]
+    status_counts: dict[str, int] = {}
+    for run in runs:
+        status = str(run.get("status") or "UNKNOWN").upper()
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "response_time_ms": round((time.monotonic() - started) * 1000),
+        "experiment_count": len(experiments),
+        "experiment_count_is_partial": bool(experiments_payload.get("next_page_token")),
+        "model_count": len(models),
+        "model_count_is_partial": bool(models_payload.get("next_page_token")),
+        "sampled_run_count": len(runs),
+        "status_counts": status_counts,
+        "recent_runs": runs[:8],
+        "recent_models": models[:6],
+    }
 
 
 @mlflow_router.get("/models")
@@ -346,6 +443,32 @@ async def get_mlflow_run(
     return run
 
 
+@mlflow_router.get("/runs/{run_id}/metrics/{metric_key}/history")
+async def get_mlflow_metric_history(
+    run_id: str,
+    metric_key: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not metric_key.strip():
+        raise HTTPException(status_code=400, detail="Metrik adı boş olamaz.")
+    client = await get_mlflow_client(db, current_user.id)
+    try:
+        payload = await client.get_metric_history(run_id, metric_key)
+    except MlflowConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    points = sorted(
+        payload.get("metrics") or [],
+        key=lambda item: (int(item.get("step") or 0), int(item.get("timestamp") or 0)),
+    )
+    return {
+        "run_id": run_id,
+        "metric_key": metric_key,
+        "points": _downsample_metrics(points),
+        "source_point_count": len(points),
+    }
+
+
 @mlflow_router.get("/runs/{run_id}/artifacts")
 async def list_mlflow_artifacts(
     run_id: str,
@@ -364,3 +487,63 @@ async def list_mlflow_artifacts(
         "next_page_token": payload.get("next_page_token") or "",
     }
 
+
+@mlflow_router.get("/runs/{run_id}/artifacts/preview")
+async def preview_mlflow_artifact(
+    run_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    path: str = Query(..., min_length=1, max_length=2000),
+):
+    artifact_path = _safe_artifact_path(path)
+    extension = artifact_path.suffix.lower()
+    if extension not in TEXT_ARTIFACT_EXTENSIONS and extension not in IMAGE_ARTIFACT_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail="Bu artifact türü güvenli önizleme için desteklenmiyor.",
+        )
+    client = await get_mlflow_client(db, current_user.id)
+    parent = "" if artifact_path.parent == PurePosixPath(".") else artifact_path.parent.as_posix()
+    try:
+        listing = await client.list_artifacts(run_id, path=parent)
+        artifact = next(
+            (
+                item
+                for item in listing.get("files") or []
+                if str(item.get("path") or "") == artifact_path.as_posix()
+            ),
+            None,
+        )
+        if not artifact or artifact.get("is_dir"):
+            raise HTTPException(status_code=404, detail="Artifact dosyası bulunamadı.")
+        file_size = int(artifact.get("file_size") or 0)
+        if file_size > MAX_ARTIFACT_PREVIEW_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Artifact 2 MiB güvenli önizleme sınırını aşıyor.",
+            )
+        content, _ = await client.download_artifact(
+            run_id,
+            artifact_path.as_posix(),
+            max_bytes=MAX_ARTIFACT_PREVIEW_BYTES,
+        )
+    except MlflowPayloadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except MlflowConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if extension in IMAGE_ARTIFACT_TYPES:
+        return {
+            "kind": "image",
+            "path": artifact_path.as_posix(),
+            "content_type": IMAGE_ARTIFACT_TYPES[extension],
+            "size": len(content),
+            "content_base64": base64.b64encode(content).decode("ascii"),
+        }
+    return {
+        "kind": "text",
+        "path": artifact_path.as_posix(),
+        "content_type": "text/plain; charset=utf-8",
+        "size": len(content),
+        "content": content.decode("utf-8-sig", errors="replace"),
+    }
