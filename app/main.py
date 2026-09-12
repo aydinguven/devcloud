@@ -58,6 +58,17 @@ async def mark_workers_offline_on_startup():
         await db.commit()
 
 
+async def recover_interrupted_workspace_operations():
+    """The single controller lost its in-flight commands when it restarted."""
+    from app.models.workspace import Workspace, WorkspaceStatus
+    async with AsyncSessionLocal() as db:
+        await db.execute(update(Workspace).where(Workspace.status.in_([
+            WorkspaceStatus.CREATING, WorkspaceStatus.STARTING, WorkspaceStatus.STOPPING,
+        ])).values(status=WorkspaceStatus.ERROR,
+                   error_message="Controller restarted during a workspace operation; retry start, stop, or delete."))
+        await db.commit()
+
+
 async def seed_bootstrap_worker() -> None:
     """Idempotently maintain the all-in-one host as an ordinary worker."""
     worker_id = settings.DEVCLOUD_BOOTSTRAP_WORKER_ID.strip()
@@ -96,10 +107,11 @@ async def lifespan(app: FastAPI):
         await require_current()
     await seed_bootstrap_worker()
     await mark_workers_offline_on_startup()
+    await recover_interrupted_workspace_operations()
     await seed_initial_admin()
     logger.info("DevCloud controller ready; workspace execution is worker-only.")
 
-    # Start idle inactivity auto-stop worker
+    # Enforce the explicitly configured maximum runtime
     reaper_task = asyncio.create_task(idle_reaper_background_worker(check_interval_seconds=60))
 
     yield

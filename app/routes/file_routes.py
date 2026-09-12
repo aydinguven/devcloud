@@ -1,11 +1,14 @@
-import base64
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
+from app.config import settings
+from app.agents.transfers import CHUNK_BYTES, upload_transfer, download_chunks, abort_transfer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,24 +98,37 @@ async def upload_files(
     db: AsyncSession = Depends(get_db),
 ):
     workspace = await get_accessible_workspace(workspace_id, current_user, db)
-    encoded_files = [
-        {
-            "name": Path(file.filename or "").name,
-            "content": base64.b64encode(await file.read()).decode("ascii"),
-        }
-        for file in files
-    ]
-    result = await _worker_request(
-        workspace,
-        "files.upload",
-        {"path": path, "files": encoded_files},
-        timeout=120,
-    )
-    uploaded = result.get("files") or []
-    return {
-        "message": f"Uploaded {len(uploaded)} file(s) successfully.",
-        "files": uploaded,
-    }
+    try:
+        connection = agent_manager.get(workspace.node_id)
+    except AgentUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    uploaded = []
+    total = 0
+    for file in files:
+        if file.size is not None:
+            total += file.size
+    if total > settings.FILE_TRANSFER_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Upload exceeds file transfer limit.")
+    remaining = settings.FILE_TRANSFER_MAX_BYTES
+    for file in files:
+        filename = Path(file.filename or "").name
+        if not filename or filename in {".", ".."}:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        async def chunks():
+            while chunk := await file.read(CHUNK_BYTES):
+                yield chunk
+        try:
+            result = await upload_transfer(connection, chunks(), payload={
+                "purpose": "upload", "container_name": workspace.container_name,
+                "path": str(Path(path) / filename),
+            }, limit=remaining)
+        except ValueError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except (AgentCommandError, AgentUnavailable, TimeoutError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        remaining -= result["size"]
+        uploaded.append(result["name"])
+    return {"message": f"Uploaded {len(uploaded)} file(s) successfully.", "files": uploaded}
 
 
 @file_router.get("/download")
@@ -124,19 +140,28 @@ async def download_file(
 ):
     workspace = await get_accessible_workspace(workspace_id, current_user, db)
     try:
-        result = await _worker_request(
-            workspace, "files.download", {"path": path}, timeout=120
-        )
-        content = base64.b64decode(result.get("content", ""), validate=True)
-    except ValueError as exc:
+        connection = agent_manager.get(workspace.node_id)
+    except AgentUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    filename = Path(result.get("name") or path).name
-    return Response(
-        content=content,
+    transfer_id = str(uuid.uuid4())
+    try:
+        result = await connection.request("transfer.open", {
+            "transfer_id": transfer_id, "purpose": "download",
+            "container_name": workspace.container_name, "path": path,
+        })
+    except (AgentCommandError, AgentUnavailable, TimeoutError) as exc:
+        await abort_transfer(connection, transfer_id)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except BaseException:
+        await abort_transfer(connection, transfer_id)
+        raise
+    filename = Path(result["name"]).name
+    return StreamingResponse(
+        download_chunks(connection, transfer_id, result["size"]),
         media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
-        },
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+                 "Content-Length": str(result["size"])},
+        background=BackgroundTask(abort_transfer, connection, transfer_id),
     )
 
 

@@ -379,14 +379,15 @@ async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, d
     await db_session.commit()
     await db_session.refresh(workspace)
 
+    workspace_id = workspace.id
     response = await client.delete(
-        f"/api/workspaces/{workspace.id}",
+        f"/api/workspaces/{workspace_id}",
         headers=headers,
     )
 
     assert response.status_code == 409
     assert "kurulumu devam ediyor" in response.json()["detail"]
-    assert await db_session.get(Workspace, workspace.id) is not None
+    assert await db_session.get(Workspace, workspace_id) is not None
 
 
 @pytest.mark.asyncio

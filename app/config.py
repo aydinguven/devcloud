@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     JUPYTER_AI_GATEWAY_MODEL_DISCOVERY: bool = False
     JUPYTER_AI_MODEL_CATALOG_JSON: str = "[]"
     
+    # Files are acknowledged in 256 KiB chunks; these are whole-transfer limits.
+    FILE_TRANSFER_MAX_BYTES: int = 8 * 1024 * 1024 * 1024
+    PROXY_MAX_REQUEST_BYTES: int = 512 * 1024 * 1024
+    WORKER_MAX_TRANSFERS: int = 32
+
     # Container Port Range for internal forwarding
     PORT_RANGE_START: int = 10100
     PORT_RANGE_END: int = 12000

@@ -40,7 +40,7 @@ class WorkspaceCreate(BaseModel):
     description: str = Field(default="", max_length=255)
     template_id: str
     flavor_id: str
-    auto_stop_minutes: int = Field(default=0, ge=0, le=1440)
+    auto_stop_minutes: int = Field(default=0, ge=0, le=1440, description="Maximum minutes since each start, even while active; 0 disables the limit.")
 
 
 class WorkspaceOut(BaseModel):

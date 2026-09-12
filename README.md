@@ -504,3 +504,45 @@ Run the full pytest suite with:
 ```bash
 pytest -v
 ```
+
+
+## Workspace lifecycle and transfer limits
+
+CPU/RAM/GPU quota checks and placement reservations share a serialized database
+transaction (SQLite `BEGIN IMMEDIATE`, PostgreSQL transaction advisory lock).
+Restarts check capacity on the assigned worker before reserving `STARTING`.
+Failed or uncertain operations retain capacity until an operator successfully
+stops or deletes the workspace. Failed stops preserve status; failed deletion
+preserves the controller record and worker tracking. A durable deletion receipt
+on the worker makes retries safe after a lost response or worker restart.
+Controller startup marks interrupted operations as errors so they can be retried.
+
+The **Maksimum Çalışma Süresi** selector is a maximum runtime measured from each
+successful start, even during an active IDE session or background job. It is
+disabled by default for new workspaces. Existing `auto_stop_minutes` settings
+retain their configured values; set them to zero to disable the limit.
+
+Update controller and workers together for the chunked transfer protocol.
+Uploads and downloads use acknowledged 256 KiB chunks. Uploads replace each
+file atomically after completion; incomplete uploads leave the previous file intact.
+HTTP proxy bodies are spooled on the worker, with bounded memory. HTTP responses,
+backups, and workspace WebSockets use independent flow-control windows so slow
+consumers do not block heartbeats and other commands. Temporary transfer handles
+expire after 120 seconds without activity and are closed on worker disconnect.
+
+Limits configurable on controller and workers (configure matching values):
+
+- `FILE_TRANSFER_MAX_BYTES`: 8 GiB, per file, per upload request, and for
+  uncompressed backup input.
+- `PROXY_MAX_REQUEST_BYTES`: 512 MiB, per proxied request body.
+- `WORKER_MAX_TRANSFERS`: 32 simultaneous file/body transfer handles.
+- Response streams: 32 per worker connection, four queued data frames each;
+  workspace WebSocket messages are limited to 1 MiB.
+- Generated Nginx ingress permits 17 GiB request bodies to accommodate the
+  existing 16 GiB workspace-image and 8 GiB platform-update limits plus multipart
+  overhead. Application-specific limits still apply. Reapply ingress configuration
+  on existing installations to receive this change.
+
+CI runs concurrent admission tests on SQLite and a dedicated PostgreSQL service.
+For local PostgreSQL tests, set `TEST_POSTGRES_URL` to a **disposable test database**;
+these tests create and drop application tables in that database.

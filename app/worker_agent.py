@@ -16,6 +16,8 @@ import tempfile
 import hashlib
 import time
 import uuid
+import contextlib
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -25,6 +27,9 @@ import websockets
 
 from app import __version__
 from app.config import settings
+from app.worker_transfers import WorkerTransfers
+from app.agents.transfers import CHUNK_BYTES
+from app.agents.manager import STREAM_WINDOW, MAX_STREAM_FRAME_BYTES, MAX_STREAMS
 from app.orchestrator.podman_service import podman_service
 from app.release_catalog import semantic_version
 from app.schemas.jupyter_ai_settings import JupyterAiModel
@@ -93,6 +98,9 @@ class WorkerAgent:
         self.image_sync_lock = asyncio.Lock()
         self.upgrade_task: asyncio.Task | None = None
         self.stream_targets: dict[str, object] = {}
+        self.stream_tasks = {}
+        self.stream_windows = {}
+        self.transfers = WorkerTransfers(self._safe_workspace_path)
         self.registry_path = Path(settings.STORAGE_ROOT) / ".devcloud-agent-registry.json"
         self.registry = self._load_registry()
         self.image_state_path = Path(settings.STORAGE_ROOT) / ".devcloud-image-state.json"
@@ -466,6 +474,10 @@ class WorkerAgent:
             await asyncio.sleep(30)
 
     async def send(self, message: dict) -> None:
+        if message.get("type") == "stream_data":
+            window = self.stream_windows.get(message.get("stream_id"))
+            if window:
+                await asyncio.wait_for(window.acquire(), timeout=120)
         async with self.send_lock:
             await self.websocket.send(json.dumps(message, ensure_ascii=False))
 
@@ -510,8 +522,8 @@ class WorkerAgent:
             disk_total_mb = disk.total // (1024 * 1024)
             disk_used_mb = max(0, (disk.total - disk.free) // (1024 * 1024))
             inventory = []
-            for container_name, entry in self.registry.items():
-                if not isinstance(entry, dict):
+            for container_name, entry in list(self.registry.items()):
+                if not isinstance(entry, dict) or entry.get("deleted"):
                     continue
                 inventory.append(
                     {
@@ -564,7 +576,7 @@ class WorkerAgent:
 
     def _registered_entry(self, container_name: str, workspace_id: str = "") -> dict:
         entry = self.registry.get(container_name)
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or entry.get("deleted"):
             raise PermissionError("Container bu worker'a kayıtlı değil.")
         if workspace_id and str(entry.get("workspace_id") or "") != workspace_id:
             raise PermissionError("Workspace ve container eşleşmesi doğrulanamadı.")
@@ -581,6 +593,12 @@ class WorkerAgent:
         return target
 
     async def handle_container_command(self, action: str, payload: dict) -> dict:
+        if action in {"container.start", "container.stop", "container.delete"}:
+            async with self.registry_lock:
+                return await self._handle_container_command(action, payload)
+        return await self._handle_container_command(action, payload)
+
+    async def _handle_container_command(self, action: str, payload: dict) -> dict:
         name = str(payload.get("container_name") or "")
         if action == "container.create":
             allowed = {
@@ -624,6 +642,8 @@ class WorkerAgent:
                 return {"container_id": container_id, "storage_path": storage_path}
         if not name:
             raise ValueError("container_name gereklidir.")
+        if action == "container.delete" and self.registry.get(name, {}).get("deleted"):
+            return {"success": True, "already_deleted": True}
         registered = self._registered_entry(name)
         if action == "container.exists":
             return {"exists": await podman_service.container_exists(name)}
@@ -672,14 +692,23 @@ class WorkerAgent:
             return {"success": True, "image_tag": image_tag}
         if action == "container.delete":
             success = await podman_service.delete_container(name)
+            if not success:
+                return {"success": False}
             storage_path = self._registered_storage(name)
             if storage_path:
                 root = Path(settings.STORAGE_ROOT).resolve()
                 target = Path(storage_path).resolve()
-                if target != root and root in target.parents:
-                    shutil.rmtree(target, ignore_errors=True)
-            self.registry.pop(name, None)
-            self._save_registry()
+                if target == root or root not in target.parents:
+                    raise PermissionError("Workspace storage is outside the configured root.")
+                if target.exists():
+                    await asyncio.to_thread(shutil.rmtree, target)
+            previous = self.registry[name]
+            self.registry[name] = {"workspace_id": previous["workspace_id"], "deleted": True}
+            try:
+                self._save_registry()
+            except Exception:
+                self.registry[name] = previous
+                raise
             return {"success": success}
         raise ValueError(f"Desteklenmeyen container komutu: {action}")
 
@@ -701,7 +730,18 @@ class WorkerAgent:
         os.close(descriptor)
         archive = Path(archive_name)
         try:
-            create_workspace_zip_backup(storage_path, archive)
+            cancelled = threading.Event()
+            build = asyncio.create_task(asyncio.to_thread(
+                create_workspace_zip_backup, storage_path, archive,
+                cancelled=cancelled, max_bytes=settings.FILE_TRANSFER_MAX_BYTES,
+            ))
+            try:
+                await asyncio.shield(build)
+            except asyncio.CancelledError:
+                cancelled.set()
+                with contextlib.suppress(Exception):
+                    await build
+                raise
             await self.result(
                 request_id,
                 {
@@ -749,20 +789,8 @@ class WorkerAgent:
                 )
             current = target.relative_to(root).as_posix()
             return {"current_path": "" if current == "." else current, "items": items}
-        if action == "files.upload":
-            target.mkdir(parents=True, exist_ok=True)
-            uploaded = []
-            for item in payload.get("files") or []:
-                filename = Path(str(item.get("name") or "")).name
-                if not filename:
-                    continue
-                (target / filename).write_bytes(base64.b64decode(item.get("content", ""), validate=True))
-                uploaded.append(filename)
-            return {"files": uploaded}
-        if action == "files.download":
-            if not target.is_file():
-                raise FileNotFoundError("Dosya bulunamadı.")
-            return {"name": target.name, "content": base64.b64encode(target.read_bytes()).decode("ascii")}
+        if action in {"files.upload", "files.download"}:
+            raise ValueError("File transfers require the chunked protocol; update controller and worker together.")
         if action == "files.mkdir":
             target.mkdir(parents=True, exist_ok=True)
             return {"name": target.name}
@@ -804,9 +832,17 @@ class WorkerAgent:
         stream_id = str(payload["stream_id"])
         client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
         response = None
+        body_handle = None
         try:
             target_url = await self._target_url(payload, websocket=False)
-            body = base64.b64decode(payload.get("body", ""), validate=True)
+            if payload.get("body_transfer_id"):
+                body_handle = self.transfers.take_http_body(payload["body_transfer_id"])
+                async def body_chunks():
+                    while chunk := await asyncio.to_thread(body_handle.read, CHUNK_BYTES):
+                        yield chunk
+                body = body_chunks()
+            else:
+                body = base64.b64decode(payload.get("body", ""), validate=True)
             request = client.build_request(
                 method=payload["method"],
                 url=target_url,
@@ -819,15 +855,13 @@ class WorkerAgent:
                 request_id,
                 {"status_code": response.status_code, "headers": headers},
             )
-            async for chunk in response.aiter_raw():
-                await self.send(
-                    {
-                        "type": "stream_data",
-                        "stream_id": stream_id,
-                        "encoding": "base64",
-                        "data": base64.b64encode(chunk).decode("ascii"),
-                    }
-                )
+            async for raw in response.aiter_raw():
+                # Do not ask httpx to accumulate a full chunk: small SSE and IDE
+                # responses must be forwarded immediately.
+                for offset in range(0, len(raw), CHUNK_BYTES):
+                    chunk = raw[offset:offset + CHUNK_BYTES]
+                    await self.send({"type": "stream_data", "stream_id": stream_id,
+                                     "encoding": "base64", "data": base64.b64encode(chunk).decode("ascii")})
             await self.send({"type": "stream_end", "stream_id": stream_id})
         except Exception as exc:
             await self.result(request_id, error=str(exc))
@@ -836,6 +870,8 @@ class WorkerAgent:
             if response is not None:
                 await response.aclose()
             await client.aclose()
+            if body_handle:
+                body_handle.close()
 
     async def _target_url(self, payload: dict, websocket: bool) -> str:
         scheme = "ws" if websocket else "http"
@@ -871,6 +907,7 @@ class WorkerAgent:
             target = await websockets.connect(
                 target_url,
                 additional_headers=payload.get("headers") or None,
+                max_size=MAX_STREAM_FRAME_BYTES,
             )
             self.stream_targets[stream_id] = target
             await self.result(request_id, {"connected": True})
@@ -899,13 +936,22 @@ class WorkerAgent:
 
     async def handle_stream_message(self, message: dict) -> None:
         stream_id = str(message.get("stream_id") or "")
+        if message.get("type") == "stream_ack":
+            window = self.stream_windows.get(stream_id)
+            if window and window._value < STREAM_WINDOW:
+                window.release()
+            return
+        if message.get("type") in {"stream_cancel", "stream_end"}:
+            task = self.stream_tasks.get(stream_id)
+            if task:
+                task.cancel()
+            return
         target = self.stream_targets.get(stream_id)
         if not target:
-            return
-        if message.get("type") == "stream_end":
-            await target.close()
-            return
+            raise RuntimeError("Workspace WebSocket stream is closed")
         data = message.get("data", "")
+        if len(data) > 4 * ((MAX_STREAM_FRAME_BYTES + 2) // 3):
+            raise ValueError("WebSocket frame exceeds stream limit")
         if message.get("encoding") == "text":
             await target.send(data)
         else:
@@ -1149,17 +1195,35 @@ class WorkerAgent:
         request_id = str(message.get("request_id") or "")
         action = str(message.get("action") or "")
         payload = message.get("payload") or {}
-        if action == "proxy.http.open":
-            await self.handle_http_open(request_id, payload)
-            return
-        if action == "proxy.websocket.open":
-            await self.handle_ws_open(request_id, payload)
-            return
-        if action == "workspace.backup.open":
-            await self.handle_backup_open(request_id, payload)
+        handlers = {"proxy.http.open": self.handle_http_open,
+                    "proxy.websocket.open": self.handle_ws_open,
+                    "workspace.backup.open": self.handle_backup_open}
+        if action in handlers:
+            if payload.get("flow_control") is not True:
+                await self.result(request_id, error="Streaming protocol mismatch; update controller and worker together.")
+                return
+            stream_id = str(payload.get("stream_id") or "")
+            if not stream_id or stream_id in self.stream_tasks or len(self.stream_tasks) >= MAX_STREAMS:
+                await self.result(request_id, error="Worker stream limit reached or invalid stream ID")
+                return
+            self.stream_tasks[stream_id] = asyncio.current_task()
+            self.stream_windows[stream_id] = asyncio.Semaphore(STREAM_WINDOW)
+            try:
+                await handlers[action](request_id, payload)
+            except Exception as exc:
+                await self.result(request_id, error=str(exc))
+                await self.send({"type": "stream_error", "stream_id": stream_id, "error": str(exc)})
+            finally:
+                self.stream_tasks.pop(stream_id, None)
+                self.stream_windows.pop(stream_id, None)
             return
         try:
-            if action.startswith("system."):
+            if action.startswith("transfer."):
+                result = await asyncio.to_thread(self.transfers.command, action, payload)
+            elif action == "proxy.websocket.send":
+                await self.handle_stream_message({"type": "stream_data", **payload})
+                result = {"sent": True}
+            elif action.startswith("system."):
                 result = await self.handle_system_command(action, payload)
             elif action.startswith("image."):
                 result = await self.handle_image_command(action, payload)
@@ -1171,6 +1235,11 @@ class WorkerAgent:
         except Exception as exc:
             logger.exception("Worker command failed: %s", action)
             await self.result(request_id, error=str(exc))
+
+    async def expire_transfers(self):
+        while True:
+            await asyncio.sleep(30)
+            await asyncio.to_thread(self.transfers.expire)
 
     async def run_once(self) -> None:
         headers = {"Authorization": f"Bearer {_required_env('DEVCLOUD_NODE_TOKEN')}"}
@@ -1188,6 +1257,7 @@ class WorkerAgent:
             ping_timeout=20,
         ) as websocket:
             self.websocket = websocket
+            transfer_cleanup_task = asyncio.create_task(self.expire_transfers())
             heartbeat_task = asyncio.create_task(self.heartbeat())
             image_sync_task = asyncio.create_task(self.image_sync_loop())
             jupyter_ai_sync_task = asyncio.create_task(
@@ -1203,14 +1273,18 @@ class WorkerAgent:
                         task = asyncio.create_task(self.handle_command(message))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
-                    elif message.get("type") in {"stream_data", "stream_end"}:
+                    elif message.get("type") in {"stream_data", "stream_end", "stream_ack", "stream_cancel"}:
                         await self.handle_stream_message(message)
             finally:
+                transfer_cleanup_task.cancel()
                 heartbeat_task.cancel()
                 image_sync_task.cancel()
                 jupyter_ai_sync_task.cancel()
                 for task in tasks:
                     task.cancel()
+                await asyncio.gather(*tasks, transfer_cleanup_task, heartbeat_task,
+                                     image_sync_task, jupyter_ai_sync_task, return_exceptions=True)
+                await asyncio.to_thread(self.transfers.expire, True)
 
     async def run_forever(self) -> None:
         delay = 1

@@ -56,7 +56,7 @@ async def test_file_manager_operations(client: AsyncClient, db_session, monkeypa
         upload_transaction_states = []
 
         async def observe_request(action, payload, timeout=60):
-            if action == "files.upload":
+            if action == "transfer.open" and payload.get("purpose") == "upload":
                 upload_transaction_states.append(db_session.in_transaction())
             return await original_request(action, payload, timeout)
 

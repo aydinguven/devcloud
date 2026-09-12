@@ -1,4 +1,5 @@
 import asyncio
+from app.agents.transfers import upload_transfer, abort_transfer
 import base64
 import logging
 from html import escape
@@ -230,7 +231,7 @@ async def port_is_ready(host_port: int) -> bool:
 
 
 def _forward_headers(request: Request, workspace: Workspace, custom_port: int | None = None) -> dict[str, str]:
-    excluded = {"host", "content-length", "connection", "authorization", "cookie"}
+    excluded = {"host", "content-length", "transfer-encoding", "connection", "authorization", "cookie"}
     headers = {key: value for key, value in request.headers.items() if key.lower() not in excluded}
     incoming_cookie = request.headers.get("cookie", "")
     if incoming_cookie:
@@ -276,10 +277,22 @@ async def proxy_remote_http(
         "path": path,
         "query": request.url.query,
         "headers": _forward_headers(request, workspace, custom_port),
-        "body": base64.b64encode(await request.body()).decode("ascii"),
+        "body": "",
     }
+    body_transfer_id = None
     try:
+        async def request_chunks():
+            async for chunk in request.stream():
+                yield chunk
+        # Empty GET/HEAD requests need no spool or protocol extension.
+        if request.method not in {"GET", "HEAD"} or request.headers.get("content-length", "0") != "0" or request.headers.get("transfer-encoding"):
+            result = await upload_transfer(connection, request_chunks(), payload={"purpose": "http"}, limit=settings.PROXY_MAX_REQUEST_BYTES)
+            body_transfer_id = result["transfer_id"]
+            payload["body_transfer_id"] = body_transfer_id
+            payload["headers"]["Content-Length"] = str(result["size"])
         metadata, stream = await connection.open_stream("proxy.http.open", payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except (AgentUnavailable, AgentCommandError, TimeoutError) as exc:
         if request.method == "GET" and "text/html" in request.headers.get(
             "accept", ""
@@ -295,6 +308,9 @@ async def proxy_remote_http(
                 headers={"Cache-Control": "no-store", "Retry-After": "2"},
             )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if body_transfer_id:
+            await abort_transfer(connection, body_transfer_id)
 
     header_pairs = metadata.get("headers") or []
     response_headers: dict[str, str] = {}
@@ -307,13 +323,16 @@ async def proxy_remote_http(
             response_headers[key] = value
 
     async def response_stream():
-        while True:
-            item = await stream.queue.get()
-            if item is None:
-                break
-            if isinstance(item, Exception):
-                raise item
-            yield item.data
+        try:
+            while True:
+                item = await connection.receive_stream(stream)
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                yield item.data
+        finally:
+            await connection.close_stream(stream.id)
 
     response = StreamingResponse(
         response_stream(),
@@ -370,7 +389,7 @@ async def proxy_remote_websocket(
 
     async def forward_to_client():
         while True:
-            item = await stream.queue.get()
+            item = await connection.receive_stream(stream)
             if item is None:
                 break
             if isinstance(item, Exception):
@@ -380,7 +399,14 @@ async def proxy_remote_websocket(
             else:
                 await websocket.send_bytes(item.data)
 
-    await asyncio.gather(forward_to_worker(), forward_to_client(), return_exceptions=True)
+    tasks = [asyncio.create_task(forward_to_worker()), asyncio.create_task(forward_to_client())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await connection.close_stream(stream.id)
 
 
 @proxy_router.get("/{workspace_id}/_devcloud/status")

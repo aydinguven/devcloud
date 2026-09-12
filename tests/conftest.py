@@ -1,7 +1,6 @@
 import asyncio
-import base64
-import os
-import uuid
+import json
+from types import SimpleNamespace
 from pathlib import Path
 import pytest
 import pytest_asyncio
@@ -18,7 +17,7 @@ from app.models.directory_settings import DirectorySettings
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.main import app
 from app.orchestrator.podman_service import podman_service
-from app.agents.manager import AgentCommandError, AgentStream, StreamChunk, agent_manager
+from app.agents.manager import AgentConnection, agent_manager
 from app.worker_agent import WorkerAgent
 
 # Force test mode and mock podman
@@ -42,12 +41,15 @@ TestingSessionLocal = async_sessionmaker(
 TEST_WORKER_ID = "00000000-0000-0000-0000-000000000001"
 
 
-class InProcessWorkerConnection:
+class InProcessWorkerConnection(AgentConnection):
     """Exercise the production worker command surface without a real socket."""
 
     def __init__(self, agent: WorkerAgent, db_session: AsyncSession):
+        super().__init__(TEST_WORKER_ID, None)
         self.agent = agent
         self.db_session = db_session
+        self.tasks = set()
+        self.agent.websocket = SimpleNamespace(send=self.deliver)
 
     async def _ensure_registry(self, payload: dict) -> None:
         container_name = str(payload.get("container_name") or "")
@@ -68,68 +70,23 @@ class InProcessWorkerConnection:
                 "host_port": workspace.host_port,
             }
 
-    async def request(self, action: str, payload: dict, timeout: float = 60) -> dict:
-        await self._ensure_registry(payload)
-        if action.startswith("files."):
-            return await self.agent.handle_file_command(action, payload)
-        if action.startswith("system."):
-            return await self.agent.handle_system_command(action, payload)
-        return await self.agent.handle_container_command(action, payload)
+    async def deliver(self, raw):
+        await self.handle_message(json.loads(raw))
 
-    async def open_stream(
-        self, action: str, payload: dict, timeout: float = 30
-    ) -> tuple[dict, AgentStream]:
-        await self._ensure_registry(payload)
-        stream = AgentStream(str(uuid.uuid4()))
-        if action == "workspace.backup.open":
-            import tempfile
-            from app.orchestrator.backup_service import create_workspace_zip_backup
+    async def send_json(self, message):
+        if message["type"] == "command":
+            await self._ensure_registry(message.get("payload") or {})
+            task = asyncio.create_task(self.agent.handle_command(message))
+            self.tasks.add(task)
+            task.add_done_callback(self.tasks.discard)
+        else:
+            await self.agent.handle_stream_message(message)
 
-            entry = self.agent._registered_entry(
-                str(payload["container_name"]), str(payload["workspace_id"])
-            )
-            descriptor, archive_name = tempfile.mkstemp(suffix=".zip")
-            os.close(descriptor)
-            archive = Path(archive_name)
-            try:
-                create_workspace_zip_backup(entry["storage_path"], archive)
-                content = archive.read_bytes()
-            finally:
-                archive.unlink(missing_ok=True)
-            await stream.queue.put(StreamChunk(content))
-            await stream.queue.put(None)
-            return {"filename": "backup.zip", "size": len(content)}, stream
-
-        if action != "proxy.http.open":
-            raise AgentCommandError(f"Unsupported test stream action: {action}")
-
-        import app.proxy.router as proxy_module
-
-        try:
-            target_url = await self.agent._target_url(payload, websocket=False)
-            body = base64.b64decode(payload.get("body", ""), validate=True)
-            client = proxy_module.httpx.AsyncClient(
-                timeout=30.0, follow_redirects=False
-            )
-            request = client.build_request(
-                method=payload["method"],
-                url=target_url,
-                headers=payload.get("headers") or {},
-                content=body,
-            )
-            response = await client.send(request, stream=True)
-            if hasattr(response.headers, "multi_items"):
-                headers = list(response.headers.multi_items())
-            else:
-                headers = list(response.headers.items())
-            async for chunk in response.aiter_raw():
-                await stream.queue.put(StreamChunk(chunk))
-            await stream.queue.put(None)
-            await response.aclose()
-            await client.aclose()
-            return {"status_code": response.status_code, "headers": headers}, stream
-        except Exception as exc:
-            raise AgentCommandError(str(exc)) from exc
+    async def cleanup(self):
+        for task in list(self.tasks):
+            task.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        self.agent.transfers.expire(all=True)
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -173,6 +130,7 @@ async def client(db_session: AsyncSession, tmp_path: Path):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
+    await connection.cleanup()
     app.dependency_overrides.clear()
     if agent_manager._connections.get(TEST_WORKER_ID) is connection:
         agent_manager._connections.pop(TEST_WORKER_ID, None)

@@ -3,19 +3,28 @@ import shutil
 import zipfile
 import logging
 from pathlib import Path
+from threading import Event
 from app.models.workspace import Workspace
 from app.orchestrator.podman_service import podman_service
 
 logger = logging.getLogger("devcloud.backup")
 
 
-def create_workspace_zip_backup(storage_path: str | Path, output_zip_path: Path) -> Path:
+class BackupCancelled(RuntimeError):
+    pass
+
+
+def create_workspace_zip_backup(
+    storage_path: str | Path, output_zip_path: Path, *,
+    cancelled: Event | None = None, max_bytes: int | None = None,
+) -> Path:
     """Pack all files from the workspace persistent directory into a .zip archive."""
     src_dir = Path(storage_path)
     if not src_dir.exists():
         src_dir.mkdir(parents=True, exist_ok=True)
 
     output_zip_path.parent.mkdir(parents=True, exist_ok=True)
+    total_bytes = 0
     with zipfile.ZipFile(output_zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(src_dir):
             for file in files:
@@ -24,8 +33,23 @@ def create_workspace_zip_backup(storage_path: str | Path, output_zip_path: Path)
                 # Skip temp/lock/git cache files if huge
                 if any(part in {".venv", ".cache", "__pycache__"} for part in rel_path.parts):
                     continue
+                if cancelled and cancelled.is_set():
+                    raise BackupCancelled("Backup cancelled")
+                if full_path.is_symlink():
+                    continue
                 try:
-                    zipf.write(full_path, arcname=str(rel_path))
+                    info = zipfile.ZipInfo.from_file(full_path, arcname=str(rel_path))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    with full_path.open("rb") as source, zipf.open(info, "w", force_zip64=True) as output:
+                        while chunk := source.read(256 * 1024):
+                            if cancelled and cancelled.is_set():
+                                raise BackupCancelled("Backup cancelled")
+                            total_bytes += len(chunk)
+                            if max_bytes is not None and total_bytes > max_bytes:
+                                raise BackupCancelled("Backup exceeds the configured transfer limit")
+                            output.write(chunk)
+                except BackupCancelled:
+                    raise
                 except Exception as exc:
                     logger.warning(f"Skipped archiving {rel_path}: {exc}")
     return output_zip_path

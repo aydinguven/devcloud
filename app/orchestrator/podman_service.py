@@ -454,6 +454,8 @@ class PodmanService:
         code, _, _ = await self.run_cmd(
             "container", "exists", container_name, timeout=5
         )
+        if code not in (0, 1):
+            raise RuntimeError("Podman could not determine whether the container exists.")
         return code == 0
 
     async def start_container(self, container_name: str) -> bool:
@@ -482,6 +484,8 @@ class PodmanService:
                 )
             return True
 
+        if not await self.container_exists(container_name):
+            return True
         code, stdout, stderr = await self.run_cmd("stop", "-t", "10", container_name)
         if code != 0:
             logger.error(f"Failed to stop container {container_name}: {stderr}")
@@ -494,12 +498,17 @@ class PodmanService:
             self._mock_containers.pop(container_name, None)
             return True
 
+        if not await self.container_exists(container_name):
+            return True
+
         # Force remove container
         code, stdout, stderr = await self.run_cmd("rm", "-f", container_name)
         # Also clean up any pod named container_name if present
         await self.run_cmd("pod", "rm", "-f", container_name)
         if code != 0:
-            logger.warning(f"Failed or already removed container {container_name}: {stderr}")
+            if not await self.container_exists(container_name):
+                return True
+            logger.warning(f"Failed to remove container {container_name}: {stderr}")
             return False
         return True
 

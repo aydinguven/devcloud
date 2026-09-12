@@ -96,7 +96,7 @@
               <span class="badge badge-running">GPU: {{ ws.accelerator_model }} · slot {{ ws.accelerator_slot + 1 }}/{{ ws.accelerator_shared_slots }}</span>
             {% endif %}
             {% if ws.auto_stop_minutes > 0 %}
-              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">⏱ {{ ws.auto_stop_minutes }}dk Oto-Durdur</span>
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">⏱ {{ ws.auto_stop_minutes }}dk Maksimum Süre</span>
             {% endif %}
           </div>
 
@@ -170,13 +170,14 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="input-auto-stop">Hareketsizlik Otomatik Durdurma Zamanlayıcısı</label>
+        <label class="form-label" for="input-auto-stop">Maksimum Çalışma Süresi</label>
+        <p class="form-help">Süre her başlatmada sıfırlanır. Aktif IDE oturumları ve çalışan işler olsa da süre dolunca durdurulur.</p>
         <select id="input-auto-stop" class="form-input" style="background: var(--bg-input); color: #fff;">
-          <option value="0">Devre Dışı (Sürekli Çalışsın)</option>
-          <option value="30">30 Dakika Hareketsizlik Sonrası Durdur</option>
-          <option value="60" selected>1 Saat Hareketsizlik Sonrası Durdur</option>
-          <option value="120">2 Saat Hareketsizlik Sonrası Durdur</option>
-          <option value="240">4 Saat Hareketsizlik Sonrası Durdur</option>
+          <option value="0" selected>Devre Dışı (Sürekli Çalışsın)</option>
+          <option value="30">30 Dakika Sonra Durdur</option>
+          <option value="60">1 Saat Sonra Durdur</option>
+          <option value="120">2 Saat Sonra Durdur</option>
+          <option value="240">4 Saat Sonra Durdur</option>
         </select>
         <small style="color: var(--text-muted); font-size: 0.72rem; display: block; margin-top: 0.25rem;">
           RAM ve CPU tasarrufu sağlamak için container durdurulur; dosyalarınız eksiksiz saklanır ve tek tıkla devam ettirilebilir.

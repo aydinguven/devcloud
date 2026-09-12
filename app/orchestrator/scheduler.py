@@ -43,6 +43,8 @@ class WorkspacePlacement:
 ACTIVE_ALLOCATION_STATUSES = {
     WorkspaceStatus.CREATING,
     WorkspaceStatus.STARTING,
+    WorkspaceStatus.STOPPING,
+    WorkspaceStatus.ERROR,
     WorkspaceStatus.RUNNING,
 }
 CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
@@ -419,3 +421,23 @@ async def flavor_availability(
     except NoSchedulableNode as exc:
         return False, str(exc)
     return True, "Kullanılabilir kapasite bulundu."
+
+
+async def validate_restart_capacity(db: AsyncSession, workspace: Workspace) -> None:
+    """Check the pinned worker without choosing a new node or GPU slot."""
+    node = await db.get(Node, workspace.node_id, populate_existing=True)
+    if not node or not node.enabled or not node.schedulable or node.status != NodeStatus.ONLINE or not agent_manager.is_connected(node.id):
+        raise NoSchedulableNode("Assigned worker is unavailable or drained.")
+    flavor = get_flavor(workspace.flavor_id)
+    if not flavor:
+        raise NoSchedulableNode("Workspace flavor is unavailable.")
+    used = (await _allocations(db)).get(node.id, NodeAllocation())
+    already_reserved = workspace.status in ACTIVE_ALLOCATION_STATUSES
+    cpu = used.cpu + (0 if already_reserved else flavor.cpus)
+    memory = used.memory_mb + (0 if already_reserved else flavor.memory_mb)
+    if cpu > node.cpu_total or memory > node.memory_total_mb:
+        raise NoSchedulableNode("Assigned worker has insufficient CPU/RAM to restart this workspace.")
+    if flavor.accelerator_count:
+        device = next((d for d in _accelerators(node) if d.get("id") == workspace.accelerator_device_id), None)
+        if not device or not device.get("healthy") or not device.get("allocatable"):
+            raise NoSchedulableNode("Reserved GPU device is unavailable.")

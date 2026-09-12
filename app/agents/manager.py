@@ -3,9 +3,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import uuid
+import contextlib
+import anyio
+
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
+
+STREAM_WINDOW = 4
+MAX_STREAM_FRAME_BYTES = 1024 * 1024
+MAX_STREAMS = 32
 
 
 class AgentUnavailable(RuntimeError):
@@ -19,7 +26,7 @@ class AgentCommandError(RuntimeError):
 @dataclass
 class AgentStream:
     id: str
-    queue: asyncio.Queue["StreamChunk" | Exception | None] = field(default_factory=asyncio.Queue)
+    queue: asyncio.Queue["StreamChunk" | Exception | None] = field(default_factory=lambda: asyncio.Queue(maxsize=STREAM_WINDOW + 2))
 
 
 @dataclass(frozen=True)
@@ -45,15 +52,12 @@ class AgentConnection:
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         try:
-            await self.send_json(
-                {
-                    "type": "command",
-                    "request_id": request_id,
-                    "action": action,
-                    "payload": payload,
-                }
-            )
-            result = await asyncio.wait_for(future, timeout=timeout)
+            async with asyncio.timeout(timeout):
+                await self.send_json({
+                    "type": "command", "request_id": request_id,
+                    "action": action, "payload": payload,
+                })
+                result = await future
             if not result.get("ok", False):
                 raise AgentCommandError(result.get("error") or "Worker komutu başarısız oldu.")
             return result.get("payload") or {}
@@ -61,32 +65,51 @@ class AgentConnection:
             self._pending.pop(request_id, None)
 
     async def open_stream(self, action: str, payload: dict, timeout: float = 30) -> tuple[dict, AgentStream]:
+        if len(self._streams) >= MAX_STREAMS:
+            raise AgentCommandError("Worker stream limit reached")
         stream = AgentStream(id=str(uuid.uuid4()))
         self._streams[stream.id] = stream
         try:
             metadata = await self.request(
                 action,
-                {**payload, "stream_id": stream.id},
+                {**payload, "stream_id": stream.id, "flow_control": True},
                 timeout=timeout,
             )
             return metadata, stream
-        except Exception:
-            self._streams.pop(stream.id, None)
+        except BaseException:
+            await self.close_stream(stream.id)
             raise
 
     async def send_stream_data(self, stream_id: str, data: bytes, text: bool = False) -> None:
-        await self.send_json(
-            {
-                "type": "stream_data",
-                "stream_id": stream_id,
-                "encoding": "text" if text else "base64",
-                "data": data.decode("utf-8") if text else base64.b64encode(data).decode("ascii"),
-            }
-        )
+        if len(data) > MAX_STREAM_FRAME_BYTES:
+            raise AgentCommandError("WebSocket frame exceeds stream limit")
+        # The command response acknowledges the upstream write. A stalled IDE
+        # therefore blocks this stream's producer, never the shared receiver.
+        await self.request("proxy.websocket.send", {
+            "stream_id": stream_id, "encoding": "text" if text else "base64",
+            "data": data.decode("utf-8") if text else base64.b64encode(data).decode("ascii"),
+        })
+
+    async def receive_stream(self, stream: AgentStream):
+        item = await stream.queue.get()
+        if isinstance(item, StreamChunk) and stream.id in self._streams:
+            await self.send_json({"type": "stream_ack", "stream_id": stream.id})
+        return item
+
+    @staticmethod
+    def _finish_stream(stream, error=None):
+        if error:
+            while not stream.queue.empty():
+                stream.queue.get_nowait()
+            stream.queue.put_nowait(error)
+        stream.queue.put_nowait(None)
 
     async def close_stream(self, stream_id: str) -> None:
-        await self.send_json({"type": "stream_end", "stream_id": stream_id})
-        self._streams.pop(stream_id, None)
+        stream = self._streams.pop(stream_id, None)
+        if stream:
+            self._finish_stream(stream, AgentCommandError("Stream closed"))
+        with anyio.CancelScope(shield=True), contextlib.suppress(Exception):
+            await asyncio.wait_for(self.send_json({"type": "stream_cancel", "stream_id": stream_id}), 5)
 
     async def handle_message(self, message: dict) -> None:
         message_type = message.get("type")
@@ -102,22 +125,22 @@ class AgentConnection:
         if message_type == "stream_data":
             try:
                 data = message.get("data", "")
-                if message.get("encoding") == "text":
-                    decoded = data.encode("utf-8")
-                else:
-                    decoded = base64.b64decode(data, validate=True)
-                await stream.queue.put(
-                    StreamChunk(decoded, is_text=message.get("encoding") == "text")
-                )
+                if len(data) > 4 * ((MAX_STREAM_FRAME_BYTES + 2) // 3):
+                    raise ValueError("Oversized stream frame")
+                decoded = data.encode("utf-8") if message.get("encoding") == "text" else base64.b64decode(data, validate=True)
+                if len(decoded) > MAX_STREAM_FRAME_BYTES or stream.queue.qsize() >= STREAM_WINDOW:
+                    raise ValueError("Worker exceeded stream flow-control window")
+                stream.queue.put_nowait(StreamChunk(decoded, is_text=message.get("encoding") == "text"))
             except Exception as exc:
-                await stream.queue.put(exc)
+                self._streams.pop(stream.id, None)
+                self._finish_stream(stream, AgentCommandError(str(exc)))
+                await self.send_json({"type": "stream_cancel", "stream_id": stream.id})
         elif message_type == "stream_error":
-            await stream.queue.put(AgentCommandError(message.get("error") or "Worker stream hatası."))
-            await stream.queue.put(None)
             self._streams.pop(stream.id, None)
+            self._finish_stream(stream, AgentCommandError(message.get("error") or "Worker stream error"))
         elif message_type == "stream_end":
-            await stream.queue.put(None)
             self._streams.pop(stream.id, None)
+            self._finish_stream(stream)
 
     async def disconnect(self) -> None:
         error = AgentUnavailable(f"Worker bağlantısı kesildi: {self.node_id}")
@@ -125,8 +148,7 @@ class AgentConnection:
             if not future.done():
                 future.set_exception(error)
         for stream in self._streams.values():
-            await stream.queue.put(error)
-            await stream.queue.put(None)
+            self._finish_stream(stream, error)
         self._pending.clear()
         self._streams.clear()
 

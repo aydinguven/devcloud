@@ -73,7 +73,7 @@ def atomic_write(path: Path, content: bytes, mode: int) -> None:
 
 
 def proxy_location() -> str:
-    return """    client_max_body_size 500M;
+    return """    client_max_body_size 17G;
 
     location / {
         proxy_pass http://127.0.0.1:8000;

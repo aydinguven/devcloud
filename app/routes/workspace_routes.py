@@ -23,8 +23,10 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import Flavor, get_flavor
 from app.orchestrator.templates import get_template, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
+from app.orchestrator.admission import admission_transaction
 from app.orchestrator.scheduler import (
     accelerator_availability_details,
+    validate_restart_capacity,
     flavor_availability,
     NoSchedulableNode,
     WorkspacePlacement,
@@ -48,6 +50,10 @@ from app.workspace_catalog import (
 
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
+
+
+class QuotaExceeded(RuntimeError):
+    pass
 
 
 async def allocate_workspace_port(db: AsyncSession, node_id: str) -> int:
@@ -106,14 +112,7 @@ async def reserve_workspace(
             created_at=datetime.now(timezone.utc),
     )
     db.add(workspace)
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise RuntimeError(
-            "Worker portu veya GPU slotu eşzamanlı başka bir istek tarafından ayrıldı."
-        ) from exc
-    await db.refresh(workspace)
+    await db.flush()
     return workspace
 
 
@@ -125,24 +124,30 @@ async def schedule_and_reserve_workspace(
     template,
     flavor: Flavor,
 ) -> tuple[Workspace, WorkspacePlacement]:
-    """Retry placement after a concurrent port or accelerator-slot race."""
+    """Check user quota and placement inside one serialized reservation."""
+    user_id = current_user.id
+    existing = (await db.execute(select(Workspace).where(Workspace.user_id == user_id))).scalars().all()
+    disk_usage = await get_workspace_disk_usage_by_user(existing)
     for attempt in range(5):
-        placement = await select_workspace_placement(
-            db, flavor, required_image=template.image_tag
-        )
         try:
-            workspace = await reserve_workspace(
-                db,
-                data=data,
-                current_user=current_user,
-                placement=placement,
-                template=template,
-                flavor=flavor,
-            )
+            async with admission_transaction(db):
+                user = await db.get(User, user_id, populate_existing=True)
+                error = await get_quota_error(
+                    db, user, flavor, disk_used_bytes=disk_usage.get(user_id, 0)
+                )
+                if error:
+                    raise QuotaExceeded(error)
+                placement = await select_workspace_placement(
+                    db, flavor, required_image=template.image_tag
+                )
+                workspace = await reserve_workspace(
+                    db, data=data, current_user=user, placement=placement,
+                    template=template, flavor=flavor,
+                )
             return workspace, placement
-        except RuntimeError:
+        except IntegrityError:
             if attempt == 4:
-                raise
+                raise RuntimeError("Workspace reservation conflicted repeatedly.")
     raise RuntimeError("Workspace reservation failed.")
 
 
@@ -150,19 +155,23 @@ async def get_quota_error(
     db: AsyncSession,
     user: User,
     flavor: Flavor,
+    *,
+    disk_used_bytes: int | None = None,
 ) -> str | None:
     """Return a readable quota error for a proposed workspace allocation."""
     result = await db.execute(
         select(Workspace).where(Workspace.user_id == user.id)
     )
     workspaces = result.scalars().all()
-    disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+    if disk_used_bytes is None:
+        disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+        disk_used_bytes = disk_usage.get(user.id, 0)
     violations = await asyncio.to_thread(
         quota_violations,
         user,
         workspaces,
         flavor,
-        disk_used_bytes=disk_usage.get(user.id, 0),
+        disk_used_bytes=disk_used_bytes,
     )
     if not violations:
         return None
@@ -259,10 +268,6 @@ async def create_workspace(
     if not flavor or not await flavor_enabled(db, data.flavor_id):
         raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
 
-    quota_error = await get_quota_error(db, current_user, flavor)
-    if quota_error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=quota_error)
-
     try:
         workspace, placement = await schedule_and_reserve_workspace(
             db,
@@ -271,6 +276,8 @@ async def create_workspace(
             template=template,
             flavor=flavor,
         )
+    except QuotaExceeded as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except (NoSchedulableNode, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -347,11 +354,6 @@ async def deploy_workspace_stream(
             flavor = get_flavor(data.flavor_id)
             if not flavor or not await flavor_enabled(db, data.flavor_id):
                 await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
-                return
-
-            quota_error = await get_quota_error(db, current_user, flavor)
-            if quota_error:
-                await emit_error(quota_error)
                 return
 
             await emit_log(f"Şablon: {template.name} ({template.image_tag})", "info")
@@ -471,10 +473,23 @@ async def start_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
+    async with admission_transaction(db):
+        await db.refresh(workspace)
+        if workspace.status in {WorkspaceStatus.CREATING, WorkspaceStatus.STARTING, WorkspaceStatus.STOPPING}:
+            raise HTTPException(status_code=409, detail="Çalışma alanı kurulumu devam ediyor veya başka bir işlem sürüyor.")
+        try:
+            await validate_restart_capacity(db, workspace)
+        except NoSchedulableNode as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        was_running = workspace.status == WorkspaceStatus.RUNNING
+        workspace.status = WorkspaceStatus.STARTING
+
     try:
         runtime = runtime_for_node(workspace.node_id)
         container_exists = await runtime.container_exists(workspace.container_name)
-        if workspace.status == WorkspaceStatus.RUNNING and container_exists:
+        if was_running and container_exists and await runtime.get_container_status(workspace.container_name) == "running":
+            workspace.status = WorkspaceStatus.RUNNING
+            await db.commit()
             ws_out = WorkspaceOut.model_validate(workspace)
             ws_out.web_url = f"/proxy/{workspace.id}/"
             return ws_out
@@ -500,7 +515,7 @@ async def start_workspace_endpoint(
             workspace.container_id = container_id
             workspace.storage_path = storage_path
             success = True
-    except (ValueError, RuntimeError) as exc:
+    except (ValueError, RuntimeError, TimeoutError) as exc:
         logger.exception("Failed to start workspace %s", workspace.id)
         workspace.error_message = str(exc)
         success = False
@@ -537,9 +552,23 @@ async def stop_workspace_endpoint(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
 
+    async with admission_transaction(db):
+        await db.refresh(workspace)
+        if workspace.status in {WorkspaceStatus.CREATING, WorkspaceStatus.STARTING, WorkspaceStatus.STOPPING}:
+            raise HTTPException(status_code=409, detail="Çalışma alanı kurulumu devam ediyor veya başka bir işlem sürüyor.")
+        previous_status = workspace.status
+        workspace.status = WorkspaceStatus.STOPPING
     runtime = runtime_for_node(workspace.node_id)
-    await runtime.stop_container(workspace.container_name)
+    try:
+        if not await runtime.stop_container(workspace.container_name):
+            raise RuntimeError("Worker could not stop the container; state was preserved.")
+    except (RuntimeError, TimeoutError) as exc:
+        workspace.status = previous_status
+        workspace.error_message = str(exc)
+        await db.commit()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     workspace.status = WorkspaceStatus.STOPPED
+    workspace.error_message = None
     workspace.last_stopped_at = datetime.now(timezone.utc)
 
     db.add(workspace)
@@ -568,15 +597,23 @@ async def delete_workspace_endpoint(
         raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
-    if workspace.status == WorkspaceStatus.CREATING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Çalışma alanı kurulumu devam ediyor. Silmeden önce tamamlanmasını bekleyin.",
-        )
+    async with admission_transaction(db):
+        await db.refresh(workspace)
+        if workspace.status in {WorkspaceStatus.CREATING, WorkspaceStatus.STARTING, WorkspaceStatus.STOPPING}:
+            raise HTTPException(status_code=409, detail="Çalışma alanı kurulumu devam ediyor veya başka bir işlem sürüyor.")
+        previous_status = workspace.status
+        workspace.status = WorkspaceStatus.STOPPING
 
     # 1. Stop and remove container in Podman
     runtime = runtime_for_node(workspace.node_id)
-    await runtime.delete_container(workspace.container_name, workspace.storage_path)
+    try:
+        if not await runtime.delete_container(workspace.container_name, workspace.storage_path):
+            raise RuntimeError("Worker could not delete the workspace; data and tracking were preserved.")
+    except (RuntimeError, TimeoutError) as exc:
+        workspace.status = previous_status
+        workspace.error_message = str(exc)
+        await db.commit()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     # 2. Remove record from database. The worker owns and removes storage.
     await db.delete(workspace)
@@ -667,7 +704,8 @@ async def download_workspace_backup(
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied.")
     try:
-        metadata, stream = await agent_manager.get(workspace.node_id).open_stream(
+        connection = agent_manager.get(workspace.node_id)
+        metadata, stream = await connection.open_stream(
             "workspace.backup.open",
             {
                 "workspace_id": workspace.id,
@@ -679,13 +717,16 @@ async def download_workspace_backup(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     async def body():
-        while True:
-            item = await stream.queue.get()
-            if item is None:
-                break
-            if isinstance(item, Exception):
-                raise item
-            yield item.data
+        try:
+            while True:
+                item = await connection.receive_stream(stream)
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                yield item.data
+        finally:
+            await connection.close_stream(stream.id)
 
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", workspace.name).strip(".-")
     filename = f"{(safe_name[:80] or workspace.id)}-backup.zip"

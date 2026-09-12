@@ -185,7 +185,7 @@ async def test_proxy_preserves_multiple_jupyter_set_cookie_headers(
             ]
         )
 
-        async def aiter_raw(self):
+        async def aiter_raw(self, chunk_size=None):
             yield b"<html>JupyterLab</html>"
 
         async def aclose(self):
@@ -225,13 +225,13 @@ async def test_proxy_preserves_content_encoding_for_raw_stream(client: AsyncClie
     captured_request = {}
     class FakeUpstreamResponse:
         status_code = 200
-        headers = {
+        headers = proxy_module.httpx.Headers({
             "content-type": "text/html; charset=utf-8",
             "content-encoding": "gzip",
             "content-length": str(len(compressed_body)),
-        }
+        })
 
-        async def aiter_raw(self):
+        async def aiter_raw(self, chunk_size=None):
             yield compressed_body
 
         async def aclose(self):
@@ -318,8 +318,8 @@ async def test_custom_port_path_is_dispatched_before_catch_all_proxy(client: Asy
 
     class Upstream:
         status_code = 200
-        headers = {"content-type": "application/json"}
-        async def aiter_raw(self):
+        headers = proxy_module.httpx.Headers({"content-type": "application/json"})
+        async def aiter_raw(self, chunk_size=None):
             yield b'{"ok":true}'
         async def aclose(self):
             return None
@@ -372,6 +372,10 @@ async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(
     captured = {}
 
     class Connection:
+        async def receive_stream(self, stream):
+            return await stream.queue.get()
+        async def close_stream(self, stream_id):
+            pass
         async def open_stream(self, action, payload):
             assert db_session.in_transaction() is False
             captured["action"] = action
