@@ -490,7 +490,7 @@ cd devcloud
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Workspace AI · Jupyter + Cline</h2>
+      <h2 class="card-title">Workspace AI · Jupyter + Cline + VS Code Chat</h2>
       <p class="admin-section-description">Ortak gateway ayarını tüm kayıtlı worker'lara ve yeni veya yeniden oluşturulan Jupyter ve VS Code workspace'lerine dağıtın.</p>
     </div>
     <span id="jupyter-ai-status-badge" class="badge {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">
@@ -501,7 +501,7 @@ cd devcloud
   <form id="jupyter-ai-settings-form" autocomplete="off">
     <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
       <input type="checkbox" name="enabled" {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}checked{% endif %}>
-      <span>Ortak Jupyter AI ve Cline erişimini etkinleştir</span>
+      <span>Ortak Jupyter AI, Cline ve VS Code Chat erişimini etkinleştir</span>
     </label>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">
@@ -537,7 +537,7 @@ cd devcloud
       <div class="card-header" style="padding: 0 0 0.5rem;">
         <div>
           <h3 class="card-title" style="font-size: 1rem;">Kullanıcı Model Kataloğu</h3>
-          <p class="admin-section-description">Sıra, Jupyter AI model seçicisindeki sıradır; varsayılan seçim Cline'a da uygulanır. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
+          <p class="admin-section-description">Sıra, Jupyter AI ve VS Code Chat model seçicilerindeki sıradır; varsayılan seçim Cline'a da uygulanır. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
         </div>
         <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
       </div>
@@ -563,7 +563,7 @@ cd devcloud
         {% endfor %}
       </div>
     </div>
-    <p class="text-muted">API anahtarı controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Jupyter ve VS Code container kullanıcıları bu ortak anahtarı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın. Cline, root URL'ye otomatik olarak <code>/v1</code> ekler.</p>
+    <p class="text-muted">API anahtarı controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Jupyter ve VS Code container kullanıcıları bu ortak anahtarı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın. Cline ve VS Code Chat, root URL'yi OpenAI uyumlu <code>/v1</code> uçlarına dönüştürür.</p>
     <div class="table-actions">
       <button id="btn-save-jupyter-ai" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
       <button id="btn-test-jupyter-ai" type="button" class="btn btn-secondary">Seçili Modeli Test Et</button>

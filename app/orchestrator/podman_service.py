@@ -14,6 +14,7 @@ from app.cline import managed_cline_files
 from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
+from app.vscode_chat import managed_vscode_chat_files
 
 logger = logging.getLogger("devcloud.podman")
 CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
@@ -277,6 +278,7 @@ class PodmanService:
 
         # Injected environment variables for auth & config
         cline_files: dict[str, str] = {}
+        vscode_chat_files: dict[str, str] = {}
         if is_vscode:
             cmd_args.extend([
                 "-e", f"PASSWORD={workspace_token}",
@@ -287,16 +289,28 @@ class PodmanService:
                 settings.JUPYTER_AI_GATEWAY_TOKEN,
                 settings.JUPYTER_AI_MODEL,
             )
+            vscode_chat_files = managed_vscode_chat_files(
+                settings.JUPYTER_AI_GATEWAY_URL,
+                settings.JUPYTER_AI_GATEWAY_TOKEN,
+                settings.JUPYTER_AI_MODEL,
+                settings.JUPYTER_AI_MODEL_CATALOG_JSON,
+            )
             if cline_files:
                 cmd_args.extend([
                     "--entrypoint", "/bin/bash",
                     "-e", "CLINE_DATA_DIR=/home/coder/.cline/data",
+                    "-e",
+                    "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User",
                     "-e", "DEVCLOUD_CLINE_GLOBAL_STATE_JSON="
                     + cline_files["globalState.json"],
                     "-e", "DEVCLOUD_CLINE_SECRETS_JSON="
                     + cline_files["secrets.json"],
                     "-e", "DEVCLOUD_CLINE_PROVIDERS_JSON="
                     + cline_files["settings/providers.json"],
+                    "-e", "DEVCLOUD_VSCODE_CHAT_MODELS_JSON="
+                    + vscode_chat_files["chatLanguageModels.json"],
+                    "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON="
+                    + vscode_chat_files["settings.json"],
                 ])
         elif is_jupyter:
             model_catalog = parse_model_catalog(
@@ -370,15 +384,22 @@ class PodmanService:
             cmd_args.extend([
                 "-lc",
                 "install -d -m 700 \"$CLINE_DATA_DIR/settings\""
+                " \"$VSCODE_USER_DIR\""
                 " && printf '%s' \"$DEVCLOUD_CLINE_GLOBAL_STATE_JSON\""
                 " > \"$CLINE_DATA_DIR/globalState.json\""
                 " && printf '%s' \"$DEVCLOUD_CLINE_SECRETS_JSON\""
                 " > \"$CLINE_DATA_DIR/secrets.json\""
                 " && printf '%s' \"$DEVCLOUD_CLINE_PROVIDERS_JSON\""
                 " > \"$CLINE_DATA_DIR/settings/providers.json\""
+                " && printf '%s' \"$DEVCLOUD_VSCODE_CHAT_MODELS_JSON\""
+                " > \"$VSCODE_USER_DIR/chatLanguageModels.json\""
+                " && printf '%s' \"$DEVCLOUD_VSCODE_SETTINGS_JSON\""
+                " > \"$VSCODE_USER_DIR/settings.json\""
                 " && chmod 600 \"$CLINE_DATA_DIR/globalState.json\""
                 " \"$CLINE_DATA_DIR/secrets.json\""
                 " \"$CLINE_DATA_DIR/settings/providers.json\""
+                " \"$VSCODE_USER_DIR/chatLanguageModels.json\""
+                " \"$VSCODE_USER_DIR/settings.json\""
                 " && exec /usr/bin/entrypoint.sh"
                 f" --bind-addr 0.0.0.0:{template.default_port}"
                 f" --auth none {template.container_workdir}",

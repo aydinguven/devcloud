@@ -104,7 +104,7 @@ def test_release_publishes_versioned_changed_workspace_images():
     assert "needs.workspace_images.result == 'skipped'" in workflow
 
 
-def test_worker_forwards_shared_gateway_to_jupyter_and_cline_configuration():
+def test_worker_forwards_shared_gateway_to_all_workspace_ai_clients():
     podman_service = (ROOT / "app/orchestrator/podman_service.py").read_text(
         encoding="utf-8"
     )
@@ -119,6 +119,9 @@ def test_worker_forwards_shared_gateway_to_jupyter_and_cline_configuration():
     assert "managed_cline_files" in vscode_branch
     assert "DEVCLOUD_CLINE_SECRETS_JSON=" in vscode_branch
     assert "DEVCLOUD_CLINE_PROVIDERS_JSON=" in vscode_branch
+    assert "DEVCLOUD_VSCODE_CHAT_MODELS_JSON=" in vscode_branch
+    assert "DEVCLOUD_VSCODE_SETTINGS_JSON=" in vscode_branch
+    assert "chatLanguageModels.json" in vscode_branch
     assert "ANTHROPIC_AUTH_TOKEN" in jupyter_branch
     assert "ANTHROPIC_BASE_URL" in jupyter_branch
     assert "CLAUDE_CODE_EXECUTABLE=/opt/conda/bin/claude" in jupyter_branch

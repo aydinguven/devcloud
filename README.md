@@ -246,7 +246,8 @@ enabled images from the controller; the base installation does not build them.
 ### Workspace AI through LiteLLM
 
 The maintained `jupyter-python` template includes Jupyter AI, Claude Code, and
-the Claude ACP adapter. Every built-in VS Code image includes Cline. Configure
+the Claude ACP adapter. Every built-in VS Code image includes Cline and also
+configures VS Code's native Chat with its Custom Endpoint provider. Configure
 their shared gateway access under **Admin > Entegrasyonlar > Workspace AI**:
 
 1. Enter the LiteLLM root URL, for example `http://llm-gateway:5003`. Do not add
@@ -257,9 +258,10 @@ their shared gateway access under **Admin > Entegrasyonlar > Workspace AI**:
 3. Publish the exact LiteLLM aliases in **Kullanıcı Model Kataloğu**, save the
    settings, and run **Seçili Modeli Test Et**. The test calls the selected model
    from every enabled worker and reports HTTP status and latency.
-4. Start a new workspace. JupyterLab opens Claude through ACP, while VS Code
-   opens Cline with the gateway URL, shared API key, and default model already
-   configured. The Admin default is the initial model for both surfaces.
+4. Start a new workspace. JupyterLab opens Claude through ACP. VS Code exposes
+   both Cline and native Chat with the gateway URL, shared API key, model
+   catalogue, and default model already configured. Native Chat works without
+   a GitHub sign-in or Copilot plan.
 
 New workers fetch these settings automatically. New workspace containers get
 the current settings at creation time. To update an existing workspace, stop

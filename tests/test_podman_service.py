@@ -9,6 +9,7 @@ from app.jupyter_ai import default_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator.podman_service import PodmanService
+from app.vscode_chat import managed_vscode_chat_files
 
 
 @pytest.mark.asyncio
@@ -113,6 +114,69 @@ def test_managed_cline_files_cover_legacy_and_sdk_storage():
     }
 
 
+def test_managed_vscode_chat_files_use_native_custom_endpoint_provider():
+    files = managed_vscode_chat_files(
+        "https://llm-gateway.internal/",
+        "shared-api-key",
+        "local-coder",
+        json.dumps(
+            [
+                {
+                    "model_id": "local-coder",
+                    "name": "Local Coder",
+                    "description": "On-Prem",
+                },
+                {
+                    "model_id": "local-fast",
+                    "name": "Local Fast",
+                    "description": "On-Prem",
+                },
+            ]
+        ),
+    )
+
+    providers = json.loads(files["chatLanguageModels.json"])
+    assert providers == [
+        {
+            "name": "DevCloud Gateway",
+            "vendor": "customendpoint",
+            "apiKey": "shared-api-key",
+            "apiType": "chat-completions",
+            "models": [
+                {
+                    "id": "local-coder",
+                    "name": "Local Coder",
+                    "url": (
+                        "https://llm-gateway.internal/v1/chat/completions"
+                    ),
+                    "toolCalling": True,
+                    "vision": False,
+                    "streaming": True,
+                    "maxInputTokens": 120000,
+                    "maxOutputTokens": 8000,
+                },
+                {
+                    "id": "local-fast",
+                    "name": "Local Fast",
+                    "url": (
+                        "https://llm-gateway.internal/v1/chat/completions"
+                    ),
+                    "toolCalling": True,
+                    "vision": False,
+                    "streaming": True,
+                    "maxInputTokens": 120000,
+                    "maxOutputTokens": 8000,
+                },
+            ],
+        }
+    ]
+    user_settings = json.loads(files["settings.json"])
+    assert user_settings["chat.defaultModel"] == "local-coder"
+    assert user_settings["chat.byokUtilityModelDefault"] == "mainAgent"
+    assert user_settings["chat.titleBar.signIn.enabled"] is False
+    assert user_settings["extensions.autoUpdate"] is False
+
+
 @pytest.mark.asyncio
 async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     svc = PodmanService(podman_bin="podman")
@@ -147,6 +211,19 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     )
     monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-api-key")
+    monkeypatch.setattr(
+        settings,
+        "JUPYTER_AI_MODEL_CATALOG_JSON",
+        json.dumps(
+            [
+                {
+                    "model_id": "local-coder",
+                    "name": "Local Coder",
+                    "description": "On-Prem",
+                }
+            ]
+        ),
+    )
 
     await svc.create_workspace_container(
         workspace_id="12345678-1234-1234-1234-123456789abc",
@@ -162,6 +239,10 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     assert "/workspace:/home/coder/project:Z,U" in run_command
     assert run_command[run_command.index("--entrypoint") + 1] == "/bin/bash"
     assert "CLINE_DATA_DIR=/home/coder/.cline/data" in run_command
+    assert (
+        "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User"
+        in run_command
+    )
     global_state = json.loads(
         next(
             value.removeprefix("DEVCLOUD_CLINE_GLOBAL_STATE_JSON=")
@@ -187,10 +268,34 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     assert global_state["actModeOpenAiModelId"] == "local-coder"
     assert secrets["openAiApiKey"] == "shared-api-key"
     assert providers["lastUsedProvider"] == "openai-compatible"
+    chat_models = json.loads(
+        next(
+            value.removeprefix("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
+            for value in run_command
+            if value.startswith("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
+        )
+    )
+    assert chat_models[0]["vendor"] == "customendpoint"
+    assert chat_models[0]["apiKey"] == "shared-api-key"
+    assert chat_models[0]["models"][0]["id"] == "local-coder"
+    assert chat_models[0]["models"][0]["url"] == (
+        "https://llm-gateway.internal/v1/chat/completions"
+    )
+    vscode_settings = json.loads(
+        next(
+            value.removeprefix("DEVCLOUD_VSCODE_SETTINGS_JSON=")
+            for value in run_command
+            if value.startswith("DEVCLOUD_VSCODE_SETTINGS_JSON=")
+        )
+    )
+    assert vscode_settings["chat.defaultModel"] == "local-coder"
+    assert vscode_settings["chat.byokUtilityModelDefault"] == "mainAgent"
     image_index = run_command.index("localhost/devcloud-vscode-python:latest")
     startup_command = run_command[image_index + 1:]
     assert startup_command[0] == "-lc"
     assert "$CLINE_DATA_DIR/settings/providers.json" in startup_command[1]
+    assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
+    assert "$VSCODE_USER_DIR/settings.json" in startup_command[1]
     assert "chmod 600" in startup_command[1]
     assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
     assert "--bind-addr 0.0.0.0:8080" in startup_command[1]

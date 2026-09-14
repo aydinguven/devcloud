@@ -116,12 +116,15 @@ magic commands, Claude Code, and the Claude ACP adapter. This preserves the
 agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
 on-prem gateway. Every maintained VS Code image also includes Cline and receives
-an OpenAI-compatible profile generated from the same central gateway record.
+both a Cline profile and VS Code native Chat Custom Endpoint configuration
+generated from the same central gateway record.
 
 Configure the gateway once under **Admin > Entegrasyonlar > Workspace AI ·
-Jupyter + Cline**. The controller encrypts the shared API key at rest. Every enrolled
+Jupyter + Cline + VS Code Chat**. The controller encrypts the shared API key at
+rest. Every enrolled
 worker fetches the central setting on startup and every 30 seconds, so a newly
-installed worker needs no local Jupyter AI or Cline credential provisioning.
+installed worker needs no local Jupyter AI, Cline, or VS Code Chat credential
+provisioning.
 The same page manages the shared model catalogue, display names, descriptions,
 and the model initially selected for a new Claude session. The default catalogue
 contains the former on-prem Qwen model plus the GLM, DeepSeek, Qwen Coder, and
@@ -190,8 +193,9 @@ an extra `/v1`; a model-not-found response indicates that the catalogue ID does
 not match a LiteLLM alias available to the shared key.
 
 The shared gateway API key is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
-workspace and written into Cline's managed provider state in every VS Code
-workspace, so users can open either assistant without entering credentials.
+workspace and written into the managed Cline and VS Code Chat provider state in
+every VS Code workspace. Native Chat uses the OpenAI-compatible
+`/v1/chat/completions` endpoint and does not require GitHub sign-in.
 This also means each workspace user can inspect and reuse the key. Use a
 gateway credential intended for this shared audience, restrict it at the
 gateway, and rotate it regularly.
