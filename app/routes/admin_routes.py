@@ -1058,6 +1058,7 @@ def _jupyter_ai_settings_out(
         return JupyterAiSettingsOut(
             managed=False,
             enabled=False,
+            cline_enabled=False,
             gateway_url="",
             model_id="",
             gateway_model_discovery=False,
@@ -1068,6 +1069,7 @@ def _jupyter_ai_settings_out(
     return JupyterAiSettingsOut(
         managed=True,
         enabled=record.enabled,
+        cline_enabled=record.cline_enabled,
         gateway_url=record.gateway_url,
         model_id=record.model_id,
         gateway_model_discovery=record.gateway_model_discovery,
@@ -1138,6 +1140,7 @@ async def update_jupyter_ai_settings(
             },
         )
     record.enabled = update.enabled
+    record.cline_enabled = update.cline_enabled
     record.gateway_url = update.gateway_url
     record.model_id = update.model_id
     record.gateway_model_discovery = update.gateway_model_discovery

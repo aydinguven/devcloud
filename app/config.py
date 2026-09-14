@@ -73,14 +73,15 @@ class Settings(BaseSettings):
     USE_MOCK_PODMAN: bool = False
     PODMAN_RUN_TIMEOUT_SECONDS: float = 30.0
 
-    # Optional on-prem gateway defaults for Jupyter AI and Cline. The shared
-    # credential is intentionally forwarded to every AI-enabled workspace
-    # hosted by the worker.
+    # Optional on-prem gateway defaults for managed workspace AI clients. The
+    # shared credential is intentionally forwarded to every AI-enabled
+    # workspace hosted by the worker.
     JUPYTER_AI_GATEWAY_URL: str = ""
     JUPYTER_AI_MODEL: str = ""
     JUPYTER_AI_GATEWAY_TOKEN: str = ""
     JUPYTER_AI_GATEWAY_MODEL_DISCOVERY: bool = False
     JUPYTER_AI_MODEL_CATALOG_JSON: str = "[]"
+    JUPYTER_AI_CLINE_ENABLED: bool = False
     
     # Files are acknowledged in 256 KiB chunks; these are whole-transfer limits.
     FILE_TRANSFER_MAX_BYTES: int = 8 * 1024 * 1024 * 1024

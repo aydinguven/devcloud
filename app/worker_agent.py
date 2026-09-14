@@ -411,6 +411,7 @@ class WorkerAgent:
             settings.JUPYTER_AI_GATEWAY_TOKEN = ""
             settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY = False
             settings.JUPYTER_AI_MODEL_CATALOG_JSON = "[]"
+            settings.JUPYTER_AI_CLINE_ENABLED = False
             return True
 
         gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
@@ -462,6 +463,9 @@ class WorkerAgent:
         )
         settings.JUPYTER_AI_MODEL_CATALOG_JSON = json.dumps(
             models, ensure_ascii=False
+        )
+        settings.JUPYTER_AI_CLINE_ENABLED = (
+            payload.get("cline_enabled") is True
         )
         return True
 

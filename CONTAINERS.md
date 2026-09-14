@@ -66,7 +66,9 @@ Image'ları** from Quay, another reachable OCI registry, or an OCI/Docker archiv
 All four maintained VS Code images bake in the Cline extension. Cline and VS
 Code's native Chat Custom Endpoint provider receive their gateway, API key,
 model catalogue, and default model from the controller-managed Workspace AI
-record when a workspace container starts.
+record when a workspace container starts. Cline is disabled at runtime by
+default and can be enabled from that same Admin record without rebuilding the
+image.
 The controller converts registry and Docker inputs to a normalized Linux/amd64
 OCI archive, records its size and SHA-256, and stores registry credentials only
 in a temporary authentication file for the duration of the import.

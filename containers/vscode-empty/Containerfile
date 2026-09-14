@@ -23,9 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER coder
 WORKDIR /home/coder/project
 
-# Cline is available in every managed VS Code workspace. Gateway credentials
-# are injected centrally when the workspace container starts. Install a
-# checksum-verified VSIX and disable updates so its version cannot drift.
+# Cline remains installed for the Admin-controlled opt-in. It is disabled at
+# runtime by default, while the native VS Code Chat uses the managed gateway.
+# Install a checksum-verified VSIX so a later opt-in cannot drift.
 RUN curl -fsSL \
         "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix" \
         -o /tmp/cline.vsix \
@@ -35,7 +35,7 @@ RUN curl -fsSL \
     && rm -f /tmp/cline.vsix \
     && install -d -m 700 /home/coder/.local/share/code-server/User \
     && printf '%s\n' \
-        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false}' \
+        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false,"chat.titleBar.signIn.enabled":false,"chat.byokUtilityModelDefault":"mainAgent"}' \
         > /home/coder/.local/share/code-server/User/settings.json
 
 EXPOSE 8080

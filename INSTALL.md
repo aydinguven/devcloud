@@ -200,6 +200,12 @@ This also means each workspace user can inspect and reuse the key. Use a
 gateway credential intended for this shared audience, restrict it at the
 gateway, and rotate it regularly.
 
+Cline is installed in every maintained VS Code image but is disabled at runtime
+by default. Enable **Cline eklentisini etkinleştir** in the same Workspace AI
+panel when it is needed again. The setting is applied when a VS Code workspace
+container is created, so existing containers must be recreated after changing
+the toggle.
+
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
 

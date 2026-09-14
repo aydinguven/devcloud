@@ -501,7 +501,11 @@ cd devcloud
   <form id="jupyter-ai-settings-form" autocomplete="off">
     <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
       <input type="checkbox" name="enabled" {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}checked{% endif %}>
-      <span>Ortak Jupyter AI, Cline ve VS Code Chat erişimini etkinleştir</span>
+      <span>Ortak Jupyter AI ve VS Code Chat erişimini etkinleştir</span>
+    </label>
+    <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
+      <input type="checkbox" name="cline_enabled" {% if jupyter_ai_settings and jupyter_ai_settings.cline_enabled %}checked{% endif %}>
+      <span>Cline eklentisini etkinleştir (varsayılan: kapalı)</span>
     </label>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">

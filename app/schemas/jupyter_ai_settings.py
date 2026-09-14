@@ -24,6 +24,7 @@ class JupyterAiModel(BaseModel):
 
 class JupyterAiSettingsUpdate(BaseModel):
     enabled: bool = False
+    cline_enabled: bool = False
     gateway_url: str = Field(default="", max_length=512)
     model_id: str = Field(default="", max_length=255)
     gateway_model_discovery: bool = False
@@ -78,6 +79,7 @@ class JupyterAiSettingsUpdate(BaseModel):
 class JupyterAiSettingsOut(BaseModel):
     managed: bool
     enabled: bool
+    cline_enabled: bool
     gateway_url: str
     model_id: str
     gateway_model_discovery: bool
@@ -117,6 +119,7 @@ class JupyterAiConnectivityTestResult(BaseModel):
 class WorkerJupyterAiSettings(BaseModel):
     managed: bool
     enabled: bool
+    cline_enabled: bool = False
     gateway_url: str = ""
     model_id: str = ""
     gateway_model_discovery: bool = False

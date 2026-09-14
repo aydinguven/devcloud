@@ -97,10 +97,12 @@ async def test_admin_access_controls(client: AsyncClient):
         in integrations_page.text
     )
     assert (
-        "Ortak Jupyter AI, Cline ve VS Code Chat erişimini etkinleştir"
+        "Ortak Jupyter AI ve VS Code Chat erişimini etkinleştir"
         in integrations_page.text
     )
     assert 'id="jupyter-ai-settings-form"' in integrations_page.text
+    assert 'name="cline_enabled"' in integrations_page.text
+    assert "Cline eklentisini etkinleştir" in integrations_page.text
     assert 'id="jupyter-ai-model-list"' in integrations_page.text
     assert 'name="gateway_model_discovery"' in integrations_page.text
     assert "Qwen 3.6 35B (On-Prem)" in integrations_page.text

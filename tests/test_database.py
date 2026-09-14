@@ -14,6 +14,7 @@ from app.database import (
     ensure_workspace_columns,
 )
 from app.migrations import (
+    _add_jupyter_ai_cline_toggle,
     _add_directory_profile_fields,
     _add_jupyter_ai_model_catalog,
     _make_mlflow_settings_per_user,
@@ -334,6 +335,8 @@ async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
             )
             await _add_jupyter_ai_model_catalog(conn)
             await _add_jupyter_ai_model_catalog(conn)
+            await _add_jupyter_ai_cline_toggle(conn)
+            await _add_jupyter_ai_cline_toggle(conn)
             columns = await conn.run_sync(
                 lambda sync_conn: {
                     column["name"]
@@ -345,7 +348,8 @@ async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
             row = (
                 await conn.execute(
                     text(
-                        "SELECT gateway_model_discovery, model_catalog_json "
+                        "SELECT gateway_model_discovery, model_catalog_json, "
+                        "cline_enabled "
                         "FROM jupyter_ai_settings WHERE id = 1"
                     )
                 )
@@ -354,7 +358,12 @@ async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
         await engine.dispose()
 
     catalog = json.loads(row.model_catalog_json)
-    assert {"gateway_model_discovery", "model_catalog_json"} <= columns
+    assert {
+        "gateway_model_discovery",
+        "model_catalog_json",
+        "cline_enabled",
+    } <= columns
     assert row.gateway_model_discovery == 0
+    assert row.cline_enabled == 0
     assert catalog[0]["model_id"] == "private-default"
     assert "qwen3.6-35b" in {item["model_id"] for item in catalog}

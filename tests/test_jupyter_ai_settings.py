@@ -44,6 +44,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert initial.json() == {
         "managed": False,
         "enabled": False,
+        "cline_enabled": False,
         "gateway_url": "",
         "model_id": "",
         "gateway_model_discovery": False,
@@ -81,6 +82,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert saved.json()["gateway_url"] == "https://llm.internal.example"
     assert saved.json()["has_shared_token"] is True
     assert saved.json()["gateway_model_discovery"] is True
+    assert saved.json()["cline_enabled"] is False
     assert len(saved.json()["models"]) == 5
     assert shared_token not in json.dumps(saved.json())
 
@@ -105,6 +107,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert worker_response.json()["managed"] is True
     assert worker_response.json()["shared_token"] == shared_token
     assert worker_response.json()["gateway_model_discovery"] is True
+    assert worker_response.json()["cline_enabled"] is False
     assert worker_response.json()["models"][2]["model_id"] == (
         "openrouter/deepseek/deepseek-v4-pro"
     )
@@ -121,6 +124,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
         headers=admin_headers,
         json={
             "enabled": True,
+            "cline_enabled": True,
             "gateway_url": "https://llm.internal.example",
             "model_id": "qwen3.6-35b",
             "gateway_model_discovery": True,
@@ -129,8 +133,10 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
         },
     )
     assert preserved.status_code == 200
+    assert preserved.json()["cline_enabled"] is True
     await db_session.refresh(record)
     assert decrypt_secret(record.encrypted_shared_token) == shared_token
+    assert record.cline_enabled is True
 
     cleared = await client.put(
         "/api/admin/jupyter-ai-settings",
@@ -160,6 +166,7 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "legacy-token")
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_MODEL_DISCOVERY", False)
     monkeypatch.setattr(settings, "JUPYTER_AI_MODEL_CATALOG_JSON", "[]")
+    monkeypatch.setattr(settings, "JUPYTER_AI_CLINE_ENABLED", True)
     monkeypatch.setenv("DEVCLOUD_CONTROLLER_URL", "https://controller.example")
     monkeypatch.setenv("DEVCLOUD_NODE_ID", "worker-1")
     monkeypatch.setenv("DEVCLOUD_NODE_TOKEN", "worker-token")
@@ -191,11 +198,13 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     assert settings.JUPYTER_AI_GATEWAY_URL == "http://legacy"
     assert settings.JUPYTER_AI_MODEL == "legacy-model"
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == "legacy-token"
+    assert settings.JUPYTER_AI_CLINE_ENABLED is True
 
     payload.update(
         {
             "managed": True,
             "enabled": True,
+            "cline_enabled": True,
             "gateway_url": "https://gateway.internal.example/",
             "model_id": "qwen3.6-35b",
             "shared_token": "central-token",
@@ -208,6 +217,7 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     assert settings.JUPYTER_AI_MODEL == "qwen3.6-35b"
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == "central-token"
     assert settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY is True
+    assert settings.JUPYTER_AI_CLINE_ENABLED is True
     assert json.loads(settings.JUPYTER_AI_MODEL_CATALOG_JSON) == (
         default_model_catalog()
     )
@@ -220,6 +230,7 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == ""
     assert settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY is False
     assert settings.JUPYTER_AI_MODEL_CATALOG_JSON == "[]"
+    assert settings.JUPYTER_AI_CLINE_ENABLED is False
 
 
 @pytest.mark.asyncio

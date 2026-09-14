@@ -14,6 +14,9 @@ class JupyterAiSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cline_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     gateway_url: Mapped[str] = mapped_column(
         String(512), default="", nullable=False
     )

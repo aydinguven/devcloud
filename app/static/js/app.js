@@ -257,6 +257,7 @@ function initJupyterAiSettings() {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           enabled: form.elements.enabled.checked,
+          cline_enabled: form.elements.cline_enabled.checked,
           gateway_url: String(data.get("gateway_url") || "").trim(),
           model_id: String(data.get("model_id") || "").trim(),
           gateway_model_discovery: form.elements.gateway_model_discovery.checked,
@@ -277,7 +278,7 @@ function initJupyterAiSettings() {
         : "Ortak gateway tokenını girin";
       badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
       badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
-      status.textContent = "Jupyter AI ayarları kaydedildi; worker'lar en geç 30 saniye içinde alacak.";
+      status.textContent = "Workspace AI ayarları kaydedildi; worker'lar en geç 30 saniye içinde alacak.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;

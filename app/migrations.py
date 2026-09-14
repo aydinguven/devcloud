@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 
 
 class MigrationError(RuntimeError):
@@ -444,6 +444,23 @@ async def _add_jupyter_ai_model_catalog(conn) -> None:
         )
 
 
+async def _add_jupyter_ai_cline_toggle(conn) -> None:
+    """Keep Cline installed but centrally disabled until an admin enables it."""
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("jupyter_ai_settings")
+        }
+    )
+    if "cline_enabled" not in columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE jupyter_ai_settings ADD COLUMN "
+                "cline_enabled BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -488,6 +505,9 @@ async def upgrade() -> None:
         if 13 not in applied:
             await _expand_flavor_settings(conn)
             await _record_version(conn, 13, "custom and editable flavor profiles")
+        if 14 not in applied:
+            await _add_jupyter_ai_cline_toggle(conn)
+            await _record_version(conn, 14, "admin-managed Cline availability")
 
 
 async def current_version() -> int:

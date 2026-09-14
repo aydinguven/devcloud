@@ -283,34 +283,38 @@ class PodmanService:
             cmd_args.extend([
                 "-e", f"PASSWORD={workspace_token}",
                 "-e", "DISABLE_TELEMETRY=true",
+                "--entrypoint", "/bin/bash",
+                "-e",
+                "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User",
             ])
-            cline_files = managed_cline_files(
-                settings.JUPYTER_AI_GATEWAY_URL,
-                settings.JUPYTER_AI_GATEWAY_TOKEN,
-                settings.JUPYTER_AI_MODEL,
-            )
             vscode_chat_files = managed_vscode_chat_files(
                 settings.JUPYTER_AI_GATEWAY_URL,
                 settings.JUPYTER_AI_GATEWAY_TOKEN,
                 settings.JUPYTER_AI_MODEL,
                 settings.JUPYTER_AI_MODEL_CATALOG_JSON,
             )
+            if vscode_chat_files:
+                cmd_args.extend([
+                    "-e", "DEVCLOUD_VSCODE_CHAT_MODELS_JSON="
+                    + vscode_chat_files["chatLanguageModels.json"],
+                    "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON="
+                    + vscode_chat_files["settings.json"],
+                ])
+            if settings.JUPYTER_AI_CLINE_ENABLED:
+                cline_files = managed_cline_files(
+                    settings.JUPYTER_AI_GATEWAY_URL,
+                    settings.JUPYTER_AI_GATEWAY_TOKEN,
+                    settings.JUPYTER_AI_MODEL,
+                )
             if cline_files:
                 cmd_args.extend([
-                    "--entrypoint", "/bin/bash",
                     "-e", "CLINE_DATA_DIR=/home/coder/.cline/data",
-                    "-e",
-                    "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User",
                     "-e", "DEVCLOUD_CLINE_GLOBAL_STATE_JSON="
                     + cline_files["globalState.json"],
                     "-e", "DEVCLOUD_CLINE_SECRETS_JSON="
                     + cline_files["secrets.json"],
                     "-e", "DEVCLOUD_CLINE_PROVIDERS_JSON="
                     + cline_files["settings/providers.json"],
-                    "-e", "DEVCLOUD_VSCODE_CHAT_MODELS_JSON="
-                    + vscode_chat_files["chatLanguageModels.json"],
-                    "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON="
-                    + vscode_chat_files["settings.json"],
                 ])
         elif is_jupyter:
             model_catalog = parse_model_catalog(
@@ -380,29 +384,44 @@ class PodmanService:
                 "--ServerApp.trust_xheaders=True",
                 "--PersonaManager.default_persona_id=jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
             ])
-        elif is_vscode and cline_files:
+        elif is_vscode:
+            setup_commands: list[str] = []
+            if vscode_chat_files:
+                setup_commands.extend([
+                    "install -d -m 700 \"$VSCODE_USER_DIR\"",
+                    "printf '%s' \"$DEVCLOUD_VSCODE_CHAT_MODELS_JSON\""
+                    " > \"$VSCODE_USER_DIR/chatLanguageModels.json\"",
+                    "printf '%s' \"$DEVCLOUD_VSCODE_SETTINGS_JSON\""
+                    " > \"$VSCODE_USER_DIR/settings.json\"",
+                    "chmod 600 \"$VSCODE_USER_DIR/chatLanguageModels.json\""
+                    " \"$VSCODE_USER_DIR/settings.json\"",
+                ])
+            if cline_files:
+                setup_commands.extend([
+                    "install -d -m 700 \"$CLINE_DATA_DIR/settings\"",
+                    "printf '%s' \"$DEVCLOUD_CLINE_GLOBAL_STATE_JSON\""
+                    " > \"$CLINE_DATA_DIR/globalState.json\"",
+                    "printf '%s' \"$DEVCLOUD_CLINE_SECRETS_JSON\""
+                    " > \"$CLINE_DATA_DIR/secrets.json\"",
+                    "printf '%s' \"$DEVCLOUD_CLINE_PROVIDERS_JSON\""
+                    " > \"$CLINE_DATA_DIR/settings/providers.json\"",
+                    "chmod 600 \"$CLINE_DATA_DIR/globalState.json\""
+                    " \"$CLINE_DATA_DIR/secrets.json\""
+                    " \"$CLINE_DATA_DIR/settings/providers.json\"",
+                ])
+            disable_cline = (
+                ""
+                if settings.JUPYTER_AI_CLINE_ENABLED
+                else " --disable-extension saoudrizwan.claude-dev"
+            )
+            setup_commands.append(
+                "exec /usr/bin/entrypoint.sh"
+                f" --bind-addr 0.0.0.0:{template.default_port}"
+                f" --auth none{disable_cline} {template.container_workdir}"
+            )
             cmd_args.extend([
                 "-lc",
-                "install -d -m 700 \"$CLINE_DATA_DIR/settings\""
-                " \"$VSCODE_USER_DIR\""
-                " && printf '%s' \"$DEVCLOUD_CLINE_GLOBAL_STATE_JSON\""
-                " > \"$CLINE_DATA_DIR/globalState.json\""
-                " && printf '%s' \"$DEVCLOUD_CLINE_SECRETS_JSON\""
-                " > \"$CLINE_DATA_DIR/secrets.json\""
-                " && printf '%s' \"$DEVCLOUD_CLINE_PROVIDERS_JSON\""
-                " > \"$CLINE_DATA_DIR/settings/providers.json\""
-                " && printf '%s' \"$DEVCLOUD_VSCODE_CHAT_MODELS_JSON\""
-                " > \"$VSCODE_USER_DIR/chatLanguageModels.json\""
-                " && printf '%s' \"$DEVCLOUD_VSCODE_SETTINGS_JSON\""
-                " > \"$VSCODE_USER_DIR/settings.json\""
-                " && chmod 600 \"$CLINE_DATA_DIR/globalState.json\""
-                " \"$CLINE_DATA_DIR/secrets.json\""
-                " \"$CLINE_DATA_DIR/settings/providers.json\""
-                " \"$VSCODE_USER_DIR/chatLanguageModels.json\""
-                " \"$VSCODE_USER_DIR/settings.json\""
-                " && exec /usr/bin/entrypoint.sh"
-                f" --bind-addr 0.0.0.0:{template.default_port}"
-                f" --auth none {template.container_workdir}",
+                " && ".join(setup_commands),
             ])
         elif template.startup_command:
             cmd_args.extend(template.startup_command)

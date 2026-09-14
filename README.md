@@ -263,6 +263,11 @@ their shared gateway access under **Admin > Entegrasyonlar > Workspace AI**:
    catalogue, and default model already configured. Native Chat works without
    a GitHub sign-in or Copilot plan.
 
+Cline remains installed at a checksum-locked version but is disabled by
+default. Admins can opt in under the same Workspace AI panel with **Cline
+eklentisini etkinleştir**. Recreate affected workspace containers after changing
+the toggle; project data remains in its bind mount.
+
 New workers fetch these settings automatically. New workspace containers get
 the current settings at creation time. To update an existing workspace, stop
 it, remove only its stopped Podman container on the assigned worker with

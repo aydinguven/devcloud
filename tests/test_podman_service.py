@@ -211,6 +211,7 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     )
     monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
     monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-api-key")
+    monkeypatch.setattr(settings, "JUPYTER_AI_CLINE_ENABLED", True)
     monkeypatch.setattr(
         settings,
         "JUPYTER_AI_MODEL_CATALOG_JSON",
@@ -296,9 +297,74 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     assert "$CLINE_DATA_DIR/settings/providers.json" in startup_command[1]
     assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
     assert "$VSCODE_USER_DIR/settings.json" in startup_command[1]
+    assert "--disable-extension saoudrizwan.claude-dev" not in startup_command[1]
     assert "chmod 600" in startup_command[1]
     assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
     assert "--bind-addr 0.0.0.0:8080" in startup_command[1]
+
+
+@pytest.mark.asyncio
+async def test_vscode_launch_disables_cline_but_keeps_native_chat(monkeypatch):
+    svc = PodmanService(podman_bin="podman")
+    svc._mock_mode = False
+    commands = []
+
+    async def fake_run_cmd(*args, timeout=None):
+        commands.append(args)
+        return (0, "container-id", "") if args[0] == "run" else (0, "", "")
+
+    async def fake_ensure_image_exists(*args, **kwargs):
+        return True
+
+    class FakeWriter:
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def fake_open_connection(*args, **kwargs):
+        return object(), FakeWriter()
+
+    monkeypatch.setattr(
+        svc, "ensure_workspace_storage", lambda *_args: "/workspace"
+    )
+    monkeypatch.setattr(svc, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(svc, "ensure_image_exists", fake_ensure_image_exists)
+    monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+    monkeypatch.setattr(
+        settings, "JUPYTER_AI_GATEWAY_URL", "https://llm-gateway.internal"
+    )
+    monkeypatch.setattr(settings, "JUPYTER_AI_MODEL", "local-coder")
+    monkeypatch.setattr(settings, "JUPYTER_AI_GATEWAY_TOKEN", "shared-api-key")
+    monkeypatch.setattr(settings, "JUPYTER_AI_MODEL_CATALOG_JSON", "[]")
+    monkeypatch.setattr(settings, "JUPYTER_AI_CLINE_ENABLED", False)
+
+    await svc.create_workspace_container(
+        workspace_id="12345678-1234-1234-1234-123456789abc",
+        user_id=1,
+        container_name="devcloud-1-12345678",
+        template_id="vscode-python",
+        flavor_id="t1.micro",
+        host_port=10100,
+        workspace_token="secret-workspace-token",
+    )
+
+    run_command = next(args for args in commands if args[0] == "run")
+    assert not any(
+        value.startswith("DEVCLOUD_CLINE_") for value in run_command
+    )
+    assert any(
+        value.startswith("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
+        for value in run_command
+    )
+    image_index = run_command.index("localhost/devcloud-vscode-python:latest")
+    startup_command = run_command[image_index + 1:]
+    assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
+    assert (
+        "--disable-extension saoudrizwan.claude-dev"
+        in startup_command[1]
+    )
 
 
 @pytest.mark.asyncio
