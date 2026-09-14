@@ -72,7 +72,17 @@ def test_worker_image_and_quadlet_use_rootful_host_podman_socket():
     assert "Privileged=true" not in quadlet
 
 
-def test_all_builtin_vscode_images_install_cline():
+def test_all_builtin_vscode_images_install_locked_cline():
+    code_server_base = (
+        "FROM docker.io/codercom/code-server:4.137.0@"
+        "sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971"
+    )
+    cline_version = "ARG CLINE_VERSION=4.1.17"
+    cline_sha256 = (
+        "ARG CLINE_VSIX_SHA256="
+        "82875472744ded4a360e22c726bb6101962ecf0a178aa8efe84a5c7ea728d2f5"
+    )
+
     for template_id in (
         "vscode-empty",
         "vscode-python",
@@ -82,7 +92,25 @@ def test_all_builtin_vscode_images_install_cline():
         containerfile = (
             ROOT / "containers" / template_id / "Containerfile"
         ).read_text(encoding="utf-8")
-        install = "RUN code-server --install-extension saoudrizwan.claude-dev"
-        assert containerfile.count(install) == 1
-        assert f"{install} || true" not in containerfile
+        assert code_server_base in containerfile
+        assert cline_version in containerfile
+        assert cline_sha256 in containerfile
+        assert (
+            "open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/"
+            "saoudrizwan.claude-dev-${CLINE_VERSION}.vsix"
+        ) in containerfile
+        assert (
+            'echo "${CLINE_VSIX_SHA256}  /tmp/cline.vsix" | sha256sum -c -'
+        ) in containerfile
+        assert "code-server --install-extension /tmp/cline.vsix" in containerfile
+        assert (
+            'grep -Fx "saoudrizwan.claude-dev@${CLINE_VERSION}"'
+        ) in containerfile
+        assert '"extensions.autoCheckUpdates":false' in containerfile
+        assert '"extensions.autoUpdate":false' in containerfile
+        assert "code-server:latest" not in containerfile
+        assert (
+            "code-server --install-extension saoudrizwan.claude-dev"
+            not in containerfile
+        )
 

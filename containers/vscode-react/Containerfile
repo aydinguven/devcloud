@@ -1,5 +1,10 @@
 # VS Code (React / Node.js Environment)
-FROM docker.io/codercom/code-server:latest
+# Keep the VS Code runtime reproducible; Cline compatibility is sensitive to
+# the extension-host version bundled by code-server.
+FROM docker.io/codercom/code-server:4.137.0@sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971
+
+ARG CLINE_VERSION=4.1.17
+ARG CLINE_VSIX_SHA256=82875472744ded4a360e22c726bb6101962ecf0a178aa8efe84a5c7ea728d2f5
 
 USER root
 
@@ -26,7 +31,17 @@ RUN code-server --install-extension dbaeumer.vscode-eslint || true
 RUN code-server --install-extension esbenp.prettier-vscode || true
 RUN code-server --install-extension bradlc.vscode-tailwindcss || true
 RUN code-server --install-extension formulahendry.auto-rename-tag || true
-RUN code-server --install-extension saoudrizwan.claude-dev
+RUN curl -fsSL \
+        "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix" \
+        -o /tmp/cline.vsix \
+    && echo "${CLINE_VSIX_SHA256}  /tmp/cline.vsix" | sha256sum -c - \
+    && code-server --install-extension /tmp/cline.vsix \
+    && code-server --list-extensions --show-versions | grep -Fx "saoudrizwan.claude-dev@${CLINE_VERSION}" \
+    && rm -f /tmp/cline.vsix \
+    && install -d -m 700 /home/coder/.local/share/code-server/User \
+    && printf '%s\n' \
+        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false}' \
+        > /home/coder/.local/share/code-server/User/settings.json
 
 EXPOSE 8080
 
