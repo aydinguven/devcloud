@@ -614,24 +614,28 @@ function initWorkspaceCreationModal() {
               if (cancelBtn) cancelBtn.style.display = "inline-flex";
             } else if (data.type === "done") {
               deploymentCompleted = true;
+              const ideUrl = new URL(data.web_url || "", window.location.origin);
+              if (ideUrl.origin !== window.location.origin ||
+                  !/^\/proxy\/[0-9a-fA-F-]{36}\/$/.test(ideUrl.pathname)) {
+                appendLog("IDE adresi doğrulanamadı. Panele dönülüyor.", "error");
+                setTimeout(() => window.location.reload(), 2000);
+                return;
+              }
               if (statusBadge) {
                 statusBadge.className = "badge badge-running";
-                statusBadge.textContent = "Aktif";
+                statusBadge.textContent = "IDE Açılıyor...";
               }
               appendLog("Container çevrimiçi ve doğrulandı. Çalışma alanı hazır.", "success");
 
               if (modalFooter) {
                 modalFooter.innerHTML = `
-                  <button type="button" class="btn btn-secondary" onclick="window.location.reload();">Panele Dön</button>
-                  <a href="${data.web_url}" target="_blank" class="btn btn-success" style="padding: 0.65rem 1.5rem; font-weight: 600;">
-                    <span>↗</span> IDE'yi Şimdi Aç
+                  <a href="${ideUrl.pathname}" class="btn btn-success" style="padding: 0.65rem 1.5rem; font-weight: 600;">
+                    <span>↗</span> IDE'ye Git
                   </a>
                 `;
               }
 
-              setTimeout(() => {
-                window.location.reload();
-              }, 2000);
+              window.location.assign(ideUrl.pathname);
             }
           } catch (parseErr) {
             console.warn("SSE parse error:", line);
