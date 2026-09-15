@@ -251,9 +251,11 @@ class MlflowClient:
             raise MlflowConfigurationError(
                 "Model adı veya run ID içindeki tek tırnak API filtresiyle kullanılamıyor."
             )
+        # Do not send order_by here. MLflow releases disagree on whether this
+        # field is named version or version_number and some managed servers
+        # reject either spelling. Sort the returned page locally.
         params: dict[str, str | int | list[str]] = {
             "max_results": max(1, min(max_results, 1000)),
-            "order_by": ["version DESC"],
         }
         filters = []
         if name:
@@ -262,10 +264,19 @@ class MlflowClient:
             filters.append(f"run_id = '{run_id}'")
         if filters:
             params["filter"] = " AND ".join(filters)
-        return await self._get(
+        payload = await self._get(
             "/api/2.0/mlflow/model-versions/search",
             params,
         )
+        versions = payload.get("model_versions") or []
+        if isinstance(versions, list):
+            versions.sort(
+                key=lambda item: int(item.get("version") or 0)
+                if str(item.get("version") or "").isdigit()
+                else -1,
+                reverse=True,
+            )
+        return payload
 
     async def search_experiments(
         self,

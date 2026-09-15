@@ -70,7 +70,16 @@ async def test_mlflow_client_filters_model_versions_by_run_id(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(200, json={"model_versions": []})
+        return httpx.Response(
+            200,
+            json={
+                "model_versions": [
+                    {"version": "2"},
+                    {"version": "10"},
+                    {"version": "invalid"},
+                ]
+            },
+        )
 
     client = MlflowClient(_client_config())
     monkeypatch.setattr(
@@ -83,11 +92,18 @@ async def test_mlflow_client_filters_model_versions_by_run_id(monkeypatch):
         ),
     )
 
-    await client.search_model_versions(run_id="run-123", max_results=100)
+    payload = await client.search_model_versions(run_id="run-123", max_results=100)
 
     assert requests[0].url.path == "/api/2.0/mlflow/model-versions/search"
     assert requests[0].url.params["filter"] == "run_id = 'run-123'"
     assert requests[0].url.params["max_results"] == "100"
+    assert "order_by" not in requests[0].url.params
+    assert [item["version"] for item in payload["model_versions"]] == [
+        "10",
+        "2",
+        "invalid",
+    ]
+
 
 
 @pytest.mark.asyncio
