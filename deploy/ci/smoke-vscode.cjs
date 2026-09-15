@@ -11,7 +11,7 @@ const image = process.argv[2];
 assert(image, 'Usage: node smoke-vscode.cjs IMAGE');
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'devcloud-cline-smoke-'));
 const container = `devcloud-cline-smoke-${process.pid}`;
-const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', timeout: 30000 });
+const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 fs.mkdirSync(path.join(fixture, 'extension'));
@@ -56,6 +56,7 @@ for (const [name, content] of Object.entries(managedFiles)) {
 
 (async () => {
   let browser;
+  let page;
   try {
     docker('create', '--name', container, '-p', '127.0.0.1::8080',
       '-e', 'CLINE_DATA_DIR=/tmp/cline-smoke-data', image);
@@ -63,10 +64,14 @@ for (const [name, content] of Object.entries(managedFiles)) {
     docker('cp', path.join(fixture, 'cline-data'), `${container}:/tmp/cline-smoke-data`);
     docker('start', container);
     docker('exec', '--user', 'root', container, 'chown', '-R', 'coder:coder', '/tmp/cline-smoke-data');
-    docker('exec', container, 'code-server', '--install-extension', '/tmp/smoke.vsix');
+    console.log(docker('exec', container, 'code-server', '--install-extension', '/tmp/smoke.vsix'));
+    console.log(docker('exec', container, 'code-server', '--list-extensions', '--show-versions'));
+    console.log(docker('exec', container, 'cat', '/home/coder/.local/share/code-server/extensions/extensions.json'));
     const port = docker('port', container, '8080/tcp').trim().split(':').pop();
     browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    page = await browser.newPage();
+    page.on('pageerror', error => console.error('Browser error:', String(error)));
+    page.on('console', message => { if (message.type() === 'error') console.error('Browser console:', message.text()); });
     await page.goto(`http://127.0.0.1:${port}/?folder=/home/coder/project`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const trustButton = page.getByRole('button', { name: /Yes, I trust the authors/ });
     await trustButton.click({ timeout: 10000 }).catch(() => {});
@@ -98,8 +103,13 @@ for (const [name, content] of Object.entries(managedFiles)) {
     assert(!docker('exec', container, 'code-server', '--list-extensions').toLowerCase().includes('saoudrizwan.claude-dev'));
     console.log('PASS: pinned Cline activates, renders chat, and uninstalls cleanly; native Chat is disabled.');
   } catch (error) {
+    if (page) {
+      console.error('Workbench:', (await page.locator('body').innerText().catch(() => '')).slice(-12000));
+      await page.screenshot({ path: path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'cline-smoke.png') }).catch(() => {});
+    }
     try { console.error(docker('logs', container)); } catch {}
     try { console.error(docker('exec', container, 'sh', '-c', 'find /home/coder/.local/share/code-server/logs -name "*exthost*.log" -exec tail -n 80 {} +')); } catch {}
+    try { console.error(docker('exec', container, 'sh', '-c', 'find /home/coder/.local/share/code-server/logs -name "remoteagent.log" -exec tail -n 80 {} +')); } catch {}
     throw error;
   } finally {
     if (browser) await browser.close();

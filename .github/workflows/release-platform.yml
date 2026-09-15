@@ -163,6 +163,15 @@ jobs:
           NODE_PATH="${RUNNER_TEMP}/vscode-smoke/node_modules" \
             node deploy/ci/smoke-vscode.cjs "localhost/devcloud-${{ matrix.image }}:${DEVCLOUD_VERSION}"
 
+      - name: Save failed Cline browser check
+        if: failure() && startsWith(matrix.image, 'vscode-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: cline-smoke-${{ matrix.image }}
+          path: ${{ runner.temp }}/cline-smoke.png
+          if-no-files-found: ignore
+          retention-days: 1
+
       - name: Push immutable workspace image tags
         shell: bash
         run: |
