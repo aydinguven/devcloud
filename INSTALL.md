@@ -116,14 +116,14 @@ magic commands, Claude Code, and the Claude ACP adapter. This preserves the
 agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
 on-prem gateway. Every maintained VS Code image also includes Cline and receives
-both a Cline profile and VS Code native Chat Custom Endpoint configuration
-generated from the same central gateway record.
+a Cline profile generated from the same central gateway record. Native VS Code
+Chat and Copilot are disabled.
 
 Configure the gateway once under **Admin > Entegrasyonlar > Workspace AI ·
-Jupyter + Cline + VS Code Chat**. The controller encrypts the shared API key at
+Jupyter + Cline**. The controller encrypts the shared API key at
 rest. Every enrolled
 worker fetches the central setting on startup and every 30 seconds, so a newly
-installed worker needs no local Jupyter AI, Cline, or VS Code Chat credential
+installed worker needs no local Jupyter AI or Cline credential
 provisioning.
 The same page manages the shared model catalogue, display names, descriptions,
 and the model initially selected for a new Claude session. The default catalogue
@@ -193,18 +193,43 @@ an extra `/v1`; a model-not-found response indicates that the catalogue ID does
 not match a LiteLLM alias available to the shared key.
 
 The shared gateway API key is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
-workspace and written into the managed Cline and VS Code Chat provider state in
-every VS Code workspace. Native Chat uses the OpenAI-compatible
-`/v1/chat/completions` endpoint and does not require GitHub sign-in.
+workspace and written into the managed Cline provider state in enabled
+VS Code workspaces. Cline uses the gateway's OpenAI-compatible `/v1` API and
+does not require GitHub or Cline account sign-in for that provider.
 This also means each workspace user can inspect and reuse the key. Use a
 gateway credential intended for this shared audience, restrict it at the
 gateway, and rotate it regularly.
 
-Cline is installed in every maintained VS Code image but is disabled at runtime
-by default. Enable **Cline eklentisini etkinleştir** in the same Workspace AI
-panel when it is needed again. The setting is applied when a VS Code workspace
-container is created, so existing containers must be recreated after changing
-the toggle.
+Cline is pinned to 4.1.17 in every maintained VS Code image, with its legacy
+bundle selected and extension auto-updates disabled. New Admin configurations
+enable Cline by default; upgrades preserve the saved Admin choice. Enable
+**Cline eklentisini etkinleştir** if it was disabled during the native Chat
+experiment. The toggle and connection settings apply when a VS Code workspace
+container is created, so existing containers must be recreated after changes.
+If VS Code shows **Restricted Mode**, use **Workspaces: Manage Workspace Trust**
+to trust your project before using Cline.
+
+#### Returning from native Chat to Cline (3.6.6)
+
+1. Update the controller using the published stable channel, then apply its
+   worker update and confirm the affected workers report version 3.6.6.
+2. Import the replacement image under **Admin > Workspace Image'ları**:
+   `quay.io/aaslangoren/devcloud:vscode-python-3.6.6-e0ccf03e5272`.
+   Other flavors use `vscode-empty`, `vscode-react`, or `vscode-java` with the
+   same version and commit suffix. Wait for the assigned workers to finish
+   synchronizing the new image.
+3. Under **Admin > Entegrasyonlar > Workspace AI**, enable shared gateway access
+   and Cline. Keep the existing gateway URL, API key, and default model. Save
+   and allow the workers' 30-second settings synchronization to complete.
+4. Stop the affected workspace, remove only its stopped container on the
+   assigned worker, then start it again from DevCloud. Keep the project bind
+   mount; do not use the dashboard Delete action.
+5. Trust the project if prompted, then open Cline in the Activity Bar. Plan and
+   Act should use the Admin model without entering credentials again.
+
+The release checks Cline activation, chat-input rendering with an injected
+test profile, and clean uninstallation in all four VS Code images. It does
+not validate connectivity to your private gateway; test a prompt after rollout.
 
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
