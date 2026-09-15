@@ -66,9 +66,10 @@ workflow runs can opt into signing. Signed runs export the public key as
 `devcloud-release-keyring.gpg`, embed it in installation/update archives, and
 install it as `/etc/devcloud/release-keyring.gpg` for subsequent updates.
 
-The primary registry destination is `ghcr.io/aydinguven/devcloud`. The
-optional Quay mirror remains `quay.io/aaslangoren/devcloud` and is disabled by
-default.
+The primary registry destination is `ghcr.io/aydinguven/devcloud`. Formal
+version tags also mirror release images to
+`quay.io/aaslangoren/devcloud`; manual development releases keep Quay
+publication opt-in.
 
 ## Publishing
 
@@ -103,8 +104,9 @@ The workflow publishes:
 Workspace images have an independent lifecycle and are not embedded in platform
 bundles. Releases therefore skip every workspace image whose build context and
 release infrastructure are unchanged. A manual workflow dispatch can select
-`rebuild_jupyter` to force the Jupyter image. Quay mirroring is a separate,
-manual opt-in and never blocks normal GHCR releases.
+`rebuild_jupyter` to force the Jupyter image. Formal version tags mirror
+release images to Quay automatically. For manual workflow runs, Quay mirroring
+remains an explicit opt-in.
 
 The two offline workspace archives are staged between jobs with short-lived
 GitHub Actions artifacts and then attached permanently to the GitHub Release.
