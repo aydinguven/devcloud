@@ -503,10 +503,9 @@ cd devcloud
       <input type="checkbox" name="enabled" {% if jupyter_ai_settings and jupyter_ai_settings.enabled %}checked{% endif %}>
       <span>Ortak Jupyter AI ve Cline gateway erişimini etkinleştir</span>
     </label>
-    <label style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
-      <input type="checkbox" name="cline_enabled" {% if not jupyter_ai_settings or jupyter_ai_settings.cline_enabled %}checked{% endif %}>
-      <span>Cline eklentisini etkinleştir (yeni veya yeniden oluşturulan VS Code workspace'leri)</span>
-    </label>
+    <p class="text-muted" style="margin: 0 0 1rem;">
+      Cline tüm VS Code workspace imajlarında hazır ve her zaman etkindir. Bu ayarlar yalnızca ortak gateway, API anahtarı ve modeli yönetir.
+    </p>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">
         <span class="form-label">LiteLLM gateway root URL</span>

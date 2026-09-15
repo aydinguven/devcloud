@@ -244,13 +244,13 @@ async def worker_jupyter_ai_settings(
         # Absence means centrally unmanaged. Workers retain legacy worker.env
         # values during a rolling upgrade.
         return WorkerJupyterAiSettings(
-            managed=False, enabled=False, cline_enabled=False
+            managed=False, enabled=False, cline_enabled=True
         )
     if not record.enabled:
         return WorkerJupyterAiSettings(
             managed=True,
             enabled=False,
-            cline_enabled=False,
+            cline_enabled=True,
             updated_at=record.updated_at,
         )
     try:
@@ -263,7 +263,7 @@ async def worker_jupyter_ai_settings(
     return WorkerJupyterAiSettings(
         managed=True,
         enabled=True,
-        cline_enabled=record.cline_enabled,
+        cline_enabled=True,
         gateway_url=record.gateway_url,
         model_id=record.model_id,
         gateway_model_discovery=record.gateway_model_discovery,

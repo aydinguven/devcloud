@@ -138,7 +138,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert decrypt_secret(record.encrypted_shared_token) == shared_token
     assert record.cline_enabled is True
 
-    disabled_cline = await client.put(
+    legacy_disable_request = await client.put(
         "/api/admin/jupyter-ai-settings",
         headers=admin_headers,
         json={
@@ -148,8 +148,8 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
             "model_id": "qwen3.6-35b",
         },
     )
-    assert disabled_cline.status_code == 200
-    assert disabled_cline.json()["cline_enabled"] is False
+    assert legacy_disable_request.status_code == 200
+    assert legacy_disable_request.json()["cline_enabled"] is True
     omitted_toggle = await client.put(
         "/api/admin/jupyter-ai-settings",
         headers=admin_headers,
@@ -160,7 +160,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
         },
     )
     assert omitted_toggle.status_code == 200
-    assert omitted_toggle.json()["cline_enabled"] is False
+    assert omitted_toggle.json()["cline_enabled"] is True
 
     cleared = await client.put(
         "/api/admin/jupyter-ai-settings",
@@ -254,7 +254,7 @@ async def test_worker_applies_central_settings_and_preserves_unmanaged_fallback(
     assert settings.JUPYTER_AI_GATEWAY_TOKEN == ""
     assert settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY is False
     assert settings.JUPYTER_AI_MODEL_CATALOG_JSON == "[]"
-    assert settings.JUPYTER_AI_CLINE_ENABLED is False
+    assert settings.JUPYTER_AI_CLINE_ENABLED is True
 
 
 @pytest.mark.asyncio

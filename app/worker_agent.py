@@ -411,7 +411,9 @@ class WorkerAgent:
             settings.JUPYTER_AI_GATEWAY_TOKEN = ""
             settings.JUPYTER_AI_GATEWAY_MODEL_DISCOVERY = False
             settings.JUPYTER_AI_MODEL_CATALOG_JSON = "[]"
-            settings.JUPYTER_AI_CLINE_ENABLED = False
+            # Cline is baked into every VS Code image. Disabling Workspace AI
+            # clears its managed provider credentials, not the extension.
+            settings.JUPYTER_AI_CLINE_ENABLED = True
             return True
 
         gateway_url = str(payload.get("gateway_url") or "").strip().rstrip("/")
@@ -464,9 +466,9 @@ class WorkerAgent:
         settings.JUPYTER_AI_MODEL_CATALOG_JSON = json.dumps(
             models, ensure_ascii=False
         )
-        settings.JUPYTER_AI_CLINE_ENABLED = (
-            payload.get("cline_enabled") is True
-        )
+        # Ignore the legacy toggle from older controllers. It remains in the
+        # wire schema only so controller and worker upgrades can roll safely.
+        settings.JUPYTER_AI_CLINE_ENABLED = True
         return True
 
     async def jupyter_ai_settings_sync_loop(self) -> None:

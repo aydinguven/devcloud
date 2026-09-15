@@ -513,6 +513,8 @@ async def proxy_websocket(
     else:
         upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
 
+    close_code = 1000
+    close_reason = ""
     try:
         await proxy_remote_websocket(
             websocket,
@@ -521,10 +523,17 @@ async def proxy_websocket(
             custom_port=custom_port,
         )
     except Exception as exc:
-        logger.warning("Worker WebSocket proxy closed: %s", exc)
+        logger.warning(
+            "Worker WebSocket proxy closed for workspace=%s path=%s: %s",
+            workspace_id,
+            path,
+            exc,
+        )
+        close_code = 1011
+        close_reason = "Workspace proxy stream failed"
     finally:
         try:
-            await websocket.close()
+            await websocket.close(code=close_code, reason=close_reason)
         except Exception:
             pass
 

@@ -1069,7 +1069,9 @@ def _jupyter_ai_settings_out(
     return JupyterAiSettingsOut(
         managed=True,
         enabled=record.enabled,
-        cline_enabled=record.cline_enabled,
+        # Kept in the response for compatibility with 3.6.x workers. Cline is
+        # now part of every VS Code image and cannot be disabled separately.
+        cline_enabled=True,
         gateway_url=record.gateway_url,
         model_id=record.model_id,
         gateway_model_discovery=record.gateway_model_discovery,
@@ -1140,10 +1142,9 @@ async def update_jupyter_ai_settings(
             },
         )
     record.enabled = update.enabled
-    if update.cline_enabled is not None:
-        record.cline_enabled = update.cline_enabled
-    elif record.cline_enabled is None:
-        record.cline_enabled = True
+    # Preserve the legacy column during rolling upgrades, but never let an old
+    # client disable the Cline copy baked into VS Code workspace images.
+    record.cline_enabled = True
     record.gateway_url = update.gateway_url
     record.model_id = update.model_id
     record.gateway_model_discovery = update.gateway_model_discovery

@@ -6,7 +6,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agents.manager import AgentConnection, AgentCommandError, AgentUnavailable, AgentStream, STREAM_WINDOW, StreamChunk
+from app.agents.manager import (
+    AgentConnection,
+    AgentCommandError,
+    AgentUnavailable,
+    AgentStream,
+    MAX_STREAM_FRAME_BYTES,
+    STREAM_WINDOW,
+    StreamChunk,
+)
 from app.agents.transfers import CHUNK_BYTES, upload_transfer, download_chunks
 from app.config import settings
 from app.worker_agent import WorkerAgent
@@ -148,6 +156,10 @@ def test_worker_transfer_limits_and_expiry(tmp_path, monkeypatch):
     assert handle.closed
     assert not store.items
     assert not (tmp_path / "file").exists()
+
+
+def test_workspace_websocket_limit_supports_large_webview_messages():
+    assert MAX_STREAM_FRAME_BYTES == 8 * 1024 * 1024
 
 
 @pytest.mark.asyncio

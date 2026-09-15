@@ -124,7 +124,7 @@ def test_worker_forwards_shared_gateway_to_all_workspace_ai_clients():
     assert "DEVCLOUD_VSCODE_CHAT_MODELS_JSON=" not in vscode_branch
     assert "DEVCLOUD_VSCODE_SETTINGS_JSON=" in vscode_branch
     assert "chatLanguageModels.json" not in vscode_branch
-    assert "--uninstall-extension saoudrizwan.claude-dev" in podman_service
+    assert "--uninstall-extension saoudrizwan.claude-dev" not in podman_service
     assert "--disable-extension saoudrizwan.claude-dev" not in podman_service
     assert "ANTHROPIC_AUTH_TOKEN" in jupyter_branch
     assert "ANTHROPIC_BASE_URL" in jupyter_branch

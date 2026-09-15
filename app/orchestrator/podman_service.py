@@ -288,12 +288,11 @@ class PodmanService:
             cmd_args.extend([
                 "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON=" + managed_vscode_settings(),
             ])
-            if settings.JUPYTER_AI_CLINE_ENABLED:
-                cline_files = managed_cline_files(
-                    settings.JUPYTER_AI_GATEWAY_URL,
-                    settings.JUPYTER_AI_GATEWAY_TOKEN,
-                    settings.JUPYTER_AI_MODEL,
-                )
+            cline_files = managed_cline_files(
+                settings.JUPYTER_AI_GATEWAY_URL,
+                settings.JUPYTER_AI_GATEWAY_TOKEN,
+                settings.JUPYTER_AI_MODEL,
+            )
             if cline_files:
                 cmd_args.extend([
                     "-e", "CLINE_DIR=/home/coder/.cline",
@@ -392,15 +391,6 @@ class PodmanService:
                     "chmod 600 \"$CLINE_DATA_DIR/globalState.json\""
                     " \"$CLINE_DATA_DIR/secrets.json\""
                     " \"$CLINE_DATA_DIR/settings/providers.json\"",
-                ])
-            if not settings.JUPYTER_AI_CLINE_ENABLED:
-                # Keep extensions.json consistent: moving the directory leaves
-                # a registered but broken extension. Recreating an enabled
-                # container restores the image's pinned copy of Cline.
-                setup_commands.extend([
-                    "if code-server --list-extensions"
-                    " | grep -Fxiq saoudrizwan.claude-dev; then"
-                    " code-server --uninstall-extension saoudrizwan.claude-dev; fi",
                 ])
             setup_commands.append(
                 "exec /usr/bin/entrypoint.sh"

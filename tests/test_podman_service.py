@@ -242,7 +242,7 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vscode_launch_uninstalls_disabled_cline_without_stale_registration(monkeypatch):
+async def test_vscode_launch_ignores_legacy_disabled_cline_toggle(monkeypatch):
     svc = PodmanService(podman_bin="podman")
     svc._mock_mode = False
     commands = []
@@ -289,7 +289,7 @@ async def test_vscode_launch_uninstalls_disabled_cline_without_stale_registratio
     )
 
     run_command = next(args for args in commands if args[0] == "run")
-    assert not any(
+    assert any(
         value.startswith("DEVCLOUD_CLINE_") for value in run_command
     )
     assert not any(
@@ -300,7 +300,7 @@ async def test_vscode_launch_uninstalls_disabled_cline_without_stale_registratio
     startup_command = run_command[image_index + 1:]
     assert "chatLanguageModels.json" not in startup_command[1]
     assert "--disable-extension" not in startup_command[1]
-    assert "--uninstall-extension saoudrizwan.claude-dev" in startup_command[1]
+    assert "--uninstall-extension saoudrizwan.claude-dev" not in startup_command[1]
     assert "disabled-extensions" not in startup_command[1]
     assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
 

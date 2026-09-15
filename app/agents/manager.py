@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket
 
 STREAM_WINDOW = 4
-MAX_STREAM_FRAME_BYTES = 1024 * 1024
+# VS Code webviews can post provider catalogs and restored UI state as a single
+# WebSocket message. Keep the tunnel bounded, but do not truncate legitimate IDE
+# frames at the old 1 MiB transfer-oriented limit.
+MAX_STREAM_FRAME_BYTES = 8 * 1024 * 1024
 MAX_STREAMS = 32
 
 

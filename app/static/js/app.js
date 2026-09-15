@@ -257,7 +257,6 @@ function initJupyterAiSettings() {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           enabled: form.elements.enabled.checked,
-          cline_enabled: form.elements.cline_enabled.checked,
           gateway_url: String(data.get("gateway_url") || "").trim(),
           model_id: String(data.get("model_id") || "").trim(),
           gateway_model_discovery: form.elements.gateway_model_discovery.checked,
