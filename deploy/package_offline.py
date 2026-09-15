@@ -73,11 +73,11 @@ POSTGRESQL_SOURCE_IMAGE = os.getenv(
 )
 CONTROLLER_SOURCE_IMAGE = os.getenv(
     "DEVCLOUD_CONTROLLER_SOURCE_IMAGE",
-    "quay.io/aaslangoren/devcloud:controller-{version}",
+    "ghcr.io/aydinguven/devcloud:controller-{version}",
 )
 WORKER_SOURCE_IMAGE = os.getenv(
     "DEVCLOUD_WORKER_SOURCE_IMAGE",
-    "quay.io/aaslangoren/devcloud:worker-{version}",
+    "ghcr.io/aydinguven/devcloud:worker-{version}",
 )
 
 

@@ -430,7 +430,7 @@ def test_container_controller_uses_quadlet_without_native_postgresql(tmp_path):
         for command in commands
     )
     assert any(
-        f"podman pull quay.io/aaslangoren/devcloud:controller-{engine.release_version}"
+        f"podman pull ghcr.io/aydinguven/devcloud:controller-{engine.release_version}"
         in command
         for command in commands
     )
@@ -757,14 +757,14 @@ def test_container_worker_uses_rootful_store_for_preloaded_images(tmp_path):
     assert not any(command and command[0] == "runuser" for command in runner.commands)
 
 
-def test_connected_container_worker_pulls_versioned_quay_image(tmp_path):
+def test_connected_container_worker_pulls_versioned_ghcr_image(tmp_path):
     runner = CommandRunner(dry_run=True)
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
     candidate = config(DeploymentRole.WORKER)
 
     engine._prepare_worker_image(candidate)
 
-    source = f"quay.io/aaslangoren/devcloud:worker-{engine.release_version}"
+    source = f"ghcr.io/aydinguven/devcloud:worker-{engine.release_version}"
     target = f"localhost/devcloud-worker:{engine.release_version}"
     assert ["podman", "pull", source] in runner.commands
     assert ["podman", "tag", source, target] in runner.commands

@@ -3,7 +3,8 @@
 DevCloud uses Git as a small release channel, not as storage for runtime
 artifacts. The release workflow builds controller and worker images once,
 packages those exact images into verified update and offline bundles, publishes
-the images to Quay, uploads the bundles to a GitHub Release, and advances the
+the images to GitHub Container Registry (GHCR), uploads the bundles to a GitHub
+Release, and advances the
 machine-managed `stable` branch.
 
 ## Workflows
@@ -30,8 +31,9 @@ requires at least 8 GiB free before starting. If future platform images make
 the job exceed the standard runner, configure a larger GitHub-hosted runner or
 return to a disposable self-hosted release VM.
 
-The job requires outbound HTTPS access to GitHub, Python package indexes, Rocky
-repositories, Red Hat UBI registries, Quay, and the PostgreSQL image registry.
+The job requires outbound HTTPS access to GitHub and GHCR, Python package
+indexes, Rocky repositories, Red Hat UBI registries, and the PostgreSQL image
+registry.
 The runner and Rocky build container are discarded after the job.
 
 ## Repository configuration
@@ -39,9 +41,16 @@ The runner and Rocky build container are discarded after the job.
 Create a GitHub Environment named `release`. Required reviewers are
 recommended for production releases. Configure Actions workflow permissions to
 allow the repository `GITHUB_TOKEN` to write repository contents and create
-releases. GitHub-hosted runners must be enabled for the repository.
+releases and packages. GitHub-hosted runners must be enabled for the
+repository.
 
-Add these environment or repository secrets when Quay publishing is enabled:
+GHCR publication uses the built-in `GITHUB_TOKEN`; no registry secret is
+required. New GHCR packages are private by default, so make the `devcloud`
+container package public after its first publication so connected hosts can
+pull anonymously.
+
+Add these environment or repository secrets only when the optional Quay mirror
+is enabled:
 
 - `QUAY_USERNAME`: preferably a repository-scoped robot account;
 - `QUAY_PASSWORD`: the corresponding robot token.
@@ -57,9 +66,9 @@ workflow runs can opt into signing. Signed runs export the public key as
 `devcloud-release-keyring.gpg`, embed it in installation/update archives, and
 install it as `/etc/devcloud/release-keyring.gpg` for subsequent updates.
 
-The default Quay destination is
-`quay.io/aaslangoren/devcloud`. Change `QUAY_REPOSITORY` in the release
-workflow if the repository moves.
+The primary registry destination is `ghcr.io/aydinguven/devcloud`. The
+optional Quay mirror remains `quay.io/aaslangoren/devcloud` and is disabled by
+default.
 
 ## Publishing
 
@@ -78,9 +87,9 @@ The workflow rejects a version tag that does not match `app.__version__`.
 
 The workflow publishes:
 
-- immutable and versioned controller and worker tags to Quay;
+- immutable and versioned controller and worker tags to GHCR;
 - for every maintained workspace build context changed since the previous
-  platform tag, an immutable, smoke-tested workspace image to Quay as
+  platform tag, an immutable, smoke-tested workspace image to GHCR as
   `TEMPLATE-VERSION` and `TEMPLATE-VERSION-SHORT_SHA`;
 - one controller-managed platform update bundle;
 - one complete server offline bundle;
@@ -90,9 +99,10 @@ The workflow publishes:
 - the public GPG keyring when signing is enabled.
 
 Workspace images have an independent lifecycle and are not embedded in platform
-bundles. Releases therefore skip every workspace image whose build context is
-unchanged. A manual workflow dispatch can select `rebuild_jupyter` to force the
-Jupyter image, for example after an interrupted registry publication.
+bundles. Releases therefore skip every workspace image whose build context and
+release infrastructure are unchanged. A manual workflow dispatch can select
+`rebuild_jupyter` to force the Jupyter image. Quay mirroring is a separate,
+manual opt-in and never blocks normal GHCR releases.
 
 Each generated archive is verified before publication. The `stable` branch is
 owned by the workflow and contains only `devcloud-update-channel.json`. Do not

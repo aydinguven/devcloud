@@ -62,7 +62,7 @@ automatically.
 
 Workspace images are not part of the controller or worker base installation.
 An administrator imports a maintained template image under **Admin > Workspace
-Image'ları** from Quay, another reachable OCI registry, or an OCI/Docker archive.
+Image'ları** from GHCR, another reachable OCI registry, or an OCI/Docker archive.
 All four maintained VS Code images bake in the Cline extension. Cline and VS
 Code's native Chat Custom Endpoint provider receive their gateway, API key,
 model catalogue, and default model from the controller-managed Workspace AI

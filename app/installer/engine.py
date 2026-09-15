@@ -1375,7 +1375,7 @@ class InstallerEngine:
     def _controller_source_image(self) -> str:
         return os.environ.get(
             "DEVCLOUD_CONTROLLER_SOURCE_IMAGE",
-            f"quay.io/aaslangoren/devcloud:controller-{self.release_version}",
+            f"ghcr.io/aydinguven/devcloud:controller-{self.release_version}",
         )
 
     def _worker_image(self) -> str:
@@ -1384,7 +1384,7 @@ class InstallerEngine:
     def _worker_source_image(self) -> str:
         return os.environ.get(
             "DEVCLOUD_WORKER_SOURCE_IMAGE",
-            f"quay.io/aaslangoren/devcloud:worker-{self.release_version}",
+            f"ghcr.io/aydinguven/devcloud:worker-{self.release_version}",
         )
 
     @staticmethod

@@ -39,11 +39,11 @@ on a private network and is never published on a host port. Native Python
 systemd installation remains available for existing deployments and
 compatibility.
 Connected installs pull versioned runtime images from
-`quay.io/aaslangoren/devcloud` by default; air-gapped installs load the same
+`ghcr.io/aydinguven/devcloud` by default; air-gapped installs load the same
 images from their verified bundle archives.
 
 After installation, add each workspace image under **Admin > Workspace
-Image'ları** from a Quay/internal-registry reference or an OCI/Docker tar
+Image'ları** from a GHCR/internal-registry reference or an OCI/Docker tar
 archive. The controller normalizes and verifies the archive, then enrolled
 workers download it over the authenticated controller connection. Create worker
 records under **Admin > Worker'lar** and retain each one-time enrollment token.
@@ -214,12 +214,11 @@ are also installed:
 ~~~
 
 The current maintained workspace image is
-`quay.io/aaslangoren/devcloud:jupyter-python-3.5.2`. DevCloud 3.5.5 continues to
-use that image because no Jupyter image build context changed in the 3.5.3,
-3.5.4, or 3.5.5 platform releases. Import it under **Admin > Workspace Image'ları** as the
-source for the `jupyter-python` template. Enrolled workers then receive the
-controller-managed archive automatically. A future platform release publishes
-a new Jupyter tag only when the image definition or bundled dependencies change.
+`ghcr.io/aydinguven/devcloud:jupyter-python-3.6.3`. Import it under
+**Admin > Workspace Image'ları** as the source for the `jupyter-python`
+template. Enrolled workers then receive the controller-managed archive
+automatically. A future platform release publishes a new Jupyter tag only when
+the image definition, bundled dependencies, or release infrastructure changes.
 The four maintained VS Code images must likewise be rebuilt or republished after
 this change so their baked-in Cline extension is present on enrolled workers.
 

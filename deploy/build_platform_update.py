@@ -119,8 +119,8 @@ def build(
     release_version = version(root)
     controller_image = f"localhost/devcloud-controller:{release_version}"
     worker_image = f"localhost/devcloud-worker:{release_version}"
-    controller_source = controller_source or f"quay.io/aaslangoren/devcloud:controller-{release_version}"
-    worker_source = worker_source or f"quay.io/aaslangoren/devcloud:worker-{release_version}"
+    controller_source = controller_source or f"ghcr.io/aydinguven/devcloud:controller-{release_version}"
+    worker_source = worker_source or f"ghcr.io/aydinguven/devcloud:worker-{release_version}"
     for image in (controller_image, worker_image):
         command(root, podman, "image", "exists", image)
 

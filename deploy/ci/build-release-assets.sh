@@ -16,6 +16,8 @@ required_variables=(
   SHORT_SHA
   PLATFORM_FILENAME
   ASSET_BASE_URL
+  IMAGE_REGISTRY
+  IMAGE_REPOSITORY
   QUAY_REGISTRY
   QUAY_REPOSITORY
   PUBLISH_QUAY
@@ -86,8 +88,12 @@ if [[ "${SIGN_RELEASE}" == "true" ]]; then
   gpg --batch --yes --output "${ASSET_DIR}/devcloud-release-keyring.gpg" --export "${signing_key}"
 fi
 
+image_logged_in=false
 quay_logged_in=false
 cleanup() {
+  if [[ "${image_logged_in}" == "true" ]]; then
+    podman logout "${IMAGE_REGISTRY}" >/dev/null 2>&1 || true
+  fi
   if [[ "${quay_logged_in}" == "true" ]]; then
     podman logout "${QUAY_REGISTRY}" >/dev/null 2>&1 || true
   fi
@@ -102,9 +108,27 @@ if ! podman image exists localhost/devcloud-postgresql:16; then
   podman tag quay.io/sclorg/postgresql-16-c10s:latest localhost/devcloud-postgresql:16
 fi
 
+[[ -n "${IMAGE_USERNAME:-}" && -n "${IMAGE_PASSWORD:-}" ]] || {
+  echo "GHCR publishing requires IMAGE_USERNAME and IMAGE_PASSWORD." >&2
+  exit 1
+}
+
+printf '%s' "${IMAGE_PASSWORD}" |
+  podman login --username "${IMAGE_USERNAME}" --password-stdin "${IMAGE_REGISTRY}"
+image_logged_in=true
+
+for role in controller worker; do
+  local_image="localhost/devcloud-${role}:${DEVCLOUD_VERSION}"
+  for remote_tag in "${role}-${DEVCLOUD_VERSION}" "${role}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
+    remote_image="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${remote_tag}"
+    podman tag "${local_image}" "${remote_image}"
+    podman push "${remote_image}"
+  done
+done
+
 if [[ "${PUBLISH_QUAY}" == "true" ]]; then
   [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
-    echo "Quay publishing requires QUAY_USERNAME and QUAY_PASSWORD." >&2
+    echo "Quay mirroring requires QUAY_USERNAME and QUAY_PASSWORD." >&2
     exit 1
   }
 
@@ -129,8 +153,8 @@ fi
 
 build_arguments=(
   --output-dir "${ASSET_DIR}"
-  --controller-source "${QUAY_REGISTRY}/${QUAY_REPOSITORY}:controller-${DEVCLOUD_VERSION}-${SHORT_SHA}"
-  --worker-source "${QUAY_REGISTRY}/${QUAY_REPOSITORY}:worker-${DEVCLOUD_VERSION}-${SHORT_SHA}"
+  --controller-source "${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:controller-${DEVCLOUD_VERSION}-${SHORT_SHA}"
+  --worker-source "${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:worker-${DEVCLOUD_VERSION}-${SHORT_SHA}"
   --channel-output "${ASSET_DIR}/devcloud-update-channel.json"
   --channel-url "${ASSET_BASE_URL}/${PLATFORM_FILENAME}"
 )

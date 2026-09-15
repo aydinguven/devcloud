@@ -8,9 +8,9 @@ on:
         required: false
         type: string
       publish_quay:
-        description: Push versioned runtime images and all changed workspace images to Quay
+        description: Also mirror versioned runtime and changed workspace images to Quay
         required: true
-        default: true
+        default: false
         type: boolean
       rebuild_jupyter:
         description: Force a Jupyter workspace image rebuild even when its build context is unchanged
@@ -28,6 +28,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 concurrency:
   group: devcloud-platform-release
@@ -62,9 +63,20 @@ jobs:
           )
           previous_tag="${previous_tags[0]:-}"
 
+          release_infrastructure_changed=false
+          if [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- \
+            .github/workflows/release-platform.yml \
+            deploy/ci/build-release-assets.sh; then
+            release_infrastructure_changed=true
+          fi
+
           workspace_images=()
           for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python; do
             if [[ "${image}" == "jupyter-python" && "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
+              workspace_images+=("${image}")
+              continue
+            fi
+            if [[ "${release_infrastructure_changed}" == "true" ]]; then
               workspace_images+=("${image}")
               continue
             fi
@@ -95,11 +107,15 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.release_scope.outputs.workspace_matrix) }}
     env:
+      IMAGE_REGISTRY: ghcr.io
+      IMAGE_REPOSITORY: ${{ github.repository }}
+      IMAGE_USERNAME: ${{ github.actor }}
+      IMAGE_PASSWORD: ${{ github.token }}
       QUAY_REGISTRY: quay.io
       QUAY_REPOSITORY: aaslangoren/devcloud
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
-      PUBLISH_QUAY: ${{ github.event_name == 'push' || inputs.publish_quay }}
+      PUBLISH_QUAY: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_quay }}
 
     steps:
       - name: Check out release source
@@ -128,31 +144,55 @@ jobs:
           image="${{ matrix.image }}"
           local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
           docker build --pull --platform linux/amd64 \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --file "containers/${image}/Containerfile" \
             --tag "${local_image}" \
             "containers/${image}"
 
       - name: Push immutable workspace image tags
-        if: env.PUBLISH_QUAY == 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
-          [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
-            echo "Quay publishing requires QUAY_USERNAME and QUAY_PASSWORD." >&2
+          [[ -n "${IMAGE_USERNAME:-}" && -n "${IMAGE_PASSWORD:-}" ]] || {
+            echo "GHCR publishing requires IMAGE_USERNAME and IMAGE_PASSWORD." >&2
             exit 1
           }
-          printf '%s' "${QUAY_PASSWORD}" |
-            docker login --username "${QUAY_USERNAME}" --password-stdin "${QUAY_REGISTRY}"
-          trap 'docker logout "${QUAY_REGISTRY}" >/dev/null 2>&1 || true' EXIT
+          printf '%s' "${IMAGE_PASSWORD}" |
+            docker login --username "${IMAGE_USERNAME}" --password-stdin "${IMAGE_REGISTRY}"
+          quay_logged_in=false
+          cleanup() {
+            docker logout "${IMAGE_REGISTRY}" >/dev/null 2>&1 || true
+            if [[ "${quay_logged_in}" == "true" ]]; then
+              docker logout "${QUAY_REGISTRY}" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
           image="${{ matrix.image }}"
           local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
           for remote_tag in \
             "${image}-${DEVCLOUD_VERSION}" \
             "${image}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
-            remote_image="${QUAY_REGISTRY}/${QUAY_REPOSITORY}:${remote_tag}"
+            remote_image="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${remote_tag}"
             docker tag "${local_image}" "${remote_image}"
             docker push "${remote_image}"
           done
+
+          if [[ "${PUBLISH_QUAY}" == "true" ]]; then
+            [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
+              echo "Quay mirroring requires QUAY_USERNAME and QUAY_PASSWORD." >&2
+              exit 1
+            }
+            printf '%s' "${QUAY_PASSWORD}" |
+              docker login --username "${QUAY_USERNAME}" --password-stdin "${QUAY_REGISTRY}"
+            quay_logged_in=true
+            for remote_tag in \
+              "${image}-${DEVCLOUD_VERSION}" \
+              "${image}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
+              remote_image="${QUAY_REGISTRY}/${QUAY_REPOSITORY}:${remote_tag}"
+              docker tag "${local_image}" "${remote_image}"
+              docker push "${remote_image}"
+            done
+          fi
 
   release:
     name: Build and publish Rocky 10 platform
@@ -165,13 +205,17 @@ jobs:
     timeout-minutes: 240
     environment: release
     env:
+      IMAGE_REGISTRY: ghcr.io
+      IMAGE_REPOSITORY: ${{ github.repository }}
+      IMAGE_USERNAME: ${{ github.actor }}
+      IMAGE_PASSWORD: ${{ github.token }}
       QUAY_REGISTRY: quay.io
       QUAY_REPOSITORY: aaslangoren/devcloud
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_KEY_ID: ${{ secrets.RELEASE_GPG_KEY_ID }}
-      PUBLISH_QUAY: ${{ github.event_name == 'push' || inputs.publish_quay }}
+      PUBLISH_QUAY: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_quay }}
       # Signing stays opt-in while existing hosts transition to trusted keyrings.
       SIGN_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_release }}
       GH_TOKEN: ${{ github.token }}
@@ -251,6 +295,10 @@ jobs:
             --env SHORT_SHA \
             --env PLATFORM_FILENAME \
             --env ASSET_BASE_URL \
+            --env IMAGE_REGISTRY \
+            --env IMAGE_REPOSITORY \
+            --env IMAGE_USERNAME \
+            --env IMAGE_PASSWORD \
             --env QUAY_REGISTRY \
             --env QUAY_REPOSITORY \
             --env QUAY_USERNAME \

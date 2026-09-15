@@ -54,14 +54,19 @@ def test_platform_release_builds_and_verifies_every_distribution_artifact():
     assert "github.event_name == 'workflow_dispatch' && inputs.sign_release" in workflow_content
 
 
-def test_platform_release_publishes_quay_release_assets_and_stable_channel():
+def test_platform_release_publishes_ghcr_release_assets_and_stable_channel():
     content = workflow("release-platform.yml")
     builder = (
         ROOT / "deploy" / "ci" / "build-release-assets.sh"
     ).read_text(encoding="utf-8")
 
-    assert "QUAY_USERNAME" in content
-    assert "QUAY_PASSWORD" in content
+    assert "packages: write" in content
+    assert "IMAGE_REGISTRY: ghcr.io" in content
+    assert "IMAGE_PASSWORD: ${{ github.token }}" in content
+    assert (
+        "PUBLISH_QUAY: ${{ github.event_name == 'workflow_dispatch' "
+        "&& inputs.publish_quay }}" in content
+    )
     assert "podman push" in builder
     assert "gh release create" in content
     assert "gh release upload" in content
@@ -76,6 +81,7 @@ def test_platform_release_builds_only_changed_workspace_images():
     assert "Resolve release build scope" in content
     assert "rebuild_jupyter:" in content
     assert "git diff --quiet" in content
+    assert "release_infrastructure_changed" in content
     assert '"containers/${image}"' in content
     assert "if: needs.release_scope.outputs.build_workspace == 'true'" in content
     assert "needs.workspace_images.result == 'skipped'" in content
@@ -88,6 +94,8 @@ def test_release_operator_guide_documents_required_controls():
     assert "No self-hosted runner registration is required" in content
     assert "privileged, disposable Rocky Linux" in content
     assert "at least 8 GiB free" in content
+    assert "built-in `GITHUB_TOKEN`" in content
+    assert "private by default" in content
     assert "QUAY_USERNAME" in content
     assert "RELEASE_GPG_PRIVATE_KEY" in content
     assert "--ref stable" in content
