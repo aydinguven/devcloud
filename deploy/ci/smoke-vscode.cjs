@@ -67,14 +67,22 @@ for (const [name, content] of Object.entries(managedFiles)) {
     console.log(docker('exec', container, 'code-server', '--install-extension', '/tmp/smoke.vsix'));
     console.log(docker('exec', container, 'code-server', '--list-extensions', '--show-versions'));
     console.log(docker('exec', container, 'cat', '/home/coder/.local/share/code-server/extensions/extensions.json'));
+    // This is a generated, empty CI project. Trust it explicitly for the test;
+    // otherwise Restricted Mode prevents both Cline and this fixture activating.
+    // Production images retain the user's normal workspace-trust controls.
+    const settingsPath = '/home/coder/.local/share/code-server/User/settings.json';
+    const imageSettings = JSON.parse(docker('exec', container, 'cat', settingsPath));
+    fs.writeFileSync(path.join(fixture, 'settings.json'), JSON.stringify({
+      ...imageSettings, 'security.workspace.trust.enabled': false,
+    }));
+    docker('cp', path.join(fixture, 'settings.json'), `${container}:${settingsPath}`);
+    docker('exec', '--user', 'root', container, 'chown', 'coder:coder', settingsPath);
     const port = docker('port', container, '8080/tcp').trim().split(':').pop();
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
     page.on('pageerror', error => console.error('Browser error:', String(error)));
     page.on('console', message => { if (message.type() === 'error') console.error('Browser console:', message.text()); });
     await page.goto(`http://127.0.0.1:${port}/?folder=/home/coder/project`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    const trustButton = page.getByRole('button', { name: /Yes, I trust the authors/ });
-    await trustButton.click({ timeout: 10000 }).catch(() => {});
     const deadline = Date.now() + 90000;
     let activated = false;
     let inputVisible = false;
