@@ -64,8 +64,9 @@ def test_platform_release_publishes_ghcr_release_assets_and_stable_channel():
     assert "IMAGE_REGISTRY: ghcr.io" in content
     assert "IMAGE_PASSWORD: ${{ github.token }}" in content
     assert (
-        "PUBLISH_QUAY: ${{ github.event_name == 'workflow_dispatch' "
-        "&& inputs.publish_quay }}" in content
+        "PUBLISH_QUAY: ${{ github.event_name == 'push' || "
+        "(github.event_name == 'workflow_dispatch' && inputs.publish_quay) }}"
+        in content
     )
     assert "podman push" in builder
     assert "gh release create" in content
