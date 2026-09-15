@@ -185,6 +185,7 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     assert "/workspace:/home/coder/project:Z,U" in run_command
     assert run_command[run_command.index("--entrypoint") + 1] == "/bin/bash"
     assert "CLINE_DATA_DIR=/home/coder/.cline/data" in run_command
+    assert "CLINE_DIR=/home/coder/.cline" in run_command
     assert (
         "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User"
         in run_command

@@ -296,6 +296,7 @@ class PodmanService:
                 )
             if cline_files:
                 cmd_args.extend([
+                    "-e", "CLINE_DIR=/home/coder/.cline",
                     "-e", "CLINE_DATA_DIR=/home/coder/.cline/data",
                     "-e", "DEVCLOUD_CLINE_GLOBAL_STATE_JSON="
                     + cline_files["globalState.json"],

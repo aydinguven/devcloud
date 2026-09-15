@@ -49,7 +49,7 @@ const managedFiles = JSON.parse(execFileSync('python3', ['-c',
   'import json; from app.cline import managed_cline_files; print(json.dumps(managed_cline_files("http://127.0.0.1:9", "ci-dummy-key", "ci-dummy-model")))'
 ], { encoding: 'utf8' }));
 for (const [name, content] of Object.entries(managedFiles)) {
-  const target = path.join(fixture, 'cline-data', name);
+  const target = path.join(fixture, 'cline', 'data', name);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content);
 }
@@ -59,11 +59,12 @@ for (const [name, content] of Object.entries(managedFiles)) {
   let page;
   try {
     docker('create', '--name', container, '-p', '127.0.0.1::8080',
-      '-e', 'CLINE_DATA_DIR=/tmp/cline-smoke-data', image);
+      '-e', 'CLINE_DIR=/tmp/cline-smoke',
+      '-e', 'CLINE_DATA_DIR=/tmp/cline-smoke/data', image);
     docker('cp', path.join(fixture, 'smoke.vsix'), `${container}:/tmp/smoke.vsix`);
-    docker('cp', path.join(fixture, 'cline-data'), `${container}:/tmp/cline-smoke-data`);
+    docker('cp', path.join(fixture, 'cline'), `${container}:/tmp/cline-smoke`);
     docker('start', container);
-    docker('exec', '--user', 'root', container, 'chown', '-R', 'coder:coder', '/tmp/cline-smoke-data');
+    docker('exec', '--user', 'root', container, 'chown', '-R', 'coder:coder', '/tmp/cline-smoke');
     console.log(docker('exec', container, 'code-server', '--install-extension', '/tmp/smoke.vsix'));
     console.log(docker('exec', container, 'code-server', '--list-extensions', '--show-versions'));
     console.log(docker('exec', container, 'cat', '/home/coder/.local/share/code-server/extensions/extensions.json'));
