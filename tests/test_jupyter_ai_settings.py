@@ -44,7 +44,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert initial.json() == {
         "managed": False,
         "enabled": False,
-        "cline_enabled": False,
+        "cline_enabled": True,
         "gateway_url": "",
         "model_id": "",
         "gateway_model_discovery": False,
@@ -82,7 +82,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert saved.json()["gateway_url"] == "https://llm.internal.example"
     assert saved.json()["has_shared_token"] is True
     assert saved.json()["gateway_model_discovery"] is True
-    assert saved.json()["cline_enabled"] is False
+    assert saved.json()["cline_enabled"] is True
     assert len(saved.json()["models"]) == 5
     assert shared_token not in json.dumps(saved.json())
 
@@ -107,7 +107,7 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     assert worker_response.json()["managed"] is True
     assert worker_response.json()["shared_token"] == shared_token
     assert worker_response.json()["gateway_model_discovery"] is True
-    assert worker_response.json()["cline_enabled"] is False
+    assert worker_response.json()["cline_enabled"] is True
     assert worker_response.json()["models"][2]["model_id"] == (
         "openrouter/deepseek/deepseek-v4-pro"
     )
@@ -137,6 +137,30 @@ async def test_admin_encrypts_settings_and_worker_receives_shared_token(
     await db_session.refresh(record)
     assert decrypt_secret(record.encrypted_shared_token) == shared_token
     assert record.cline_enabled is True
+
+    disabled_cline = await client.put(
+        "/api/admin/jupyter-ai-settings",
+        headers=admin_headers,
+        json={
+            "enabled": True,
+            "cline_enabled": False,
+            "gateway_url": "https://llm.internal.example",
+            "model_id": "qwen3.6-35b",
+        },
+    )
+    assert disabled_cline.status_code == 200
+    assert disabled_cline.json()["cline_enabled"] is False
+    omitted_toggle = await client.put(
+        "/api/admin/jupyter-ai-settings",
+        headers=admin_headers,
+        json={
+            "enabled": True,
+            "gateway_url": "https://llm.internal.example",
+            "model_id": "qwen3.6-35b",
+        },
+    )
+    assert omitted_toggle.status_code == 200
+    assert omitted_toggle.json()["cline_enabled"] is False
 
     cleared = await client.put(
         "/api/admin/jupyter-ai-settings",

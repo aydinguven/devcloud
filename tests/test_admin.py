@@ -93,11 +93,11 @@ async def test_admin_access_controls(client: AsyncClient):
     )
     assert integrations_page.status_code == 200
     assert (
-        "Workspace AI · Jupyter + Cline + VS Code Chat"
+        "Workspace AI · Jupyter + Cline"
         in integrations_page.text
     )
     assert (
-        "Ortak Jupyter AI ve VS Code Chat erişimini etkinleştir"
+        "Ortak Jupyter AI ve Cline gateway erişimini etkinleştir"
         in integrations_page.text
     )
     assert 'id="jupyter-ai-settings-form"' in integrations_page.text

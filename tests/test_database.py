@@ -364,6 +364,6 @@ async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
         "cline_enabled",
     } <= columns
     assert row.gateway_model_discovery == 0
-    assert row.cline_enabled == 0
+    assert row.cline_enabled == 1
     assert catalog[0]["model_id"] == "private-default"
     assert "qwen3.6-35b" in {item["model_id"] for item in catalog}

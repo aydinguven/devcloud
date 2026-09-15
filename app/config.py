@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     JUPYTER_AI_GATEWAY_TOKEN: str = ""
     JUPYTER_AI_GATEWAY_MODEL_DISCOVERY: bool = False
     JUPYTER_AI_MODEL_CATALOG_JSON: str = "[]"
-    JUPYTER_AI_CLINE_ENABLED: bool = False
+    JUPYTER_AI_CLINE_ENABLED: bool = True
     
     # Files are acknowledged in 256 KiB chunks; these are whole-transfer limits.
     FILE_TRANSFER_MAX_BYTES: int = 8 * 1024 * 1024 * 1024

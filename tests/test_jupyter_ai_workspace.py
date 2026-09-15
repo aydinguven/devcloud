@@ -91,6 +91,8 @@ def test_release_publishes_versioned_changed_workspace_images():
     ).read_text(encoding="utf-8")
 
     assert "Build workspace image" in workflow
+    assert "Smoke test Cline in the browser extension host" in workflow
+    assert "node deploy/ci/smoke-vscode.cjs" in workflow
     assert "docker run --rm --entrypoint" not in workflow
     assert '"${image}-${DEVCLOUD_VERSION}"' in workflow
     assert '"${image}-${DEVCLOUD_VERSION}-${SHORT_SHA}"' in workflow
@@ -119,10 +121,10 @@ def test_worker_forwards_shared_gateway_to_all_workspace_ai_clients():
     assert "managed_cline_files" in vscode_branch
     assert "DEVCLOUD_CLINE_SECRETS_JSON=" in vscode_branch
     assert "DEVCLOUD_CLINE_PROVIDERS_JSON=" in vscode_branch
-    assert "DEVCLOUD_VSCODE_CHAT_MODELS_JSON=" in vscode_branch
+    assert "DEVCLOUD_VSCODE_CHAT_MODELS_JSON=" not in vscode_branch
     assert "DEVCLOUD_VSCODE_SETTINGS_JSON=" in vscode_branch
-    assert "chatLanguageModels.json" in vscode_branch
-    assert "-name 'saoudrizwan.claude-dev-*'" in podman_service
+    assert "chatLanguageModels.json" not in vscode_branch
+    assert "--uninstall-extension saoudrizwan.claude-dev" in podman_service
     assert "--disable-extension saoudrizwan.claude-dev" not in podman_service
     assert "ANTHROPIC_AUTH_TOKEN" in jupyter_branch
     assert "ANTHROPIC_BASE_URL" in jupyter_branch

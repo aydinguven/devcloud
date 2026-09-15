@@ -9,7 +9,7 @@ from app.jupyter_ai import default_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator.podman_service import PodmanService
-from app.vscode_chat import managed_vscode_chat_files
+from app.cline import managed_vscode_settings
 
 
 @pytest.mark.asyncio
@@ -114,67 +114,12 @@ def test_managed_cline_files_cover_legacy_and_sdk_storage():
     }
 
 
-def test_managed_vscode_chat_files_use_native_custom_endpoint_provider():
-    files = managed_vscode_chat_files(
-        "https://llm-gateway.internal/",
-        "shared-api-key",
-        "local-coder",
-        json.dumps(
-            [
-                {
-                    "model_id": "local-coder",
-                    "name": "Local Coder",
-                    "description": "On-Prem",
-                },
-                {
-                    "model_id": "local-fast",
-                    "name": "Local Fast",
-                    "description": "On-Prem",
-                },
-            ]
-        ),
-    )
-
-    providers = json.loads(files["chatLanguageModels.json"])
-    assert providers == [
-        {
-            "name": "DevCloud Gateway",
-            "vendor": "customendpoint",
-            "apiKey": "shared-api-key",
-            "apiType": "chat-completions",
-            "models": [
-                {
-                    "id": "local-coder",
-                    "name": "Local Coder",
-                    "url": (
-                        "https://llm-gateway.internal/v1/chat/completions"
-                    ),
-                    "toolCalling": True,
-                    "vision": False,
-                    "streaming": True,
-                    "maxInputTokens": 120000,
-                    "maxOutputTokens": 8000,
-                },
-                {
-                    "id": "local-fast",
-                    "name": "Local Fast",
-                    "url": (
-                        "https://llm-gateway.internal/v1/chat/completions"
-                    ),
-                    "toolCalling": True,
-                    "vision": False,
-                    "streaming": True,
-                    "maxInputTokens": 120000,
-                    "maxOutputTokens": 8000,
-                },
-            ],
-        }
-    ]
-    user_settings = json.loads(files["settings.json"])
-    assert user_settings["chat.defaultModel"] == "local-coder"
-    assert user_settings["chat.byokUtilityModelDefault"] == "mainAgent"
-    assert user_settings["chat.titleBar.signIn.enabled"] is False
+def test_managed_vscode_settings_disable_native_chat_and_lock_cline():
+    user_settings = json.loads(managed_vscode_settings())
+    assert user_settings["chat.disableAIFeatures"] is True
+    assert user_settings["cline.rollout.bundleOverride"] == "legacy"
     assert user_settings["extensions.autoUpdate"] is False
+    assert "chat.defaultModel" not in user_settings
 
 
 @pytest.mark.asyncio
@@ -269,19 +214,11 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
     assert global_state["actModeOpenAiModelId"] == "local-coder"
     assert secrets["openAiApiKey"] == "shared-api-key"
     assert providers["lastUsedProvider"] == "openai-compatible"
-    chat_models = json.loads(
-        next(
-            value.removeprefix("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
-            for value in run_command
-            if value.startswith("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
-        )
+    assert not any(
+        value.startswith("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
+        for value in run_command
     )
-    assert chat_models[0]["vendor"] == "customendpoint"
-    assert chat_models[0]["apiKey"] == "shared-api-key"
-    assert chat_models[0]["models"][0]["id"] == "local-coder"
-    assert chat_models[0]["models"][0]["url"] == (
-        "https://llm-gateway.internal/v1/chat/completions"
-    )
+
     vscode_settings = json.loads(
         next(
             value.removeprefix("DEVCLOUD_VSCODE_SETTINGS_JSON=")
@@ -289,13 +226,13 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
             if value.startswith("DEVCLOUD_VSCODE_SETTINGS_JSON=")
         )
     )
-    assert vscode_settings["chat.defaultModel"] == "local-coder"
-    assert vscode_settings["chat.byokUtilityModelDefault"] == "mainAgent"
+    assert vscode_settings["chat.disableAIFeatures"] is True
+    assert vscode_settings["cline.rollout.bundleOverride"] == "legacy"
     image_index = run_command.index("localhost/devcloud-vscode-python:latest")
     startup_command = run_command[image_index + 1:]
     assert startup_command[0] == "-lc"
     assert "$CLINE_DATA_DIR/settings/providers.json" in startup_command[1]
-    assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
+    assert "chatLanguageModels.json" not in startup_command[1]
     assert "$VSCODE_USER_DIR/settings.json" in startup_command[1]
     assert "--disable-extension saoudrizwan.claude-dev" not in startup_command[1]
     assert "chmod 600" in startup_command[1]
@@ -304,7 +241,7 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vscode_launch_disables_cline_but_keeps_native_chat(monkeypatch):
+async def test_vscode_launch_uninstalls_disabled_cline_without_stale_registration(monkeypatch):
     svc = PodmanService(podman_bin="podman")
     svc._mock_mode = False
     commands = []
@@ -354,16 +291,16 @@ async def test_vscode_launch_disables_cline_but_keeps_native_chat(monkeypatch):
     assert not any(
         value.startswith("DEVCLOUD_CLINE_") for value in run_command
     )
-    assert any(
+    assert not any(
         value.startswith("DEVCLOUD_VSCODE_CHAT_MODELS_JSON=")
         for value in run_command
     )
     image_index = run_command.index("localhost/devcloud-vscode-python:latest")
     startup_command = run_command[image_index + 1:]
-    assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
+    assert "chatLanguageModels.json" not in startup_command[1]
     assert "--disable-extension" not in startup_command[1]
-    assert "-name 'saoudrizwan.claude-dev-*'" in startup_command[1]
-    assert "disabled-extensions" in startup_command[1]
+    assert "--uninstall-extension saoudrizwan.claude-dev" in startup_command[1]
+    assert "disabled-extensions" not in startup_command[1]
     assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
 
 

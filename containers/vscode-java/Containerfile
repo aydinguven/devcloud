@@ -39,7 +39,7 @@ RUN curl -fsSL \
     && rm -f /tmp/cline.vsix \
     && install -d -m 700 /home/coder/.local/share/code-server/User \
     && printf '%s\n' \
-        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false,"chat.titleBar.signIn.enabled":false,"chat.byokUtilityModelDefault":"mainAgent"}' \
+        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false,"chat.disableAIFeatures":true,"cline.rollout.bundleOverride":"legacy"}' \
         > /home/coder/.local/share/code-server/User/settings.json
 
 EXPOSE 8080

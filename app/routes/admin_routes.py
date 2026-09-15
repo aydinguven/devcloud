@@ -1058,7 +1058,7 @@ def _jupyter_ai_settings_out(
         return JupyterAiSettingsOut(
             managed=False,
             enabled=False,
-            cline_enabled=False,
+            cline_enabled=True,
             gateway_url="",
             model_id="",
             gateway_model_discovery=False,
@@ -1140,7 +1140,10 @@ async def update_jupyter_ai_settings(
             },
         )
     record.enabled = update.enabled
-    record.cline_enabled = update.cline_enabled
+    if update.cline_enabled is not None:
+        record.cline_enabled = update.cline_enabled
+    elif record.cline_enabled is None:
+        record.cline_enabled = True
     record.gateway_url = update.gateway_url
     record.model_id = update.model_id
     record.gateway_model_discovery = update.gateway_model_discovery

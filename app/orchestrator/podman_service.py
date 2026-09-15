@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.cline import managed_cline_files
+from app.cline import managed_cline_files, managed_vscode_settings
 from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
-from app.vscode_chat import managed_vscode_chat_files
 
 logger = logging.getLogger("devcloud.podman")
 CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
@@ -278,7 +277,6 @@ class PodmanService:
 
         # Injected environment variables for auth & config
         cline_files: dict[str, str] = {}
-        vscode_chat_files: dict[str, str] = {}
         if is_vscode:
             cmd_args.extend([
                 "-e", f"PASSWORD={workspace_token}",
@@ -287,19 +285,9 @@ class PodmanService:
                 "-e",
                 "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User",
             ])
-            vscode_chat_files = managed_vscode_chat_files(
-                settings.JUPYTER_AI_GATEWAY_URL,
-                settings.JUPYTER_AI_GATEWAY_TOKEN,
-                settings.JUPYTER_AI_MODEL,
-                settings.JUPYTER_AI_MODEL_CATALOG_JSON,
-            )
-            if vscode_chat_files:
-                cmd_args.extend([
-                    "-e", "DEVCLOUD_VSCODE_CHAT_MODELS_JSON="
-                    + vscode_chat_files["chatLanguageModels.json"],
-                    "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON="
-                    + vscode_chat_files["settings.json"],
-                ])
+            cmd_args.extend([
+                "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON=" + managed_vscode_settings(),
+            ])
             if settings.JUPYTER_AI_CLINE_ENABLED:
                 cline_files = managed_cline_files(
                     settings.JUPYTER_AI_GATEWAY_URL,
@@ -385,17 +373,12 @@ class PodmanService:
                 "--PersonaManager.default_persona_id=jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
             ])
         elif is_vscode:
-            setup_commands: list[str] = []
-            if vscode_chat_files:
-                setup_commands.extend([
-                    "install -d -m 700 \"$VSCODE_USER_DIR\"",
-                    "printf '%s' \"$DEVCLOUD_VSCODE_CHAT_MODELS_JSON\""
-                    " > \"$VSCODE_USER_DIR/chatLanguageModels.json\"",
-                    "printf '%s' \"$DEVCLOUD_VSCODE_SETTINGS_JSON\""
-                    " > \"$VSCODE_USER_DIR/settings.json\"",
-                    "chmod 600 \"$VSCODE_USER_DIR/chatLanguageModels.json\""
-                    " \"$VSCODE_USER_DIR/settings.json\"",
-                ])
+            setup_commands: list[str] = [
+                "install -d -m 700 \"$VSCODE_USER_DIR\"",
+                "printf '%s' \"$DEVCLOUD_VSCODE_SETTINGS_JSON\""
+                " > \"$VSCODE_USER_DIR/settings.json\"",
+                "chmod 600 \"$VSCODE_USER_DIR/settings.json\"",
+            ]
             if cline_files:
                 setup_commands.extend([
                     "install -d -m 700 \"$CLINE_DATA_DIR/settings\"",
@@ -410,16 +393,13 @@ class PodmanService:
                     " \"$CLINE_DATA_DIR/settings/providers.json\"",
                 ])
             if not settings.JUPYTER_AI_CLINE_ENABLED:
-                # code-server does not support VS Code's --disable-extension
-                # startup flag. Its extension directory lives outside the
-                # persistent project mount, so hide only Cline in this
-                # container; a newly created enabled container gets it back.
+                # Keep extensions.json consistent: moving the directory leaves
+                # a registered but broken extension. Recreating an enabled
+                # container restores the image's pinned copy of Cline.
                 setup_commands.extend([
-                    "install -d -m 700 /home/coder/.local/share/code-server/disabled-extensions",
-                    "find /home/coder/.local/share/code-server/extensions"
-                    " -maxdepth 1 -mindepth 1 -type d"
-                    " -name 'saoudrizwan.claude-dev-*'"
-                    " -exec mv -t /home/coder/.local/share/code-server/disabled-extensions {} +",
+                    "if code-server --list-extensions"
+                    " | grep -Fxiq saoudrizwan.claude-dev; then"
+                    " code-server --uninstall-extension saoudrizwan.claude-dev; fi",
                 ])
             setup_commands.append(
                 "exec /usr/bin/entrypoint.sh"

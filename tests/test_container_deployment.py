@@ -108,8 +108,8 @@ def test_all_builtin_vscode_images_install_locked_cline():
         ) in containerfile
         assert '"extensions.autoCheckUpdates":false' in containerfile
         assert '"extensions.autoUpdate":false' in containerfile
-        assert '"chat.titleBar.signIn.enabled":false' in containerfile
-        assert '"chat.byokUtilityModelDefault":"mainAgent"' in containerfile
+        assert '"chat.disableAIFeatures":true' in containerfile
+        assert '"cline.rollout.bundleOverride":"legacy"' in containerfile
         assert "code-server:latest" not in containerfile
         assert (
             "code-server --install-extension saoudrizwan.claude-dev"

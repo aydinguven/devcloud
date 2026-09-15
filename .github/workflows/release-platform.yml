@@ -153,6 +153,16 @@ jobs:
             --tag "${local_image}" \
             "containers/${image}"
 
+      - name: Smoke test Cline in the browser extension host
+        if: startsWith(matrix.image, 'vscode-')
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install --prefix "${RUNNER_TEMP}/vscode-smoke" playwright@1.58.2
+          "${RUNNER_TEMP}/vscode-smoke/node_modules/.bin/playwright" install --with-deps chromium
+          NODE_PATH="${RUNNER_TEMP}/vscode-smoke/node_modules" \
+            node deploy/ci/smoke-vscode.cjs "localhost/devcloud-${{ matrix.image }}:${DEVCLOUD_VERSION}"
+
       - name: Push immutable workspace image tags
         shell: bash
         run: |

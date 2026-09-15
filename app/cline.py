@@ -6,6 +6,19 @@ import json
 from typing import Any
 
 
+def managed_vscode_settings() -> str:
+    """Use pinned Cline without native Chat or remote bundle rollouts."""
+    return json.dumps(
+        {
+            "extensions.autoCheckUpdates": False,
+            "extensions.autoUpdate": False,
+            "chat.disableAIFeatures": True,
+            "cline.rollout.bundleOverride": "legacy",
+        },
+        separators=(",", ":"),
+    )
+
+
 def openai_compatible_base_url(gateway_url: str) -> str:
     """Return the OpenAI-compatible /v1 URL for a gateway root URL."""
     root = str(gateway_url or "").strip().rstrip("/")

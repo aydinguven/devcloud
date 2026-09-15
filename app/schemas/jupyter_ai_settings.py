@@ -24,7 +24,7 @@ class JupyterAiModel(BaseModel):
 
 class JupyterAiSettingsUpdate(BaseModel):
     enabled: bool = False
-    cline_enabled: bool = False
+    cline_enabled: bool | None = None
     gateway_url: str = Field(default="", max_length=512)
     model_id: str = Field(default="", max_length=255)
     gateway_model_discovery: bool = False

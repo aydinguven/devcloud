@@ -445,7 +445,7 @@ async def _add_jupyter_ai_model_catalog(conn) -> None:
 
 
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
-    """Keep Cline installed but centrally disabled until an admin enables it."""
+    """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
         lambda sync_conn: {
             column["name"]
@@ -456,7 +456,7 @@ async def _add_jupyter_ai_cline_toggle(conn) -> None:
         await conn.execute(
             text(
                 "ALTER TABLE jupyter_ai_settings ADD COLUMN "
-                "cline_enabled BOOLEAN NOT NULL DEFAULT false"
+                "cline_enabled BOOLEAN NOT NULL DEFAULT true"
             )
         )
 
