@@ -1,10 +1,10 @@
 {
   "format": 1,
-  "version": "3.6.4",
+  "version": "3.6.5",
   "bundle": {
-    "filename": "devcloud-platform-update-v3.6.4-9533895d04a1.tar.gz",
-    "url": "https://github.com/aydinguven/devcloud/releases/download/platform-v3.6.4-quay-9533895d04a1/devcloud-platform-update-v3.6.4-9533895d04a1.tar.gz",
-    "sha256": "33711fe66f5bf59785892a312406e266efa6984d2c74f6b61f76e83cb413d4a8",
-    "size": 269703642
+    "filename": "devcloud-platform-update-v3.6.5-d542530603bd.tar.gz",
+    "url": "https://github.com/aydinguven/devcloud/releases/download/platform-v3.6.5-d542530603bd/devcloud-platform-update-v3.6.5-d542530603bd.tar.gz",
+    "sha256": "77e06ad63d49e5cff91c205ba4832c6543b30e8cf3730431b59210006837f43b",
+    "size": 269703954
   }
 }
