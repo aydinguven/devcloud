@@ -91,6 +91,8 @@ The workflow publishes:
 - for every maintained workspace build context changed since the previous
   platform tag, an immutable, smoke-tested workspace image to GHCR as
   `TEMPLATE-VERSION` and `TEMPLATE-VERSION-SHORT_SHA`;
+- gzip-compressed Docker archives and SHA-256 sidecars for `vscode-python`
+  and `jupyter-python` on every formal version tag;
 - one controller-managed platform update bundle;
 - one complete server offline bundle;
 - one complete worker offline bundle;
@@ -103,6 +105,13 @@ bundles. Releases therefore skip every workspace image whose build context and
 release infrastructure are unchanged. A manual workflow dispatch can select
 `rebuild_jupyter` to force the Jupyter image. Quay mirroring is a separate,
 manual opt-in and never blocks normal GHCR releases.
+
+The two offline workspace archives are staged between jobs with short-lived
+GitHub Actions artifacts and then attached permanently to the GitHub Release.
+Each archive is checked against GitHub's 2 GiB per-asset limit before upload.
+After downloading, verify the adjacent `.sha256` file, decompress the
+`.tar.gz`, and upload the resulting Docker `.tar` under
+**Admin > Workspace Image'ları**.
 
 Each generated archive is verified before publication. The `stable` branch is
 owned by the workflow and contains only `devcloud-update-channel.json`. Do not

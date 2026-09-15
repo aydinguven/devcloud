@@ -239,9 +239,11 @@ chmod +x containers/build_images.sh
 ./containers/build_images.sh
 ```
 
-Import the resulting OCI/Docker archives, or a Quay/internal-registry image
+Import the resulting OCI/Docker archives, or a GHCR/internal-registry image
 reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
 enabled images from the controller; the base installation does not build them.
+Formal GitHub Releases include downloadable, checksummed offline archives for
+the maintained `vscode-python` and `jupyter-python` templates.
 
 ### Workspace AI through LiteLLM
 

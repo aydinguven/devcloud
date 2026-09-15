@@ -214,11 +214,23 @@ are also installed:
 ~~~
 
 The current maintained workspace image is
-`ghcr.io/aydinguven/devcloud:jupyter-python-3.6.3`. Import it under
+`ghcr.io/aydinguven/devcloud:jupyter-python-3.6.4`. Import it under
 **Admin > Workspace Image'ları** as the source for the `jupyter-python`
 template. Enrolled workers then receive the controller-managed archive
 automatically. A future platform release publishes a new Jupyter tag only when
 the image definition, bundled dependencies, or release infrastructure changes.
+
+When the target cannot reach an OCI registry, formal GitHub Releases also
+contain `vscode-python` and `jupyter-python` workspace archives:
+
+```bash
+sha256sum --check devcloud-workspace-TEMPLATE-vVERSION-SHORT_SHA.tar.gz.sha256
+gzip --decompress --keep devcloud-workspace-TEMPLATE-vVERSION-SHORT_SHA.tar.gz
+```
+
+Upload the resulting `.tar` under **Admin > Workspace Image'ları**, select the
+matching template, enable the new image, and wait for enrolled workers to
+synchronize it. Worker hosts do not need access to GitHub or a registry.
 The four maintained VS Code images must likewise be rebuilt or republished after
 this change so their baked-in Cline extension is present on enrolled workers.
 

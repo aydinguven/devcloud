@@ -65,7 +65,6 @@ jobs:
 
           release_infrastructure_changed=false
           if [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- \
-            .github/workflows/release-platform.yml \
             deploy/ci/build-release-assets.sh; then
             release_infrastructure_changed=true
           fi
@@ -73,6 +72,11 @@ jobs:
           workspace_images=()
           for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python; do
             if [[ "${image}" == "jupyter-python" && "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
+              workspace_images+=("${image}")
+              continue
+            fi
+            if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && \
+              [[ "${image}" == "vscode-python" || "${image}" == "jupyter-python" ]]; then
               workspace_images+=("${image}")
               continue
             fi
@@ -194,6 +198,35 @@ jobs:
             done
           fi
 
+      - name: Export offline workspace archive
+        if: matrix.image == 'vscode-python' || matrix.image == 'jupyter-python'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image="${{ matrix.image }}"
+          local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
+          archive="${RUNNER_TEMP}/devcloud-workspace-${image}-v${DEVCLOUD_VERSION}-${SHORT_SHA}.tar.gz"
+          docker save "${local_image}" | gzip -6 > "${archive}"
+          archive_size="$(stat --format=%s "${archive}")"
+          if (( archive_size >= 2147483648 )); then
+            echo "Workspace archive exceeds GitHub's 2 GiB release-asset limit." >&2
+            exit 1
+          fi
+          (
+            cd "$(dirname "${archive}")"
+            sha256sum "$(basename "${archive}")" > "$(basename "${archive}").sha256"
+          )
+
+      - name: Stage offline workspace archive
+        if: matrix.image == 'vscode-python' || matrix.image == 'jupyter-python'
+        uses: actions/upload-artifact@v4
+        with:
+          name: devcloud-workspace-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/devcloud-workspace-${{ matrix.image }}-v*.tar.gz*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   release:
     name: Build and publish Rocky 10 platform
     needs: [release_scope, workspace_images]
@@ -270,6 +303,14 @@ jobs:
             echo "PLATFORM_FILENAME=${platform_filename}"
             echo "ASSET_BASE_URL=${asset_base_url}"
           } >> "${GITHUB_ENV}"
+
+      - name: Collect offline workspace archives
+        if: github.event_name == 'push'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: devcloud-workspace-image-*
+          path: ${{ runner.temp }}/devcloud-release-assets
+          merge-multiple: true
 
       - name: Check hosted runner capacity
         shell: bash

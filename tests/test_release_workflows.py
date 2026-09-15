@@ -82,10 +82,23 @@ def test_platform_release_builds_only_changed_workspace_images():
     assert "rebuild_jupyter:" in content
     assert "git diff --quiet" in content
     assert "release_infrastructure_changed" in content
+    assert '"vscode-python" || "${image}" == "jupyter-python"' in content
     assert '"containers/${image}"' in content
     assert "if: needs.release_scope.outputs.build_workspace == 'true'" in content
     assert "needs.workspace_images.result == 'skipped'" in content
     assert "workspace_matrix" in content
+
+
+def test_formal_release_exports_python_workspace_archives():
+    content = workflow("release-platform.yml")
+
+    assert "Export offline workspace archive" in content
+    assert 'docker save "${local_image}" | gzip -6' in content
+    assert "2147483648" in content
+    assert "actions/upload-artifact@v4" in content
+    assert "actions/download-artifact@v4" in content
+    assert "devcloud-workspace-image-${{ matrix.image }}" in content
+    assert "merge-multiple: true" in content
 
 
 def test_release_operator_guide_documents_required_controls():
@@ -96,6 +109,8 @@ def test_release_operator_guide_documents_required_controls():
     assert "at least 8 GiB free" in content
     assert "built-in `GITHUB_TOKEN`" in content
     assert "private by default" in content
+    assert "gzip-compressed Docker archives" in content
+    assert "Admin > Workspace Image'ları" in content
     assert "QUAY_USERNAME" in content
     assert "RELEASE_GPG_PRIVATE_KEY" in content
     assert "--ref stable" in content
