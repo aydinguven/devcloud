@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initQuotaForms();
   initDirectorySettings();
   initJupyterAiSettings();
+  initAdminMlflowSettings();
   initNodeManagement();
   initMlflowSettings();
   initDownloadSettings();
@@ -1384,13 +1385,9 @@ function initMlflowSettings() {
     const data = new FormData(form);
     return {
       enabled: form.elements.enabled.checked,
-      base_url: String(data.get("base_url") || "").trim(),
       auth_type: String(data.get("auth_type") || "none"),
       username: String(data.get("username") || "").trim(),
       secret: String(data.get("secret") || "") || null,
-      validate_tls: form.elements.validate_tls.checked,
-      ca_cert_file: String(data.get("ca_cert_file") || "").trim(),
-      timeout_seconds: Number(data.get("timeout_seconds") || 10),
     };
   }
 
@@ -1411,7 +1408,9 @@ function initMlflowSettings() {
     status.className = "quota-form-status";
     try {
       const result = await send("/api/mlflow/settings/test", "POST");
-      status.textContent = `${result.message} ${result.experiment_count} deney görüldü · ${result.response_time_ms} ms`;
+      const version = result.server_version ? ` · MLflow ${result.server_version}` : "";
+      const registry = result.registry_available ? "Registry hazır" : "Registry kullanılamıyor";
+      status.textContent = `${result.message} Tracking hazır · ${registry}${version} · ${result.response_time_ms} ms`;
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;
@@ -1439,6 +1438,45 @@ function initMlflowSettings() {
       status.className = "quota-form-status quota-status-error";
     } finally {
       testButton.disabled = saveButton.disabled = false;
+    }
+  });
+}
+
+function initAdminMlflowSettings() {
+  const form = document.getElementById("admin-mlflow-settings-form");
+  if (!form) return;
+  const button = document.getElementById("btn-save-admin-mlflow");
+  const status = document.getElementById("admin-mlflow-form-status");
+  const badge = document.getElementById("admin-mlflow-status-badge");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    button.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/mlflow-server-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          enabled: form.elements.enabled.checked,
+          base_url: String(data.get("base_url") || "").trim(),
+          validate_tls: form.elements.validate_tls.checked,
+          ca_cert_file: String(data.get("ca_cert_file") || "").trim(),
+          timeout_seconds: Number(data.get("timeout_seconds") || 10),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || `Ayarlar kaydedilemedi (${response.status})`);
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      status.textContent = "MLflow sunucu politikası kaydedildi.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      button.disabled = false;
     }
   });
 }

@@ -20,6 +20,15 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
+from app.integrations.mlflow import (
+    MlflowConfigurationError,
+    config_from_record as mlflow_config_from_record,
+    validate_config as validate_mlflow_config,
+)
+from app.mlflow_workspace import environment_from_config
+from app.security.secrets import SecretDecryptionError
 from app.orchestrator.flavors import Flavor, get_flavor
 from app.orchestrator.templates import get_template, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
@@ -78,6 +87,29 @@ def _flavor_definition(flavor: Flavor) -> dict:
         "accelerator_display": flavor.accelerator_display,
         "selectable": flavor.selectable,
     }
+
+
+async def _workspace_mlflow_environment(
+    db: AsyncSession,
+    user_id: int,
+) -> dict[str, str]:
+    server = await db.get(MlflowServerSettings, 1)
+    if not server or not server.enabled:
+        return {}
+    credentials = (
+        await db.execute(
+            select(MlflowSettings).where(MlflowSettings.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if not credentials or not credentials.enabled:
+        return {}
+    try:
+        config = mlflow_config_from_record(credentials, server)
+        validate_mlflow_config(config, require_enabled=True)
+    except (MlflowConfigurationError, SecretDecryptionError) as exc:
+        logger.warning("Skipping invalid MLflow workspace settings for user %s: %s", user_id, exc)
+        return {}
+    return environment_from_config(config)
 
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
@@ -327,6 +359,7 @@ async def create_workspace(
             host_port=workspace.host_port,
             workspace_token=workspace.workspace_token,
             accelerator_cdi_name=workspace.accelerator_cdi_name or "",
+            mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
@@ -431,6 +464,7 @@ async def deploy_workspace_stream(
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
+                mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
                 progress_callback=emit_log,
             )
 
@@ -552,6 +586,7 @@ async def start_workspace_endpoint(
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
+                mlflow_environment=await _workspace_mlflow_environment(db, workspace.user_id),
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path

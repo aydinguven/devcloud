@@ -8,8 +8,25 @@ from app.cline import managed_cline_files, openai_compatible_base_url
 from app.jupyter_ai import default_model_catalog
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
-from app.orchestrator.podman_service import PodmanService
+from app.orchestrator.podman_service import PodmanService, _redacted_command
+from app.mlflow_workspace import validate_mlflow_environment
 from app.cline import managed_vscode_settings
+
+
+def test_podman_command_redacts_workspace_and_mlflow_secrets():
+    rendered = _redacted_command(
+        [
+            "podman",
+            "run",
+            "PASSWORD=workspace-secret",
+            "MLFLOW_TRACKING_TOKEN=user-token",
+            "MLFLOW_TRACKING_URI=https://mlflow.internal",
+        ]
+    )
+
+    assert "workspace-secret" not in rendered
+    assert "user-token" not in rendered
+    assert "MLFLOW_TRACKING_URI=https://mlflow.internal" in rendered
 
 
 @pytest.mark.asyncio
@@ -57,10 +74,18 @@ async def test_podman_service_mock_lifecycle():
         flavor_id="t1.mini",
         host_port=10105,
         workspace_token="testtoken123",
+        mlflow_environment={
+            "MLFLOW_TRACKING_URI": "https://managed-mlflow.internal",
+            "MLFLOW_TRACKING_TOKEN": "user-token",
+        },
     )
     assert cid.startswith("mock-cid-")
     assert "test-ws-12345" in storage_path
     assert await svc.container_exists(container_name) is True
+    assert svc._mock_containers[container_name]["mlflow_environment"] == {
+        "MLFLOW_TRACKING_URI": "https://managed-mlflow.internal",
+        "MLFLOW_TRACKING_TOKEN": "user-token",
+    }
     
     # 2. Check status
     status = await svc.get_container_status(container_name)
@@ -81,6 +106,11 @@ async def test_podman_service_mock_lifecycle():
     # 6. Delete
     assert await svc.delete_container(container_name) is True
     assert await svc.container_exists(container_name) is False
+
+
+def test_mlflow_workspace_environment_rejects_arbitrary_keys():
+    with pytest.raises(ValueError, match="Desteklenmeyen"):
+        validate_mlflow_environment({"LD_PRELOAD": "/tmp/injected.so"})
 
 
 def test_managed_cline_files_cover_legacy_and_sdk_storage():
@@ -179,12 +209,20 @@ async def test_vscode_launch_uses_admin_managed_cline_profile(monkeypatch):
         flavor_id="t1.micro",
         host_port=10100,
         workspace_token="secret-workspace-token",
+        mlflow_environment={
+            "MLFLOW_TRACKING_URI": "https://managed-mlflow.internal",
+            "MLFLOW_TRACKING_TOKEN": "personal-mlflow-token",
+        },
     )
 
     run_command = next(args for args in commands if args[0] == "run")
     assert "/workspace:/home/coder/project:Z,U" in run_command
     assert run_command[run_command.index("--entrypoint") + 1] == "/bin/bash"
     assert "CLINE_DATA_DIR=/home/coder/.cline/data" in run_command
+    assert "MLFLOW_TRACKING_URI=https://managed-mlflow.internal" in run_command
+    assert "MLFLOW_TRACKING_TOKEN=personal-mlflow-token" in run_command
+    assert "DEVCLOUD_WORKSPACE_ID=12345678-1234-1234-1234-123456789abc" in run_command
+    assert "DEVCLOUD_USER_ID=1" in run_command
     assert "CLINE_DIR=/home/coder/.cline" in run_command
     assert (
         "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User"

@@ -110,8 +110,29 @@ async def test_admin_access_controls(client: AsyncClient):
     assert "Qwen 3.6 35B (On-Prem)" in integrations_page.text
     assert "DeepSeek V4 Pro (Online)" in integrations_page.text
     assert "MLflow Model Registry" in integrations_page.text
-    assert "MLflow bağlantıları artık kullanıcıya özeldir" in integrations_page.text
-    assert 'id="mlflow-settings-form"' not in integrations_page.text
+    assert "kullanıcılar yalnızca kendi kimlik bilgilerini girer" in integrations_page.text
+    assert 'id="admin-mlflow-settings-form"' in integrations_page.text
+
+    forbidden_mlflow = await client.put(
+        "/api/admin/mlflow-server-settings",
+        headers=user_headers,
+        json={"enabled": True, "base_url": "https://forbidden.internal"},
+    )
+    assert forbidden_mlflow.status_code == 403
+    saved_mlflow = await client.put(
+        "/api/admin/mlflow-server-settings",
+        headers=admin_headers,
+        json={
+            "enabled": True,
+            "base_url": "https://managed-mlflow.internal/",
+            "validate_tls": True,
+            "ca_cert_file": "",
+            "timeout_seconds": 15,
+        },
+    )
+    assert saved_mlflow.status_code == 200, saved_mlflow.text
+    assert saved_mlflow.json()["base_url"] == "https://managed-mlflow.internal"
+    assert saved_mlflow.json()["timeout_seconds"] == 15
 
     workspaces_page = await client.get("/admin/workspaces", headers=admin_headers)
     assert workspaces_page.status_code == 200
@@ -125,4 +146,6 @@ async def test_admin_access_controls(client: AsyncClient):
     assert models_page.status_code == 200
     assert "MLflow Bağlantınız" in models_page.text
     assert 'id="mlflow-settings-form"' in models_page.text
+    assert 'name="base_url"' not in models_page.text
+    assert "https://managed-mlflow.internal" in models_page.text
     assert "Bağlantı bekleniyor" in models_page.text

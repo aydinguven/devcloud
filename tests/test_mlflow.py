@@ -1,10 +1,13 @@
+import httpx
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 import app.routes.mlflow_routes as mlflow_module
-from app.integrations.mlflow import MlflowClient
+from app.routes.workspace_routes import _workspace_mlflow_environment
+from app.integrations.mlflow import MlflowClient, MlflowConfig, MlflowConnectionError
 from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
 from tests.conftest import TestingSessionLocal
 
 
@@ -12,6 +15,17 @@ async def _user_headers(
     client: AsyncClient,
     username: str,
 ) -> tuple[dict[str, str], int]:
+    async with TestingSessionLocal() as session:
+        server = await session.get(MlflowServerSettings, 1)
+        if server is None:
+            session.add(
+                MlflowServerSettings(
+                    id=1,
+                    enabled=True,
+                    base_url="https://managed-mlflow.internal",
+                )
+            )
+            await session.commit()
     response = await client.post(
         "/api/auth/register",
         json={
@@ -28,18 +42,101 @@ async def _user_headers(
 
 def _settings_payload(
     secret: str | None = "model-registry-token",
-    base_url: str = "https://mlflow.internal",
 ):
     return {
         "enabled": True,
-        "base_url": base_url,
         "auth_type": "bearer",
         "username": "",
         "secret": secret,
-        "validate_tls": True,
-        "ca_cert_file": "",
-        "timeout_seconds": 10,
     }
+
+
+def _client_config(base_url: str = "https://mlflow.internal") -> MlflowConfig:
+    return MlflowConfig(
+        enabled=True,
+        base_url=base_url,
+        auth_type="none",
+        username="",
+        secret="",
+        validate_tls=True,
+        ca_cert_file="",
+        timeout_seconds=10,
+    )
+
+
+@pytest.mark.asyncio
+async def test_mlflow_client_filters_model_versions_by_run_id(monkeypatch):
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"model_versions": []})
+
+    client = MlflowClient(_client_config())
+    monkeypatch.setattr(
+        client,
+
+        "_client",
+        lambda: httpx.AsyncClient(
+            base_url=client.config.base_url,
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    await client.search_model_versions(run_id="run-123", max_results=100)
+
+    assert requests[0].url.path == "/api/2.0/mlflow/model-versions/search"
+    assert requests[0].url.params["filter"] == "run_id = 'run-123'"
+    assert requests[0].url.params["max_results"] == "100"
+
+
+@pytest.mark.asyncio
+async def test_mlflow_client_preserves_admin_reverse_proxy_prefix(monkeypatch):
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"experiments": []})
+
+    client = MlflowClient(_client_config("https://gateway.internal/mlflow"))
+    monkeypatch.setattr(
+        client,
+        "_client",
+        lambda: httpx.AsyncClient(
+            base_url=f"{client.config.base_url}/",
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    await client.search_experiments(max_results=1)
+
+    assert requests[0].url.path == (
+        "/mlflow/api/2.0/mlflow/experiments/search"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mlflow_client_surfaces_upstream_400_reason(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error_code": "INVALID_PARAMETER_VALUE", "message": "Bad run id"},
+        )
+
+    client = MlflowClient(_client_config())
+    monkeypatch.setattr(
+        client,
+        "_client",
+        lambda: httpx.AsyncClient(
+            base_url=client.config.base_url,
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    with pytest.raises(MlflowConnectionError) as exc_info:
+        await client.get_run("bad-run")
+
+    assert str(exc_info.value) == "MLflow API isteği başarısız (400): Bad run id"
 
 
 @pytest.mark.asyncio
@@ -51,12 +148,13 @@ async def test_user_mlflow_secret_is_write_only_and_connection_can_be_tested(
     saved = await client.put(
         "/api/mlflow/settings",
         headers=headers,
-        json=_settings_payload(),
+        json={**_settings_payload(), "base_url": "https://user-override.invalid"},
     )
     assert saved.status_code == 200
     assert saved.json()["has_secret"] is True
     assert "secret" not in saved.json()
     assert "model-registry-token" not in saved.text
+    assert saved.json()["base_url"] == "https://managed-mlflow.internal"
 
     async with TestingSessionLocal() as session:
         record = (
@@ -69,7 +167,8 @@ async def test_user_mlflow_secret_is_write_only_and_connection_can_be_tested(
 
     async def fake_test(self):
         assert self.config.secret == "model-registry-token"
-        return 1, 12
+        assert self.config.base_url == "https://managed-mlflow.internal"
+        return 1, 1, 12, "3.6.0"
 
     monkeypatch.setattr(mlflow_module.MlflowClient, "test", fake_test)
     tested = await client.post(
@@ -80,6 +179,8 @@ async def test_user_mlflow_secret_is_write_only_and_connection_can_be_tested(
     assert tested.status_code == 200
     assert tested.json()["response_time_ms"] == 12
     assert tested.json()["experiment_count"] == 1
+    assert tested.json()["registry_available"] is True
+    assert tested.json()["server_version"] == "3.6.0"
 
 
 @pytest.mark.asyncio
@@ -87,22 +188,23 @@ async def test_mlflow_settings_and_models_are_isolated_per_user(
     client: AsyncClient,
     monkeypatch,
 ):
-    alice_headers, _ = await _user_headers(client, "mlflow_alice")
-    bob_headers, _ = await _user_headers(client, "mlflow_bob")
+    alice_headers, alice_user_id = await _user_headers(client, "mlflow_alice")
+    bob_headers, bob_user_id = await _user_headers(client, "mlflow_bob")
     await client.put(
         "/api/mlflow/settings",
         headers=alice_headers,
-        json=_settings_payload("alice-token", "https://alice-mlflow.internal"),
+        json=_settings_payload("alice-token"),
     )
     await client.put(
         "/api/mlflow/settings",
         headers=bob_headers,
-        json=_settings_payload("bob-token", "https://bob-mlflow.internal"),
+        json=_settings_payload("bob-token"),
     )
 
     async def fake_search(self, search="", page_token="", max_results=100):
-        owner = "alice" if "alice-mlflow" in self.config.base_url else "bob"
+        owner = "alice" if self.config.secret == "alice-token" else "bob"
         assert self.config.secret == f"{owner}-token"
+        assert self.config.base_url == "https://managed-mlflow.internal"
         return {
             "registered_models": [
                 {
@@ -129,8 +231,17 @@ async def test_mlflow_settings_and_models_are_isolated_per_user(
 
     alice_settings = await client.get("/api/mlflow/settings", headers=alice_headers)
     bob_settings = await client.get("/api/mlflow/settings", headers=bob_headers)
-    assert alice_settings.json()["base_url"] == "https://alice-mlflow.internal"
-    assert bob_settings.json()["base_url"] == "https://bob-mlflow.internal"
+    assert alice_settings.json()["base_url"] == "https://managed-mlflow.internal"
+    assert bob_settings.json()["base_url"] == "https://managed-mlflow.internal"
+
+    async with TestingSessionLocal() as session:
+        alice_environment = await _workspace_mlflow_environment(session, alice_user_id)
+        bob_environment = await _workspace_mlflow_environment(session, bob_user_id)
+    assert alice_environment == {
+        "MLFLOW_TRACKING_URI": "https://managed-mlflow.internal",
+        "MLFLOW_TRACKING_TOKEN": "alice-token",
+    }
+    assert bob_environment["MLFLOW_TRACKING_TOKEN"] == "bob-token"
 
 
 @pytest.mark.asyncio
@@ -155,7 +266,7 @@ async def test_mlflow_experiments_and_runs_include_tracking_data_and_links(
     await client.put(
         "/api/mlflow/settings",
         headers=headers,
-        json=_settings_payload("tracking-token", "https://tracking.internal"),
+        json=_settings_payload("tracking-token"),
     )
 
     async def fake_experiments(self, page_token="", max_results=100):
@@ -208,7 +319,7 @@ async def test_mlflow_experiments_and_runs_include_tracking_data_and_links(
     assert experiments.status_code == 200, experiments.text
     assert experiments.json()["experiments"][0]["tags_map"] == {"owner": "risk"}
     assert experiments.json()["experiments"][0]["mlflow_url"] == (
-        "https://tracking.internal/#/experiments/42"
+        "https://managed-mlflow.internal/#/experiments/42"
     )
     assert runs.status_code == 200, runs.text
     run = runs.json()["runs"][0]
@@ -237,7 +348,7 @@ async def test_mlflow_run_detail_artifacts_lineage_and_comparison(
     await client.put(
         "/api/mlflow/settings",
         headers=headers,
-        json=_settings_payload("lineage-token", "https://lineage.internal"),
+        json=_settings_payload("lineage-token"),
     )
 
     async def fake_get_run(self, run_id):
@@ -256,8 +367,10 @@ async def test_mlflow_run_detail_artifacts_lineage_and_comparison(
         assert run_id == "run-1"
         return {"files": [{"path": "model/model.pkl", "is_dir": False, "file_size": 123}]}
 
-    async def fake_versions(self, name="", max_results=200):
+    async def fake_versions(self, name="", run_id="", max_results=200):
         assert name == ""
+        assert run_id == "run-1"
+        assert max_results == 100
         return {
             "model_versions": [
                 {"name": "fraud-model", "version": "3", "run_id": "run-1"},
@@ -285,12 +398,86 @@ async def test_mlflow_run_detail_artifacts_lineage_and_comparison(
             "name": "fraud-model",
             "version": "3",
             "run_id": "run-1",
-            "mlflow_url": "https://lineage.internal/#/models/fraud-model",
+            "mlflow_url": "https://managed-mlflow.internal/#/models/fraud-model",
         }
     ]
     assert compare.status_code == 200, compare.text
     assert [run["run_id"] for run in compare.json()["runs"]] == ["run-1", "run-2"]
     assert compare.json()["runs"][0]["metrics_map"]["loss"] == 0.1
+
+
+@pytest.mark.asyncio
+async def test_mlflow_run_detail_survives_optional_enrichment_errors(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, _ = await _user_headers(client, "mlflow_partial_detail")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload("partial-token"),
+    )
+
+    async def fake_get_run(self, run_id):
+        return {
+            "run": {
+                "info": {
+                    "run_id": run_id,
+                    "experiment_id": "7",
+                    "status": "FINISHED",
+                }
+            }
+        }
+
+    async def fail_artifacts(self, run_id, path="", page_token=""):
+        raise mlflow_module.MlflowConnectionError("artifact endpoint rejected request")
+
+    async def fail_versions(self, name="", run_id="", max_results=200):
+        assert run_id == "run-1"
+        raise mlflow_module.MlflowConnectionError("registry endpoint unavailable")
+
+    monkeypatch.setattr(MlflowClient, "get_run", fake_get_run)
+    monkeypatch.setattr(MlflowClient, "list_artifacts", fail_artifacts)
+    monkeypatch.setattr(MlflowClient, "search_model_versions", fail_versions)
+
+    detail = await client.get("/api/mlflow/runs/run-1", headers=headers)
+
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["run_id"] == "run-1"
+    assert detail.json()["artifacts"] == []
+    assert detail.json()["registered_model_versions"] == []
+    assert len(detail.json()["warnings"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_mlflow_run_detail_still_fails_when_core_run_request_fails(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers, _ = await _user_headers(client, "mlflow_failed_detail")
+    await client.put(
+        "/api/mlflow/settings",
+        headers=headers,
+        json=_settings_payload("failed-token"),
+    )
+
+    async def fail_get_run(self, run_id):
+        raise mlflow_module.MlflowConnectionError("run not available")
+
+    async def fake_artifacts(self, run_id, path="", page_token=""):
+        return {"files": []}
+
+    async def fake_versions(self, name="", run_id="", max_results=200):
+        return {"model_versions": []}
+
+    monkeypatch.setattr(MlflowClient, "get_run", fail_get_run)
+    monkeypatch.setattr(MlflowClient, "list_artifacts", fake_artifacts)
+    monkeypatch.setattr(MlflowClient, "search_model_versions", fake_versions)
+
+    detail = await client.get("/api/mlflow/runs/run-1", headers=headers)
+
+    assert detail.status_code == 502
+    assert detail.json()["detail"] == "run not available"
 
 
 @pytest.mark.asyncio
@@ -302,7 +489,7 @@ async def test_mlflow_overview_metric_history_and_safe_artifact_preview(
     await client.put(
         "/api/mlflow/settings",
         headers=headers,
-        json=_settings_payload("analytics-token", "https://analytics.internal"),
+        json=_settings_payload("analytics-token"),
     )
 
     async def fake_experiments(self, page_token="", max_results=100):

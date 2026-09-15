@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 
 
 class MigrationError(RuntimeError):
@@ -461,6 +461,63 @@ async def _add_jupyter_ai_cline_toggle(conn) -> None:
         )
 
 
+async def _migrate_mlflow_server_settings(conn) -> bool:
+    """Adopt one unambiguous legacy per-user server policy."""
+    tables = await conn.run_sync(lambda sync_conn: set(inspect(sync_conn).get_table_names()))
+    if not {"mlflow_settings", "mlflow_server_settings"} <= tables:
+        return False
+    existing = (
+        await conn.execute(text("SELECT id FROM mlflow_server_settings WHERE id = 1"))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return False
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT DISTINCT base_url, validate_tls, ca_cert_file, timeout_seconds "
+                "FROM mlflow_settings WHERE base_url IS NOT NULL AND base_url <> ''"
+            )
+        )
+    ).all()
+    policies = {
+        (
+            str(row[0]).strip().rstrip("/"),
+            bool(row[1]),
+            str(row[2] or ""),
+            int(row[3] or 10),
+        )
+        for row in rows
+        if str(row[0]).strip()
+    }
+    if len(policies) != 1:
+        return False
+    base_url, validate_tls, ca_cert_file, timeout_seconds = policies.pop()
+    any_enabled = bool(
+        (
+            await conn.execute(
+                text("SELECT COUNT(*) FROM mlflow_settings WHERE enabled = :enabled"),
+                {"enabled": True},
+            )
+        ).scalar_one()
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO mlflow_server_settings "
+            "(id, enabled, base_url, validate_tls, ca_cert_file, timeout_seconds, updated_at) "
+            "VALUES (1, :enabled, :base_url, :validate_tls, :ca_cert_file, "
+            ":timeout_seconds, CURRENT_TIMESTAMP)"
+        ),
+        {
+            "enabled": any_enabled,
+            "base_url": base_url,
+            "validate_tls": validate_tls,
+            "ca_cert_file": ca_cert_file,
+            "timeout_seconds": timeout_seconds,
+        },
+    )
+    return True
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -508,6 +565,10 @@ async def upgrade() -> None:
         if 14 not in applied:
             await _add_jupyter_ai_cline_toggle(conn)
             await _record_version(conn, 14, "admin-managed Cline availability")
+        if 15 not in applied:
+            # init_db creates the portable singleton settings table.
+            await _migrate_mlflow_server_settings(conn)
+            await _record_version(conn, 15, "admin-managed MLflow server")
 
 
 async def current_version() -> int:

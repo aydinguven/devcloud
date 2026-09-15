@@ -581,12 +581,21 @@ cd devcloud
   <div class="card-header">
     <div>
       <h2 class="card-title">MLflow Model Registry</h2>
-      <p class="admin-section-description">MLflow bağlantıları artık kullanıcıya özeldir.</p>
+      <p class="admin-section-description">Sunucu adresini ve TLS politikasını merkezi olarak yönetin; kullanıcılar yalnızca kendi kimlik bilgilerini girer.</p>
     </div>
-    <span class="badge badge-running">Kullanıcı Bazlı</span>
+    <span id="admin-mlflow-status-badge" class="badge {% if mlflow_server_settings and mlflow_server_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if mlflow_server_settings and mlflow_server_settings.enabled else 'Devre Dışı' }}</span>
   </div>
-  <p class="text-muted">Her kullanıcı kendi MLflow URL'sini ve kimlik bilgilerini <strong>MLflow</strong> alanında kaydeder. Şifreler ve token'lar şifreli saklanır; bir kullanıcının bağlantısı, deneyleri, run'ları veya modelleri başka kullanıcılara gösterilmez.</p>
-  <a class="btn btn-primary" href="/models">Kişisel MLflow Ayarlarını Aç</a>
+  <form id="admin-mlflow-settings-form" autocomplete="off">
+    <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input type="checkbox" name="enabled" {% if mlflow_server_settings and mlflow_server_settings.enabled %}checked{% endif %}><span>MLflow entegrasyonunu etkinleştir</span></label>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;"><span class="form-label">MLflow sunucu URL</span><input class="form-input" name="base_url" type="url" value="{{ mlflow_server_settings.base_url if mlflow_server_settings else '' }}" placeholder="https://mlflow.internal.example"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Zaman aşımı (sn)</span><input class="form-input" name="timeout_seconds" type="number" min="1" max="120" value="{{ mlflow_server_settings.timeout_seconds if mlflow_server_settings else 10 }}"></label>
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="validate_tls" {% if not mlflow_server_settings or mlflow_server_settings.validate_tls %}checked{% endif %}><span>TLS sertifikasını doğrula</span></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Controller özel CA dosyası (isteğe bağlı)</span><input class="form-input" name="ca_cert_file" value="{{ mlflow_server_settings.ca_cert_file if mlflow_server_settings else '' }}" placeholder="/etc/pki/ca-trust/source/anchors/mlflow.pem"></label>
+    </div>
+    <p class="text-muted">URL kullanıcılar tarafından değiştirilemez. Kullanıcı adları, parolalar ve token'lar ayrı kullanıcı kayıtlarında şifreli tutulur.</p>
+    <div class="table-actions"><button id="btn-save-admin-mlflow" class="btn btn-primary" type="submit">MLflow Sunucusunu Kaydet</button><span id="admin-mlflow-form-status" class="quota-form-status" role="status"></span></div>
+  </form>
 </section>
 {% endif %}
 

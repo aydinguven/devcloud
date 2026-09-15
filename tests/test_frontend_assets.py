@@ -318,7 +318,7 @@ def test_worker_inventory_shows_live_gpu_runtime_state():
     ).read_text(encoding="utf-8")
 
 
-def test_mlflow_connection_is_configured_per_user_from_models_page():
+def test_mlflow_server_is_admin_managed_and_credentials_are_per_user():
     template = (PROJECT_ROOT / "app/templates/models.html").read_text(
         encoding="utf-8"
     )
@@ -330,9 +330,11 @@ def test_mlflow_connection_is_configured_per_user_from_models_page():
     )
 
     assert 'id="mlflow-settings-form"' in template
-    assert "Bu ayarlar yalnızca hesabınıza aittir" in template
+    assert "Sunucu adresi yönetici tarafından belirlenir" in template
     assert "model eğitmez, çalıştırmaz veya değiştirmez" in template
-    assert 'id="mlflow-settings-form"' not in admin_template
+    assert 'name="base_url"' not in template
+    assert 'id="admin-mlflow-settings-form"' in admin_template
+    assert 'fetch("/api/admin/mlflow-server-settings"' in javascript
     assert 'send("/api/mlflow/settings/test", "POST")' in javascript
     assert 'send("/api/mlflow/settings", "PUT")' in javascript
 

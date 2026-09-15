@@ -35,7 +35,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Per-User Quotas**: Admin-managed CPU, RAM, persistent-disk, and GPU-slot limits with workspace deployment enforcement. GPU quota defaults to zero.
 - **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, display physical GPU and MIG inventory, and schedule GPU workspaces onto exact CDI devices.
 - **GPU Sharing Policy**: RTX 4090 workers default to two workspace slots per physical GPU and RTX 5090 workers to three; admins can override physical GPUs to one, two, or three slots. Every MIG CDI slice is an exclusive single slot.
-- **Per-User MLflow Tracking & Registry View**: Each user can connect their own MLflow server with encrypted credentials and browse experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage. DevCloud provides direct links into MLflow and keeps training, serving, and metadata changes in MLflow and the user's ML tooling.
+- **Managed MLflow Tracking & Registry View**: Administrators define one MLflow URL and TLS policy while every user supplies encrypted personal credentials. DevCloud browses experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage, then injects the effective MLflow environment into newly created or recreated workspaces.
 
 ---
 

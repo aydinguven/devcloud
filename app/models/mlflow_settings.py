@@ -5,7 +5,11 @@ from app.database import Base
 
 
 class MlflowSettings(Base):
-    """One encrypted server-side MLflow connector configuration per user."""
+    """One encrypted MLflow credential set per user.
+
+    Server and TLS columns are retained for database compatibility only. New
+    requests always use the singleton admin-managed server policy.
+    """
 
     __tablename__ = "mlflow_settings"
 

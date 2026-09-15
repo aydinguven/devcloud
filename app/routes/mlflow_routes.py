@@ -24,6 +24,7 @@ from app.integrations.mlflow import (
     validate_config,
 )
 from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.user import User
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.security.secrets import encrypt_secret
@@ -55,39 +56,52 @@ async def _mlflow_settings_for_user(
     ).scalar_one_or_none()
 
 
-def _settings_out(record: MlflowSettings | None) -> MlflowSettingsOut:
+def _settings_out(
+    record: MlflowSettings | None,
+    server: MlflowServerSettings | None,
+) -> MlflowSettingsOut:
+    base_url = server.base_url if server else ""
+    validate_tls = server.validate_tls if server else True
+    ca_cert_file = server.ca_cert_file if server else ""
+    timeout_seconds = server.timeout_seconds if server else 10
     if record is None:
         return MlflowSettingsOut(
             enabled=False,
-            base_url="",
+            base_url=base_url,
             auth_type="none",
             username="",
             has_secret=False,
-            validate_tls=True,
-            ca_cert_file="",
-            timeout_seconds=10,
+            validate_tls=validate_tls,
+            ca_cert_file=ca_cert_file,
+            timeout_seconds=timeout_seconds,
         )
     return MlflowSettingsOut(
         enabled=record.enabled,
-        base_url=record.base_url,
+        base_url=base_url,
         auth_type=record.auth_type,
         username=record.username,
         has_secret=bool(record.encrypted_secret),
-        validate_tls=record.validate_tls,
-        ca_cert_file=record.ca_cert_file,
-        timeout_seconds=record.timeout_seconds,
+        validate_tls=validate_tls,
+        ca_cert_file=ca_cert_file,
+        timeout_seconds=timeout_seconds,
     )
 
 
 async def get_mlflow_client(db: AsyncSession, user_id: int) -> MlflowClient:
     record = await _mlflow_settings_for_user(db, user_id)
+    server = await db.get(MlflowServerSettings, 1)
+    if not server or not server.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="MLflow sunucusu platform yöneticisi tarafından yapılandırılmamış.",
+        )
     if not record:
         raise HTTPException(
             status_code=503,
             detail="MLflow bağlantınızı ML Modelleri sayfasından yapılandırın.",
         )
     try:
-        config = config_from_record(record)
+        config = config_from_record(record, server)
         validate_config(config, require_enabled=True)
         return MlflowClient(config)
     except MlflowConfigurationError as exc:
@@ -136,7 +150,10 @@ async def get_mlflow_settings(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return _settings_out(await _mlflow_settings_for_user(db, current_user.id))
+    return _settings_out(
+        await _mlflow_settings_for_user(db, current_user.id),
+        await db.get(MlflowServerSettings, 1),
+    )
 
 
 @mlflow_router.put("/settings", response_model=MlflowSettingsOut)
@@ -146,8 +163,14 @@ async def update_mlflow_settings(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     record = await _mlflow_settings_for_user(db, current_user.id)
+    server = await db.get(MlflowServerSettings, 1)
+    if not server or not server.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="MLflow sunucusu platform yöneticisi tarafından yapılandırılmamış.",
+        )
     try:
-        candidate = config_from_update(update, record)
+        candidate = config_from_update(update, server, record)
         if update.enabled:
             validate_config(candidate)
     except MlflowConfigurationError as exc:
@@ -163,7 +186,7 @@ async def update_mlflow_settings(
     db.add(record)
     await db.commit()
     await db.refresh(record)
-    return _settings_out(record)
+    return _settings_out(record, server)
 
 
 @mlflow_router.post("/settings/test", response_model=MlflowTestResult)
@@ -173,10 +196,16 @@ async def test_mlflow_settings(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     record = await _mlflow_settings_for_user(db, current_user.id)
+    server = await db.get(MlflowServerSettings, 1)
+    if not server or not server.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="MLflow sunucusu platform yöneticisi tarafından yapılandırılmamış.",
+        )
     try:
-        candidate = config_from_update(update, record)
+        candidate = config_from_update(update, server, record)
         validate_config(candidate)
-        count, elapsed_ms = await MlflowClient(candidate).test()
+        count, model_count, elapsed_ms, server_version = await MlflowClient(candidate).test()
     except MlflowConfigurationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except MlflowConnectionError as exc:
@@ -186,7 +215,10 @@ async def test_mlflow_settings(
         message="Kişisel MLflow bağlantınız başarılı.",
         response_time_ms=elapsed_ms,
         experiment_count=count,
-        model_count=0,
+        model_count=max(model_count, 0),
+        server_version=server_version,
+        tracking_available=True,
+        registry_available=model_count >= 0,
     )
 
 
@@ -410,14 +442,24 @@ async def get_mlflow_run(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     client = await get_mlflow_client(db, current_user.id)
-    try:
-        run_payload, artifacts_payload, versions_payload = await asyncio.gather(
-            client.get_run(run_id),
-            client.list_artifacts(run_id),
-            client.search_model_versions(max_results=1000),
-        )
-    except MlflowConnectionError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    run_payload, artifacts_payload, versions_payload = await asyncio.gather(
+        client.get_run(run_id),
+        client.list_artifacts(run_id),
+        client.search_model_versions(run_id=run_id, max_results=100),
+        return_exceptions=True,
+    )
+    if isinstance(run_payload, Exception):
+        if isinstance(run_payload, MlflowConnectionError):
+            raise HTTPException(status_code=502, detail=str(run_payload)) from run_payload
+        raise run_payload
+
+    warnings = []
+    if isinstance(artifacts_payload, Exception):
+        warnings.append(f"Artifact listesi yüklenemedi: {artifacts_payload}")
+        artifacts_payload = {}
+    if isinstance(versions_payload, Exception):
+        warnings.append(f"Model soy ağacı yüklenemedi: {versions_payload}")
+        versions_payload = {}
     run = normalize_run(run_payload.get("run") or {})
     run["mlflow_url"] = _run_url(client, run["experiment_id"], run["run_id"])
     run["artifacts"] = [
@@ -440,6 +482,7 @@ async def get_mlflow_run(
         for version in versions_payload.get("model_versions") or []
         if str(version.get("run_id") or "") == run_id
     ]
+    run["warnings"] = warnings
     return run
 
 

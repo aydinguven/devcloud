@@ -15,6 +15,7 @@ import logging
 from app.models.user import User, UserRole
 from app.models.directory_settings import DirectorySettings
 from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
@@ -279,13 +280,19 @@ async def mlflow_dashboard_page(
             select(MlflowSettings).where(MlflowSettings.user_id == current_user.id)
         )
     ).scalar_one_or_none()
+    mlflow_server_settings = await db.get(MlflowServerSettings, 1)
     return templates.TemplateResponse(
         request=request,
         name="mlflow_dashboard.html",
         context={
             "app_name": settings.APP_NAME,
             "user": current_user,
-            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+            "mlflow_enabled": bool(
+                mlflow_server_settings
+                and mlflow_server_settings.enabled
+                and mlflow_settings
+                and mlflow_settings.enabled
+            ),
         },
     )
 
@@ -305,15 +312,24 @@ async def models_page(
             )
         )
     ).scalar_one_or_none()
+    mlflow_server_settings = await db.get(MlflowServerSettings, 1)
     return templates.TemplateResponse(
         request=request,
         name="models.html",
         context={
             "app_name": settings.APP_NAME,
             "user": current_user,
-            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+            "mlflow_enabled": bool(
+                mlflow_server_settings
+                and mlflow_server_settings.enabled
+                and mlflow_settings
+                and mlflow_settings.enabled
+            ),
             "mlflow_settings": mlflow_settings,
-            "mlflow_base_url": mlflow_settings.base_url if mlflow_settings else "",
+            "mlflow_server_settings": mlflow_server_settings,
+            "mlflow_base_url": (
+                mlflow_server_settings.base_url if mlflow_server_settings else ""
+            ),
         },
     )
 
@@ -351,13 +367,19 @@ async def experiments_page(
             select(MlflowSettings).where(MlflowSettings.user_id == current_user.id)
         )
     ).scalar_one_or_none()
+    mlflow_server_settings = await db.get(MlflowServerSettings, 1)
     return templates.TemplateResponse(
         request=request,
         name="experiments.html",
         context={
             "app_name": settings.APP_NAME,
             "user": current_user,
-            "mlflow_enabled": bool(mlflow_settings and mlflow_settings.enabled),
+            "mlflow_enabled": bool(
+                mlflow_server_settings
+                and mlflow_server_settings.enabled
+                and mlflow_settings
+                and mlflow_settings.enabled
+            ),
         },
     )
 
@@ -561,6 +583,7 @@ async def admin_page(
             if jupyter_ai_settings
             else default_model_catalog()
         )
+        context["mlflow_server_settings"] = await db.get(MlflowServerSettings, 1)
     elif section == "system":
         download_settings = await db.get(DownloadSettings, 1)
         context.update(

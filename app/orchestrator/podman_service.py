@@ -12,11 +12,31 @@ from typing import Any
 from app.config import settings
 from app.cline import managed_cline_files, managed_vscode_settings
 from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
+from app.mlflow_workspace import validate_mlflow_environment
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 
 logger = logging.getLogger("devcloud.podman")
 CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
+_SENSITIVE_ENV_KEYS = {
+    "PASSWORD",
+    "JUPYTER_TOKEN",
+    "DEVCLOUD_CLINE_SECRETS_JSON",
+    "MLFLOW_TRACKING_TOKEN",
+    "MLFLOW_TRACKING_PASSWORD",
+}
+
+
+def _redacted_command(cmd: list[str]) -> str:
+    redacted = []
+    for argument in cmd:
+        key, separator, _value = argument.partition("=")
+        if separator and key in _SENSITIVE_ENV_KEYS:
+            argument = f"{key}=<redacted>"
+        redacted.append(argument)
+    return " ".join(redacted)
+
+
 
 
 class PodmanExecutionError(Exception):
@@ -59,7 +79,8 @@ class PodmanService:
         retain its diagnostics.
         """
         cmd = [self.podman_bin, *args]
-        logger.debug("Executing command: %s", " ".join(cmd))
+        safe_command = _redacted_command(cmd)
+        logger.debug("Executing command: %s", safe_command)
 
         try:
             with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
@@ -81,7 +102,7 @@ class PodmanService:
                         pass
                     await process.wait()
                     raise PodmanExecutionError(
-                        f"Podman command timed out after {timeout:g}s: {' '.join(cmd)}"
+                        f"Podman command timed out after {timeout:g}s: {safe_command}"
                     ) from exc
 
                 stdout_file.seek(0)
@@ -92,7 +113,7 @@ class PodmanService:
         except PodmanExecutionError:
             raise
         except Exception as exc:
-            logger.error(f"Failed to execute podman command '{' '.join(cmd)}': {exc}")
+            logger.error("Failed to execute podman command '%s': %s", safe_command, exc)
             raise PodmanExecutionError(f"Podman execution failed: {exc}") from exc
 
     async def get_active_podman_ports(self) -> set[int]:
@@ -185,6 +206,7 @@ class PodmanService:
         host_port: int,
         workspace_token: str,
         accelerator_cdi_name: str = "",
+        mlflow_environment: dict[str, str] | None = None,
         progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
@@ -213,6 +235,7 @@ class PodmanService:
             raise ValueError("CPU profiline GPU CDI cihazı atanamaz.")
 
         storage_path = self.ensure_workspace_storage(user_id, workspace_id)
+        mlflow_environment = validate_mlflow_environment(mlflow_environment)
         is_vscode = template.ide_type == "vscode"
         is_jupyter = template.ide_type == "jupyter"
 
@@ -226,6 +249,7 @@ class PodmanService:
                 "host_port": host_port,
                 "storage_path": storage_path,
                 "accelerator_cdi_name": accelerator_cdi_name,
+                "mlflow_environment": mlflow_environment,
                 "logs": [
                     f"[{container_name}] {template.name} başlatılıyor...",
                     f"[{container_name}] Kalıcı volume bağlandı: {template.container_workdir}",
@@ -350,6 +374,12 @@ class PodmanService:
 
         for k, v in template.env_vars.items():
             cmd_args.extend(["-e", f"{k}={v}"])
+        for key, value in mlflow_environment.items():
+            cmd_args.extend(["-e", f"{key}={value}"])
+        cmd_args.extend([
+            "-e", f"DEVCLOUD_WORKSPACE_ID={workspace_id}",
+            "-e", f"DEVCLOUD_USER_ID={user_id}",
+        ])
 
         # Image tag
         cmd_args.append(template.image_tag)

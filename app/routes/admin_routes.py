@@ -50,6 +50,7 @@ from app.models.workspace_image import WorkspaceImage
 from app.models.custom_template import CustomTemplate
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.flavor_settings import FlavorSettings
 from app.models.template_settings import TemplateSettings
 from app.agents.manager import agent_manager
@@ -79,6 +80,8 @@ from app.schemas.jupyter_ai_settings import (
     JupyterAiSettingsOut,
     JupyterAiSettingsUpdate,
 )
+from app.schemas.mlflow import MlflowServerSettingsOut, MlflowServerSettingsUpdate
+from app.integrations.mlflow import MlflowConfig, validate_config as validate_mlflow_config
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.config import settings
 from app.security.secrets import (
@@ -124,6 +127,30 @@ from app.worker_bootstrap import (
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def _mlflow_server_settings_out(
+    record: MlflowServerSettings | None,
+) -> MlflowServerSettingsOut:
+    if record is None:
+        return MlflowServerSettingsOut(
+            managed=False,
+            enabled=False,
+            base_url="",
+            validate_tls=True,
+            ca_cert_file="",
+            timeout_seconds=10,
+            updated_at=None,
+        )
+    return MlflowServerSettingsOut(
+        managed=True,
+        enabled=record.enabled,
+        base_url=record.base_url,
+        validate_tls=record.validate_tls,
+        ca_cert_file=record.ca_cert_file,
+        timeout_seconds=record.timeout_seconds,
+        updated_at=record.updated_at,
+    )
 
 
 def _update_queue_root() -> Path:
@@ -1246,6 +1273,56 @@ async def test_jupyter_ai_settings(
         model_id=request.model_id,
         workers=workers,
     )
+
+
+@admin_router.get(
+    "/mlflow-server-settings",
+    response_model=MlflowServerSettingsOut,
+)
+async def get_mlflow_server_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the centrally managed MLflow server policy."""
+    return _mlflow_server_settings_out(await db.get(MlflowServerSettings, 1))
+
+
+@admin_router.put(
+    "/mlflow-server-settings",
+    response_model=MlflowServerSettingsOut,
+)
+async def update_mlflow_server_settings(
+    update: MlflowServerSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Store the MLflow URL and TLS policy without user credentials."""
+    candidate = MlflowConfig(
+        enabled=update.enabled,
+        base_url=update.base_url,
+        auth_type="none",
+        username="",
+        secret="",
+        validate_tls=update.validate_tls,
+        ca_cert_file=update.ca_cert_file,
+        timeout_seconds=update.timeout_seconds,
+    )
+    if update.enabled:
+        try:
+            validate_mlflow_config(candidate, require_enabled=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    record = await db.get(MlflowServerSettings, 1)
+    if record is None:
+        record = MlflowServerSettings(id=1)
+    for field_name, value in update.model_dump().items():
+        setattr(record, field_name, value)
+    record.updated_at = datetime.now(timezone.utc)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _mlflow_server_settings_out(record)
 
 
 async def _get_or_create_directory_settings(

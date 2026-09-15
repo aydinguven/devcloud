@@ -1,9 +1,11 @@
+import asyncio
 import time
 from dataclasses import dataclass
 
 import httpx
 
 from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_server_settings import MlflowServerSettings
 from app.schemas.mlflow import MlflowSettingsUpdate
 from app.security.secrets import SecretDecryptionError, decrypt_secret
 
@@ -20,6 +22,26 @@ class MlflowPayloadTooLargeError(RuntimeError):
     pass
 
 
+def _response_error_detail(response: httpx.Response) -> str:
+    """Return a short upstream error without exposing request credentials."""
+    detail = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = str(
+                payload.get("message")
+                or payload.get("detail")
+                or payload.get("error_code")
+                or ""
+            )
+    except ValueError:
+        detail = response.text.strip()
+    if not detail:
+        return ""
+    compact = " ".join(detail.split())
+    return f": {compact[:500]}"
+
+
 @dataclass(frozen=True)
 class MlflowConfig:
     enabled: bool
@@ -32,7 +54,10 @@ class MlflowConfig:
     timeout_seconds: int
 
 
-def config_from_record(record: MlflowSettings) -> MlflowConfig:
+def config_from_record(
+    record: MlflowSettings,
+    server: MlflowServerSettings,
+) -> MlflowConfig:
     try:
         secret = decrypt_secret(record.encrypted_secret)
     except SecretDecryptionError as exc:
@@ -40,18 +65,22 @@ def config_from_record(record: MlflowSettings) -> MlflowConfig:
             "Kayıtlı MLflow parolası/token'ı çözülemedi; yeniden kaydedin."
         ) from exc
     return MlflowConfig(
-        enabled=record.enabled,
-        base_url=record.base_url,
+        enabled=record.enabled and server.enabled,
+        base_url=server.base_url,
         auth_type=record.auth_type,
         username=record.username,
         secret=secret,
-        validate_tls=record.validate_tls,
-        ca_cert_file=record.ca_cert_file,
-        timeout_seconds=record.timeout_seconds,
+        validate_tls=server.validate_tls,
+        ca_cert_file=server.ca_cert_file,
+        timeout_seconds=server.timeout_seconds,
     )
 
 
-def config_from_update(update: MlflowSettingsUpdate, record: MlflowSettings | None = None) -> MlflowConfig:
+def config_from_update(
+    update: MlflowSettingsUpdate,
+    server: MlflowServerSettings,
+    record: MlflowSettings | None = None,
+) -> MlflowConfig:
     secret = update.secret or ""
     if not secret and record:
         try:
@@ -61,14 +90,14 @@ def config_from_update(update: MlflowSettingsUpdate, record: MlflowSettings | No
                 "Kayıtlı MLflow parolası/token'ı çözülemedi; yeniden kaydedin."
             ) from exc
     return MlflowConfig(
-        enabled=update.enabled,
-        base_url=update.base_url,
+        enabled=update.enabled and server.enabled,
+        base_url=server.base_url,
         auth_type=update.auth_type,
         username=update.username,
         secret=secret,
-        validate_tls=update.validate_tls,
-        ca_cert_file=update.ca_cert_file,
-        timeout_seconds=update.timeout_seconds,
+        validate_tls=server.validate_tls,
+        ca_cert_file=server.ca_cert_file,
+        timeout_seconds=server.timeout_seconds,
     )
 
 
@@ -122,9 +151,18 @@ class MlflowClient:
     ) -> dict:
         try:
             async with self._client() as client:
-                response = await client.request(method, path, params=params, json=json)
+                # A relative request target preserves an optional reverse-proxy
+                # prefix in the administrator-managed base URL.
+                response = await client.request(
+                    method, path.lstrip("/"), params=params, json=json
+                )
                 response.raise_for_status()
                 return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = _response_error_detail(exc.response)
+            raise MlflowConnectionError(
+                f"MLflow API isteği başarısız ({exc.response.status_code}){detail}"
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise MlflowConnectionError(f"MLflow API isteği başarısız: {exc}") from exc
 
@@ -133,6 +171,16 @@ class MlflowClient:
 
     async def _post(self, path: str, payload: dict) -> dict:
         return await self._request("POST", path, json=payload)
+
+    async def _optional_text(self, path: str) -> str:
+        """Probe optional server metadata without failing core connectivity."""
+        try:
+            async with self._client() as client:
+                response = await client.get(path.lstrip("/"))
+                response.raise_for_status()
+                return response.text.strip()[:100]
+        except (httpx.HTTPError, ValueError):
+            return ""
 
     async def _request_bytes(
         self,
@@ -143,7 +191,9 @@ class MlflowClient:
     ) -> tuple[bytes, str]:
         try:
             async with self._client() as client:
-                async with client.stream("GET", path, params=params) as response:
+                async with client.stream(
+                    "GET", path.lstrip("/"), params=params
+                ) as response:
                     response.raise_for_status()
                     content_length = response.headers.get("content-length")
                     if content_length and int(content_length) > max_bytes:
@@ -194,16 +244,24 @@ class MlflowClient:
     async def search_model_versions(
         self,
         name: str = "",
+        run_id: str = "",
         max_results: int = 200,
     ) -> dict:
-        if "'" in name:
-            raise MlflowConfigurationError("Model adındaki tek tırnak API filtresiyle kullanılamıyor.")
+        if "'" in name or "'" in run_id:
+            raise MlflowConfigurationError(
+                "Model adı veya run ID içindeki tek tırnak API filtresiyle kullanılamıyor."
+            )
         params: dict[str, str | int | list[str]] = {
             "max_results": max(1, min(max_results, 1000)),
             "order_by": ["version DESC"],
         }
+        filters = []
         if name:
-            params["filter"] = f"name='{name}'"
+            filters.append(f"name = '{name}'")
+        if run_id:
+            filters.append(f"run_id = '{run_id}'")
+        if filters:
+            params["filter"] = " AND ".join(filters)
         return await self._get(
             "/api/2.0/mlflow/model-versions/search",
             params,
@@ -294,11 +352,25 @@ class MlflowClient:
             max_bytes=max_bytes,
         )
 
-    async def test(self) -> tuple[int, int]:
+    async def test(self) -> tuple[int, int, int, str]:
         started = time.monotonic()
-        payload = await self.search_experiments(max_results=1)
+        experiments_result, models_result, version = await asyncio.gather(
+            self.search_experiments(max_results=1),
+            self.search_registered_models(max_results=1),
+            self._optional_text("/version"),
+            return_exceptions=True,
+        )
+        if isinstance(experiments_result, Exception):
+            raise experiments_result
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        return len(payload.get("experiments") or []), elapsed_ms
+        experiment_count = len(experiments_result.get("experiments") or [])
+        model_count = (
+            len(models_result.get("registered_models") or [])
+            if isinstance(models_result, dict)
+            else -1
+        )
+        server_version = version if isinstance(version, str) else ""
+        return experiment_count, model_count, elapsed_ms, server_version
 
 
 def normalize_model(model: dict) -> dict:

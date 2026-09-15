@@ -18,8 +18,92 @@ from app.migrations import (
     _add_directory_profile_fields,
     _add_jupyter_ai_model_catalog,
     _make_mlflow_settings_per_user,
+    _migrate_mlflow_server_settings,
     _sync_mlflow_settings_id_sequence,
 )
+
+
+@pytest.mark.asyncio
+async def test_unambiguous_legacy_mlflow_url_becomes_admin_managed(tmp_path):
+    database_path = (tmp_path / "managed-mlflow.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_settings ("
+                    "id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL, "
+                    "base_url VARCHAR(1024) NOT NULL, validate_tls BOOLEAN NOT NULL, "
+                    "ca_cert_file VARCHAR(512) NOT NULL, timeout_seconds INTEGER NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_server_settings ("
+                    "id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL, "
+                    "base_url VARCHAR(1024) NOT NULL, validate_tls BOOLEAN NOT NULL, "
+                    "ca_cert_file VARCHAR(512) NOT NULL, timeout_seconds INTEGER NOT NULL, "
+                    "updated_at DATETIME NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO mlflow_settings VALUES "
+                    "(1, 1, 'https://mlflow.internal/', 1, '', 15), "
+                    "(2, 1, 'https://mlflow.internal', 1, '', 15)"
+                )
+            )
+            assert await _migrate_mlflow_server_settings(conn) is True
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT enabled, base_url, validate_tls, timeout_seconds "
+                        "FROM mlflow_server_settings WHERE id = 1"
+                    )
+                )
+            ).one()
+    finally:
+        await engine.dispose()
+    assert row == (1, "https://mlflow.internal", 1, 15)
+
+
+@pytest.mark.asyncio
+async def test_conflicting_legacy_mlflow_urls_require_admin_choice(tmp_path):
+    database_path = (tmp_path / "conflicting-mlflow.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_settings ("
+                    "id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL, "
+                    "base_url VARCHAR(1024) NOT NULL, validate_tls BOOLEAN NOT NULL, "
+                    "ca_cert_file VARCHAR(512) NOT NULL, timeout_seconds INTEGER NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE TABLE mlflow_server_settings ("
+                    "id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL, "
+                    "base_url VARCHAR(1024) NOT NULL, validate_tls BOOLEAN NOT NULL, "
+                    "ca_cert_file VARCHAR(512) NOT NULL, timeout_seconds INTEGER NOT NULL, "
+                    "updated_at DATETIME NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO mlflow_settings VALUES "
+                    "(1, 1, 'https://one.internal', 1, '', 10), "
+                    "(2, 1, 'https://two.internal', 1, '', 10)"
+                )
+            )
+            assert await _migrate_mlflow_server_settings(conn) is False
+            count = (
+                await conn.execute(text("SELECT COUNT(*) FROM mlflow_server_settings"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+    assert count == 0
 
 
 @pytest.mark.asyncio

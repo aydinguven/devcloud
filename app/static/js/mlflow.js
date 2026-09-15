@@ -328,9 +328,14 @@
       document.getElementById("run-params").innerHTML = dataTable(data.params_map);
       document.getElementById("run-metrics").innerHTML = dataTable(data.metrics_map);
       document.getElementById("run-lineage").innerHTML = (data.registered_model_versions || []).map(version => `<div class="admin-user-card"><div><a class="admin-user-name" href="/models/${encodeURIComponent(version.name)}">${esc(version.name)}</a> <span class="badge badge-neutral">v${esc(version.version)}</span></div><a href="${esc(version.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div>`).join("") || '<p class="text-muted">Bu run ile ilişkili kayıtlı model sürümü bulunamadı.</p>';
+      if ((data.warnings || []).length) {
+        status.textContent = data.warnings.join(" ");
+        status.className = "text-muted";
+      } else {
+        status.textContent = "";
+      }
       const metricKeys = Object.keys(data.metrics_map || {}).sort((a, b) => a.localeCompare(b));
       metricSelect.innerHTML = metricKeys.map(key => `<option value="${esc(key)}">${esc(key)}</option>`).join("");
-      status.textContent = "";
       content.hidden = false;
       if (metricKeys.length) loadMetric().catch(error => { chart.textContent = error.message; });
       loadArtifacts().catch(error => { artifactStatus.textContent = error.message; artifactStatus.className = "text-destructive"; });

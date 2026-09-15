@@ -619,7 +619,7 @@ class WorkerAgent:
             allowed = {
                 "workspace_id", "user_id", "container_name", "template_id",
                 "flavor_id", "host_port", "workspace_token",
-                "accelerator_cdi_name",
+                "accelerator_cdi_name", "mlflow_environment",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
             async with self.registry_lock:

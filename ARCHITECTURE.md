@@ -116,12 +116,17 @@ root.
 
 - Browser to controller: TCP 443, and optionally 80 for redirect/fallback.
 - Worker to controller: TCP 443 outbound.
-- Controller to PostgreSQL, LDAP, each user's configured MLflow server, and
-  registry as configured. MLflow credentials are encrypted and resolved only
-  for the authenticated user making tracking or registry requests. The
-  controller reads experiments, runs, parameters, metrics, artifact metadata,
-  and model-version lineage; write operations remain in MLflow.
+- Controller to PostgreSQL, LDAP, the administrator-configured MLflow server,
+  and the image registry. MLflow credentials are encrypted per user and
+  resolved only for the authenticated user making tracking or registry
+  requests. The controller reads experiments, runs, parameters, metrics,
+  artifact metadata, and model-version lineage; write operations remain in MLflow.
 - Worker to image registry and package repositories as configured.
+
+When both the managed server and a user's MLflow connection are enabled,
+DevCloud passes the effective tracking URL and that user's credentials only to
+their newly created or recreated workspace container.
+
 
 Do not expose Podman sockets, worker workspace ports, or worker management
 ports.
