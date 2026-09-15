@@ -361,10 +361,10 @@ async def test_vscode_launch_disables_cline_but_keeps_native_chat(monkeypatch):
     image_index = run_command.index("localhost/devcloud-vscode-python:latest")
     startup_command = run_command[image_index + 1:]
     assert "$VSCODE_USER_DIR/chatLanguageModels.json" in startup_command[1]
-    assert (
-        "--disable-extension saoudrizwan.claude-dev"
-        in startup_command[1]
-    )
+    assert "--disable-extension" not in startup_command[1]
+    assert "-name 'saoudrizwan.claude-dev-*'" in startup_command[1]
+    assert "disabled-extensions" in startup_command[1]
+    assert "exec /usr/bin/entrypoint.sh" in startup_command[1]
 
 
 @pytest.mark.asyncio

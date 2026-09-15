@@ -409,15 +409,22 @@ class PodmanService:
                     " \"$CLINE_DATA_DIR/secrets.json\""
                     " \"$CLINE_DATA_DIR/settings/providers.json\"",
                 ])
-            disable_cline = (
-                ""
-                if settings.JUPYTER_AI_CLINE_ENABLED
-                else " --disable-extension saoudrizwan.claude-dev"
-            )
+            if not settings.JUPYTER_AI_CLINE_ENABLED:
+                # code-server does not support VS Code's --disable-extension
+                # startup flag. Its extension directory lives outside the
+                # persistent project mount, so hide only Cline in this
+                # container; a newly created enabled container gets it back.
+                setup_commands.extend([
+                    "install -d -m 700 /home/coder/.local/share/code-server/disabled-extensions",
+                    "find /home/coder/.local/share/code-server/extensions"
+                    " -maxdepth 1 -mindepth 1 -type d"
+                    " -name 'saoudrizwan.claude-dev-*'"
+                    " -exec mv -t /home/coder/.local/share/code-server/disabled-extensions {} +",
+                ])
             setup_commands.append(
                 "exec /usr/bin/entrypoint.sh"
                 f" --bind-addr 0.0.0.0:{template.default_port}"
-                f" --auth none{disable_cline} {template.container_workdir}"
+                f" --auth none {template.container_workdir}"
             )
             cmd_args.extend([
                 "-lc",
