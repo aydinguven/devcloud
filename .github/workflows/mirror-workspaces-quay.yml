@@ -1,0 +1,56 @@
+name: Mirror published VS Code workspaces to Quay
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  mirror:
+    name: Mirror ${{ matrix.image }} to Quay
+    runs-on: ubuntu-24.04
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: vscode-empty
+            version: 3.6.3
+            sha: e08fbd51ff3e
+          - image: vscode-react
+            version: 3.6.3
+            sha: e08fbd51ff3e
+          - image: vscode-java
+            version: 3.6.3
+            sha: e08fbd51ff3e
+          - image: vscode-python
+            version: 3.6.4
+            sha: 9533895d04a1
+    env:
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+      GHCR_PASSWORD: ${{ github.token }}
+    steps:
+      - name: Copy immutable published image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
+            echo "Quay credentials are required." >&2
+            exit 1
+          }
+          printf '%s' "${GHCR_PASSWORD}" |
+            docker login --username "${GITHUB_ACTOR}" --password-stdin ghcr.io
+          printf '%s' "${QUAY_PASSWORD}" |
+            docker login --username "${QUAY_USERNAME}" --password-stdin quay.io
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true; docker logout quay.io >/dev/null 2>&1 || true' EXIT
+
+          source="ghcr.io/aydinguven/devcloud:${{ matrix.image }}-${{ matrix.version }}-${{ matrix.sha }}"
+          docker pull --platform linux/amd64 "${source}"
+          for tag in "${{ matrix.image }}-${{ matrix.version }}" "${{ matrix.image }}-${{ matrix.version }}-${{ matrix.sha }}"; do
+            destination="quay.io/aaslangoren/devcloud:${tag}"
+            docker tag "${source}" "${destination}"
+            docker push "${destination}"
+          done
