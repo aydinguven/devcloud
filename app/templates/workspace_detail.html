@@ -163,6 +163,20 @@
         </button>
       </div>
 
+      <section style="margin-bottom: 1.5rem;" aria-labelledby="share-heading">
+        <h3 id="share-heading">Paylaşım Bağlantıları</h3>
+        <p>Seçtiğiniz porttaki uygulamayı DevCloud hesabı gerektirmeden paylaşın. Bağlantı, bu porttaki tüm uygulama işlevlerine erişim verir. Workspace çalışıyor olmalıdır.</p>
+        <form id="workspace-share-form" data-workspace-id="{{ workspace.id }}">
+          <label class="form-label" for="share-password">Parola (isteğe bağlı)</label>
+          <input class="form-input" id="share-password" name="password" type="password" maxlength="256" autocomplete="new-password" placeholder="Boş bırakılırsa bağlantı yeterlidir">
+          <label class="form-label" for="share-duration">Geçerlilik süresi (dakika, isteğe bağlı)</label>
+          <input class="form-input" id="share-duration" name="duration" type="number" min="1" max="525600" step="1" placeholder="Boş bırakılırsa süresiz">
+          <button type="submit" class="btn btn-primary" style="margin-top: .75rem;">Seçili port için bağlantı oluştur</button>
+        </form>
+        <p id="workspace-share-status" role="status" aria-live="polite"></p>
+        <div id="workspace-share-list"></div>
+      </section>
+
       <div style="font-size: 0.8rem; color: var(--text-muted);">
         <strong>Sık Kullanılan Portlar:</strong>
         <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">

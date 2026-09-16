@@ -13,11 +13,13 @@ document.addEventListener("DOMContentLoaded", () => {
   initNodeManagement();
   initMlflowSettings();
   initDownloadSettings();
+  initSessionSettings();
   initHttpsSettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
   initWorkspaceTabs();
   initPortExposer();
+  initWorkspaceShares();
   initSnapshotModal();
   initAdminPlatformUpdater();
   initAdminFilters();
@@ -1482,6 +1484,38 @@ function initAdminMlflowSettings() {
 }
 
 // 6. Admin offline-download publisher
+function initSessionSettings() {
+  const form = document.getElementById("session-settings-form");
+  if (!form) return;
+  const button = form.querySelector('button[type="submit"]');
+  const status = document.getElementById("session-settings-status");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = "Oturum süresi kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/session-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({timeout_minutes: Number(form.elements.timeout_minutes.value)}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : `Oturum süresi kaydedilemedi (${response.status}).`);
+      }
+      form.elements.timeout_minutes.value = data.timeout_minutes;
+      status.textContent = "Oturum süresi kaydedildi. Yeni girişlerde geçerli olacak.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 function initDownloadSettings() {
   const form = document.getElementById("download-settings-form");
   if (!form) return;
@@ -2483,4 +2517,86 @@ function initAdminPlatformUpdater() {
       }
     });
   }
+}
+
+
+function initWorkspaceShares() {
+  const form = document.getElementById("workspace-share-form");
+  if (!form) return;
+  const endpoint = `/api/workspaces/${form.dataset.workspaceId}/shares`;
+  const status = document.getElementById("workspace-share-status");
+  const list = document.getElementById("workspace-share-list");
+  const submit = form.querySelector('button[type="submit"]');
+  async function api(url, options) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(typeof data.detail === "string" ? data.detail : `İşlem başarısız (${response.status}).`);
+    }
+    return response.status === 204 ? null : response.json();
+  }
+  async function load() {
+    const shares = await api(endpoint);
+    list.replaceChildren();
+    for (const share of shares) {
+      const row = document.createElement("div");
+      row.style.marginBottom = "1rem";
+      const label = document.createElement("p");
+      const expires = share.expires_at ? new Date(share.expires_at * 1000).toLocaleString() : "Süresiz";
+      label.textContent = `Port ${share.port} · ${share.password_protected ? "Parolalı" : "Parolasız"} · ${expires}${share.expires_at && share.expires_at * 1000 <= Date.now() ? " (Süresi doldu)" : ""}`;
+      const input = document.createElement("input");
+      input.className = "form-input";
+      input.readOnly = true;
+      input.value = new URL(share.url, window.location.origin).href;
+      input.setAttribute("aria-label", `Port ${share.port} paylaşım bağlantısı`);
+      input.addEventListener("click", () => input.select());
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "btn btn-secondary btn-sm";
+      copy.textContent = "Kopyala";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(input.value);
+          status.textContent = "Bağlantı kopyalandı.";
+        } catch (_) {
+          input.focus(); input.select();
+          status.textContent = "Bağlantı seçildi; kopyalayabilirsiniz.";
+        }
+      });
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "btn btn-danger btn-sm";
+      revoke.textContent = "İptal et";
+      revoke.addEventListener("click", async () => {
+        revoke.disabled = true;
+        try {
+          await api(`${endpoint}/${share.id}`, {method: "DELETE"});
+          await load();
+          status.textContent = "Bağlantı iptal edildi.";
+        } catch (error) { status.textContent = error.message; revoke.disabled = false; }
+      });
+      row.append(label, input, copy, revoke);
+      list.append(row);
+    }
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const port = Number(document.getElementById("input-custom-port").value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      status.textContent = "Geçerli bir port numarası girin (1–65535).";
+      return;
+    }
+    submit.disabled = true;
+    try {
+      await api(endpoint, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({
+        port, password: form.elements.password.value || null,
+        expires_in_minutes: form.elements.duration.value ? Number(form.elements.duration.value) : null,
+      })});
+      form.elements.password.value = "";
+      await load();
+      status.textContent = "Paylaşım bağlantısı oluşturuldu.";
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  load().catch(error => { status.textContent = error.message; });
 }

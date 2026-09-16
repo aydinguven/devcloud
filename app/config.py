@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "devcloud-super-secret-key-change-in-production-1234567890"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 4  # Initial value; admin policy takes precedence.
     COOKIE_NAME: str = "devcloud_session"
     COOKIE_SECURE: bool = False
     

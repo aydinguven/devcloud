@@ -196,6 +196,23 @@
 {% endif %}
 
 {% if admin_section == 'system' %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Oturum Zaman Aşımı</h2>
+      <p class="admin-section-description">Girişten itibaren oturum süresi. Varsayılan 240 dakika (4 saat). Değişiklik yeni girişler ve kayıtlar için geçerlidir; mevcut oturumların bitiş süresi değişmez.</p>
+    </div>
+  </div>
+  <form id="session-settings-form">
+    <label class="form-group" for="session-timeout-minutes">
+      <span class="form-label">Oturum süresi (dakika)</span>
+      <input class="form-input" id="session-timeout-minutes" name="timeout_minutes" type="number" min="1" max="10080" step="1" value="{{ session_timeout_minutes }}" required aria-describedby="session-timeout-help">
+    </label>
+    <p id="session-timeout-help" class="admin-section-description">1–10080 dakika (en fazla 7 gün). Süre dolunca yeniden giriş gerekir.</p>
+    <button class="btn btn-primary" type="submit">Kaydet</button>
+    <div id="session-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
+  </form>
+</div>
 <div class="card download-update-card" id="offline-packages" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>

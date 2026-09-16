@@ -15,6 +15,7 @@ import websockets
 
 from app.auth.dependencies import get_current_user_optional
 from app.config import settings
+from app.shares import COOKIE_PREFIX, cookie_name, shared_workspace
 from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
@@ -238,6 +239,9 @@ def _forward_headers(request: Request, workspace: Workspace, custom_port: int | 
         parsed = SimpleCookie()
         parsed.load(incoming_cookie)
         parsed.pop(settings.COOKIE_NAME, None)
+        for name in list(parsed):
+            if name.startswith(COOKIE_PREFIX):
+                parsed.pop(name, None)
         if parsed:
             headers["Cookie"] = "; ".join(
                 f"{name}={morsel.value}" for name, morsel in parsed.items()
@@ -461,7 +465,6 @@ async def proxy_http_request(
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ):
     """Proxy HTTP requests to the target container's local port."""
-    workspace = await get_authorized_workspace(workspace_id, db, current_user)
     custom_parts = path.split("/", 2)
     if len(custom_parts) >= 2 and custom_parts[0] == "port" and custom_parts[1].isdigit():
         return await proxy_custom_port_http(
@@ -472,6 +475,7 @@ async def proxy_http_request(
             current_user=current_user,
             path=custom_parts[2] if len(custom_parts) == 3 else "",
         )
+    workspace = await get_authorized_workspace(workspace_id, db, current_user)
     upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
     return await proxy_remote_http(workspace, request, upstream_path)
 
@@ -499,29 +503,52 @@ async def proxy_websocket(
         res = await db.execute(stmt)
         current_user = res.scalar_one_or_none()
 
-    try:
-        workspace = await get_authorized_workspace(workspace_id, db, current_user)
-    except HTTPException as e:
-        await websocket.close(code=4003, reason=str(e.detail))
-        return
-
     custom_port = None
     custom_parts = path.split("/", 2)
     if len(custom_parts) >= 2 and custom_parts[0] == "port" and custom_parts[1].isdigit():
         custom_port = int(custom_parts[1])
+    using_share = False
+    try:
+        try:
+            workspace = await get_authorized_workspace(workspace_id, db, current_user if current_user and current_user.is_active else None)
+        except HTTPException as exc:
+            if custom_port is None or exc.status_code not in {401, 403} or not websocket.cookies.get(cookie_name(workspace_id, custom_port)):
+                raise
+            workspace = await shared_workspace(db, websocket.cookies, workspace_id, custom_port)
+            using_share = True
+    except HTTPException as exc:
+        await websocket.close(code=4003, reason=str(exc.detail))
+        return
+    if custom_port is not None:
+        if not 1 <= custom_port <= 65535:
+            await websocket.close(code=4003, reason="Geçersiz port")
+            return
         upstream_path = "/" + (custom_parts[2] if len(custom_parts) == 3 else "")
     else:
         upstream_path = get_upstream_path(workspace.id, workspace.template_id, path)
 
+    async def watch_share():
+        # Recheck grants during long-lived sockets so revoke/expiry closes access.
+        while True:
+            await asyncio.sleep(2)
+            await shared_workspace(db, websocket.cookies, workspace_id, custom_port)
+
     close_code = 1000
     close_reason = ""
     try:
-        await proxy_remote_websocket(
-            websocket,
-            workspace,
-            upstream_path,
-            custom_port=custom_port,
-        )
+        if using_share:
+            tasks = [asyncio.create_task(proxy_remote_websocket(websocket, workspace, upstream_path, custom_port=custom_port)),
+                     asyncio.create_task(watch_share())]
+            try:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        else:
+            await proxy_remote_websocket(websocket, workspace, upstream_path, custom_port=custom_port)
     except Exception as exc:
         logger.warning(
             "Worker WebSocket proxy closed for workspace=%s path=%s: %s",
@@ -555,12 +582,17 @@ async def proxy_custom_port_http(
     path: str = "",
 ):
     """Proxy HTTP traffic to a custom secondary port running inside the container (e.g. 5173, 5000, 3000)."""
-    workspace = await get_authorized_workspace(workspace_id, db, current_user)
+    if not 1 <= port <= 65535:
+        raise HTTPException(422, "Geçersiz port.")
+    try:
+        workspace = await get_authorized_workspace(workspace_id, db, current_user)
+    except HTTPException as exc:
+        if exc.status_code not in {401, 403} or not request.cookies.get(cookie_name(workspace_id, port)):
+            raise
+        workspace = await shared_workspace(db, request.cookies, workspace_id, port)
 
     subpath = f"/{path.lstrip('/')}"
-    return await proxy_remote_http(
-        workspace,
-        request,
-        subpath,
-        custom_port=port,
-    )
+    response = await proxy_remote_http(workspace, request, subpath, custom_port=port)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response

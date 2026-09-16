@@ -36,6 +36,9 @@ from app.auth.ldap import (
     validate_directory_config,
 )
 from app.database import get_db
+from app.models.session_settings import SessionSettings
+from app.schemas.session_settings import SessionSettingsUpdate
+from app.session_settings import session_timeout_minutes
 from app.download_updates import (
     DownloadUpdateDisabled,
     DownloadUpdateInProgress,
@@ -127,6 +130,30 @@ from app.worker_bootstrap import (
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+@admin_router.get("/session-settings", response_model=SessionSettingsUpdate)
+async def get_session_settings(
+    admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return {"timeout_minutes": await session_timeout_minutes(db)}
+
+
+@admin_router.put("/session-settings", response_model=SessionSettingsUpdate)
+async def update_session_settings(
+    payload: SessionSettingsUpdate,
+    admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    record = await db.get(SessionSettings, 1)
+    if record is None:
+        record = SessionSettings(id=1, timeout_minutes=payload.timeout_minutes)
+        db.add(record)
+    else:
+        record.timeout_minutes = payload.timeout_minutes
+    await db.commit()
+    return {"timeout_minutes": record.timeout_minutes}
 
 
 def _mlflow_server_settings_out(

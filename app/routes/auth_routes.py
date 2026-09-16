@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from app.auth import (
     create_access_token,
 )
 from app.config import settings
+from app.session_settings import session_timeout_minutes
 from app.database import get_db
 from app.models.user import User
 from app.models.directory_settings import DirectorySettings
@@ -23,13 +25,15 @@ def _secure_cookie(request: Request) -> bool:
     return settings.COOKIE_SECURE or request.url.scheme == "https"
 
 
-def set_session_cookie(response: Response, token: str, request: Request) -> None:
+def set_session_cookie(
+    response: Response, token: str, request: Request, timeout_minutes: int | None = None
+) -> None:
     """Set the browser session cookie with production-safe options."""
     response.set_cookie(
         key=settings.COOKIE_NAME,
         value=token,
         httponly=True,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=(timeout_minutes if timeout_minutes is not None else settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60,
         samesite="lax",
         secure=_secure_cookie(request),
         path="/",
@@ -84,9 +88,13 @@ async def register_user(
     user = await auth_provider.create_user(user_in, db)
 
     # Generate JWT token
-    token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
+    timeout = await session_timeout_minutes(db)
+    token = create_access_token(
+        {"sub": user.username, "user_id": user.id, "role": user.role.value},
+        expires_delta=timedelta(minutes=timeout),
+    )
     
-    set_session_cookie(response, token, request)
+    set_session_cookie(response, token, request, timeout)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
@@ -107,9 +115,13 @@ async def login_user(
             detail="Kullanıcı adı veya parola hatalı.",
         )
 
-    token = create_access_token({"sub": user.username, "user_id": user.id, "role": user.role.value})
+    timeout = await session_timeout_minutes(db)
+    token = create_access_token(
+        {"sub": user.username, "user_id": user.id, "role": user.role.value},
+        expires_delta=timedelta(minutes=timeout),
+    )
 
-    set_session_cookie(response, token, request)
+    set_session_cookie(response, token, request, timeout)
 
     return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 

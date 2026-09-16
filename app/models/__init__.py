@@ -1,4 +1,6 @@
 from app.database import Base
+from app.models.workspace_share import WorkspaceShare
+from app.models.session_settings import SessionSettings
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
@@ -12,6 +14,8 @@ from app.models.template_settings import TemplateSettings
 
 __all__ = [
     "Base",
+    "WorkspaceShare",
+    "SessionSettings",
     "User",
     "UserRole",
     "Workspace",

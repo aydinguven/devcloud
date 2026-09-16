@@ -39,6 +39,14 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 
 ---
 
+## Sharing a workspace application
+
+Open a workspace's **Web Uygulaması / Port Önizleme** tab, enter the app port (for example `3333`), and create a share link. Password and lifetime in minutes are optional; blank lifetime means no expiry. Owners and administrators can list, copy, and revoke links from the same panel.
+
+Visitors open `/share/<signed-token>`, enter the password when required, and are redirected to `/proxy/<workspace-id>/port/3333/`. They do not need a DevCloud account. Access covers the entire app on that port, including its HTTP actions and WebSockets, but does not authorize other ports or workspace management. The workspace must stay running and its owner active. Apps must support the existing proxy URL prefix (including asset and WebSocket URLs).
+
+Links and password hashes persist in the database. Revocation and expiry block subsequent requests; active shared WebSockets are checked every two seconds. Responses already delivered cannot be recalled. Visitor access cookies last at most 24 hours, capped by link expiry; reopening a valid link grants access again (with the password, if configured). Five incorrect password attempts temporarily lock the link for one minute.
+
 ## Architecture Overview
 
 ```

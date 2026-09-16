@@ -15,6 +15,7 @@ from app.proxy.router import proxy_router
 from app.routes.admin_routes import admin_router
 from app.routes.agent_routes import agent_router
 from app.routes.auth_routes import auth_router
+from app.routes.share_routes import share_router
 from app.routes.download_routes import download_router
 from app.routes.worker_bootstrap_routes import bootstrap_router
 from app.routes.view_routes import view_router
@@ -165,6 +166,7 @@ app.include_router(file_router)
 app.include_router(admin_router)
 app.include_router(agent_router)
 app.include_router(mlflow_router)
+app.include_router(share_router)
 app.include_router(proxy_router)
 app.include_router(download_router)
 app.include_router(bootstrap_router)

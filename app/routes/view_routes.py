@@ -14,6 +14,7 @@ import json
 import logging
 from app.models.user import User, UserRole
 from app.models.directory_settings import DirectorySettings
+from app.session_settings import session_timeout_minutes
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.download_settings import DownloadSettings
@@ -585,6 +586,7 @@ async def admin_page(
         )
         context["mlflow_server_settings"] = await db.get(MlflowServerSettings, 1)
     elif section == "system":
+        context["session_timeout_minutes"] = await session_timeout_minutes(db)
         download_settings = await db.get(DownloadSettings, 1)
         context.update(
             {

@@ -245,6 +245,8 @@ async def ensure_node_columns(conn) -> None:
 async def init_db() -> None:
     """Initialize database schemas and create tables."""
     # Ensure models are imported so Base has metadata
+    from app.models.workspace_share import WorkspaceShare  # noqa: F401
+    from app.models.session_settings import SessionSettings  # noqa: F401
     from app.models.user import User  # noqa: F401
     from app.models.workspace import Workspace  # noqa: F401
     from app.models.custom_template import CustomTemplate  # noqa: F401
