@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     DEVCLOUD_REGISTRY_URL: str = ""
     DEVCLOUD_REGISTRY_USERNAME: str = ""
     DEVCLOUD_REGISTRY_PASSWORD: str = ""
+    # Preferred bootstrap fallback for generated ML model serving images.
+    # Admin-managed encrypted settings take precedence once saved.
+    MODEL_CONTAINER_REGISTRY_URL: str = ""
+    MODEL_CONTAINER_REGISTRY_USERNAME: str = ""
+    MODEL_CONTAINER_REGISTRY_PASSWORD: str = ""
     MLFLOW_BIN: str = "mlflow"
     MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS: int = 1800
     

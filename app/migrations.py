@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 19
+CURRENT_SCHEMA_VERSION = 20
 
 
 class MigrationError(RuntimeError):
@@ -731,6 +731,9 @@ async def upgrade() -> None:
         if 19 not in applied:
             await _enforce_mlflow_image_references(conn)
             await _record_version(conn, 19, "enforce MLflow image pin references")
+        if 20 not in applied:
+            # init_db creates the portable encrypted registry singleton table.
+            await _record_version(conn, 20, "admin-managed model container registry")
 
 
 async def current_version() -> int:

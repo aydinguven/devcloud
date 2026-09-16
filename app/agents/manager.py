@@ -46,6 +46,18 @@ class AgentConnection:
         self._pending: dict[str, asyncio.Future] = {}
         self._streams: dict[str, AgentStream] = {}
 
+    @property
+    def confidential_for_secrets(self) -> bool:
+        """Permit plaintext command secrets only over WSS or loopback test/agents."""
+        if self.websocket is None:
+            return True
+        scope = getattr(self.websocket, "scope", {}) or {}
+        if str(scope.get("scheme") or "").lower() == "wss":
+            return True
+        client = scope.get("client")
+        host = str(client[0] if isinstance(client, (tuple, list)) and client else "")
+        return host in {"127.0.0.1", "::1", "localhost"}
+
     async def send_json(self, message: dict) -> None:
         async with self._send_lock:
             await self.websocket.send_json(message)

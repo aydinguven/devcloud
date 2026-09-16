@@ -9,6 +9,7 @@ from app.agents.manager import agent_manager
 from app.models.node import Node, NodeStatus
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.workspace_image import WorkspaceImage
+from app.release_catalog import semantic_version
 from app.orchestrator.flavors import Flavor, get_flavor
 
 
@@ -259,12 +260,21 @@ async def accelerator_availability_details(
     }
 
 
+def _agent_version_at_least(node: Node, minimum: str | None) -> bool:
+    if not minimum:
+        return True
+    current = semantic_version(node.agent_version)
+    required = semantic_version(minimum)
+    return current is not None and required is not None and current >= required
+
+
 async def select_workspace_placement(
     db: AsyncSession,
     flavor: Flavor,
     node_selector: dict[str, str] | None = None,
     required_image: str | None = None,
     required_image_sha256: str | None = None,
+    minimum_agent_version: str | None = None,
 ) -> WorkspacePlacement:
     """Pick a connected worker and, for GPU flavors, one exact free CDI slot."""
     nodes = (
@@ -291,6 +301,7 @@ async def select_workspace_placement(
         if node.schedulable
         and node.status == NodeStatus.ONLINE
         and agent_manager.is_connected(node.id)
+        and _agent_version_at_least(node, minimum_agent_version)
         and node.cpu_total >= flavor.cpus
         and node.memory_total_mb >= flavor.memory_mb
         and _matches_selector(node, node_selector)
@@ -401,6 +412,7 @@ async def select_worker_node(
     flavor: Flavor,
     node_selector: dict[str, str] | None = None,
     required_image: str | None = None,
+    minimum_agent_version: str | None = None,
 ) -> Node:
     """Compatibility wrapper for CPU-only build scheduling callers."""
     placement = await select_workspace_placement(
@@ -408,6 +420,7 @@ async def select_worker_node(
         flavor,
         node_selector=node_selector,
         required_image=required_image,
+        minimum_agent_version=minimum_agent_version,
     )
     return placement.node
 

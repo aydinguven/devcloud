@@ -17,11 +17,18 @@ from app.models.directory_settings import DirectorySettings
 from app.session_settings import session_timeout_minutes
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.models.model_container_registry_settings import (
+    ModelContainerRegistrySettings,
+)
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.custom_template import CustomTemplate
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
+from app.model_container_registry import (
+    ModelContainerRegistryConfigurationError,
+    effective_model_container_registry_config,
+)
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.scheduler import (
@@ -602,6 +609,20 @@ async def admin_page(
             else default_model_catalog()
         )
         context["mlflow_server_settings"] = await db.get(MlflowServerSettings, 1)
+        registry_record = await db.get(ModelContainerRegistrySettings, 1)
+        try:
+            registry_config = await effective_model_container_registry_config(db)
+            context["model_container_registry_settings"] = {
+                "managed": registry_record is not None,
+                "enabled": registry_config.enabled,
+                "registry_url": registry_config.registry_url,
+                "username": registry_config.username,
+                "has_password": bool(registry_config.password),
+            }
+            context["model_container_registry_error"] = ""
+        except ModelContainerRegistryConfigurationError as exc:
+            context["model_container_registry_settings"] = None
+            context["model_container_registry_error"] = str(exc)
     elif section == "system":
         context["session_timeout_minutes"] = await session_timeout_minutes(db)
         download_settings = await db.get(DownloadSettings, 1)

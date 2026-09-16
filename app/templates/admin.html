@@ -594,6 +594,55 @@ cd devcloud
   </form>
 </section>
 
+<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #0f766e;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Model Container Registry</h2>
+      <p class="admin-section-description">MLflow model sürümlerinden üretilen OCI serving image'larının gönderileceği özel registry hedefini yönetin.</p>
+    </div>
+    <span id="model-container-registry-status-badge" class="badge {% if model_container_registry_settings and model_container_registry_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">
+      {% if model_container_registry_settings and model_container_registry_settings.enabled %}Etkin{% else %}Devre Dışı{% endif %}
+    </span>
+  </div>
+  <form id="model-container-registry-settings-form" autocomplete="off">
+    <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
+      <input type="checkbox" name="enabled" {% if model_container_registry_settings and model_container_registry_settings.enabled %}checked{% endif %}>
+      <span>Model serving image build ve dağıtımı için registry kullanımını etkinleştir</span>
+    </label>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Registry hedefi</span>
+        <input class="form-input" name="registry_url" value="{{ model_container_registry_settings.registry_url if model_container_registry_settings else '' }}" placeholder="btgvalmnxp1.tcmb.gov.tr:8599">
+        <small class="form-help"><code>http://</code> veya <code>https://</code> eklemeyin. İsteğe bağlı namespace yolu kullanılabilir.</small>
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Registry kullanıcı adı</span>
+        <input class="form-input" name="username" value="{{ model_container_registry_settings.username if model_container_registry_settings else '' }}" autocomplete="username" placeholder="service-account">
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Registry parolası</span>
+        <input class="form-input" name="password" type="password" autocomplete="new-password" placeholder="{% if model_container_registry_settings and model_container_registry_settings.has_password %}Kayıtlı parolayı korumak için boş bırakın{% else %}Registry parolasını girin{% endif %}">
+      </label>
+      <label style="display:flex;gap:.5rem;align-items:center;align-self:end;min-height:2.75rem;">
+        <input type="checkbox" name="clear_password">
+        <span>Kayıtlı parolayı temizle</span>
+      </label>
+    </div>
+    <p class="text-muted">Parola controller veritabanında şifreli tutulur ve normal build sırasında yalnızca seçilen worker'a kimliği doğrulanmış WSS/loopback tunnel üzerinden geçici olarak iletilir. Bağlantı testi, parolayı tüm uygun ve çevrimiçi 3.7.2+ build worker'lara geçici olarak gönderir. Kaydedilmiş ayarlar ortam değişkenlerinin önüne geçer.</p>
+    {% if model_container_registry_settings and not model_container_registry_settings.managed and model_container_registry_settings.registry_url %}
+    <p class="text-muted">Şu anda ortam değişkenlerinden gelen bootstrap registry ayarları kullanılıyor. Kaydetmek bu değerleri şifreli merkezi ayarlara geçirir.</p>
+    {% endif %}
+    {% if model_container_registry_error %}<p class="text-destructive">{{ model_container_registry_error }}</p>{% endif %}
+    <div class="table-actions">
+      <button id="btn-save-model-container-registry" type="submit" class="btn btn-primary">Registry Ayarlarını Kaydet</button>
+      <button id="btn-test-model-container-registry" type="button" class="btn btn-secondary">V2 API Erişimini Test Et</button>
+      <span id="model-container-registry-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
+    <p class="text-muted">Test yalnızca registry v2 API erişimi ve kimlik doğrulamayı kontrol eder; push, pull ve delete yetkileri ilk gerçek model build/import/cleanup işleminde doğrulanır.</p>
+    <div id="model-container-registry-test-results" class="text-muted" style="margin-top:.75rem;" hidden></div>
+  </form>
+</section>
+
 <section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
   <div class="card-header">
     <div>
