@@ -14,8 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.config import settings
 from app.database import get_db
+from app.model_container_registry import (
+    ModelContainerRegistryConfigurationError,
+    effective_model_container_registry_config,
+    validate_model_container_registry_config,
+)
 from app.integrations.mlflow import (
     MlflowClient,
     MlflowConfigurationError,
@@ -663,11 +667,11 @@ async def create_mlflow_deployment(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Validate an immutable model version and enqueue a durable deployment."""
-    if not settings.DEVCLOUD_REGISTRY_URL.strip():
-        raise HTTPException(
-            status_code=503,
-            detail="Model deployment için yönetilen container registry yapılandırılmamış.",
-        )
+    try:
+        registry = await effective_model_container_registry_config(db)
+        validate_model_container_registry_config(registry, require_enabled=True)
+    except ModelContainerRegistryConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     flavor = await resolve_flavor(db, payload.flavor_id)
     if flavor is None or not await flavor_enabled(db, payload.flavor_id):
         raise HTTPException(status_code=400, detail="Geçersiz veya devre dışı kaynak profili.")

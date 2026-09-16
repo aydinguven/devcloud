@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initQuotaForms();
   initDirectorySettings();
   initJupyterAiSettings();
+  initModelContainerRegistrySettings();
   initAdminMlflowSettings();
   initNodeManagement();
   initMlflowSettings();
@@ -139,6 +140,103 @@ function initAdminFilters() {
         item.hidden = Boolean(query) && !haystack.includes(query);
       });
     });
+  });
+}
+
+function initModelContainerRegistrySettings() {
+  const form = document.getElementById("model-container-registry-settings-form");
+  if (!form) return;
+  const saveButton = document.getElementById("btn-save-model-container-registry");
+  const testButton = document.getElementById("btn-test-model-container-registry");
+  const status = document.getElementById("model-container-registry-form-status");
+  const badge = document.getElementById("model-container-registry-status-badge");
+  const results = document.getElementById("model-container-registry-test-results");
+
+  const payload = () => {
+    const password = String(form.elements.password.value || "");
+    return {
+      enabled: form.elements.enabled.checked,
+      registry_url: String(form.elements.registry_url.value || "").trim(),
+      username: String(form.elements.username.value || "").trim(),
+      password: form.elements.clear_password.checked ? "" : (password || null),
+    };
+  };
+
+  const responseError = async (response) => {
+    const body = await response.json().catch(() => ({}));
+    let detail = body.detail || `Registry isteği başarısız (${response.status})`;
+    if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; ");
+    return new Error(detail);
+  };
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    saveButton.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/model-container-registry-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload()),
+      });
+      if (!response.ok) throw await responseError(response);
+      const saved = await response.json();
+      form.elements.password.value = "";
+      form.elements.clear_password.checked = false;
+      form.elements.password.placeholder = saved.has_password
+        ? "Kayıtlı parolayı korumak için boş bırakın"
+        : "Registry parolasını girin";
+      badge.className = `badge ${saved.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = saved.enabled ? "Etkin" : "Devre Dışı";
+      status.textContent = "Model Container Registry ayarları şifreli olarak kaydedildi.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+
+  testButton.addEventListener("click", async () => {
+    testButton.disabled = true;
+    results.hidden = true;
+    results.replaceChildren();
+    status.textContent = "Registry controller ve worker'lardan test ediliyor...";
+    status.className = "quota-form-status";
+    const candidate = payload();
+    try {
+      const response = await fetch("/api/admin/model-container-registry-settings/test", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          registry_url: candidate.registry_url,
+          username: candidate.username,
+          password: candidate.password,
+        }),
+      });
+      if (!response.ok) throw await responseError(response);
+      const tested = await response.json();
+      tested.targets.forEach((target) => {
+        const row = document.createElement("div");
+        const latency = Number.isInteger(target.latency_ms) ? ` · ${target.latency_ms} ms` : "";
+        const httpStatus = target.status_code ? ` · HTTP ${target.status_code}` : "";
+        row.textContent = `${target.ok ? "✓" : "✗"} ${target.target_name}${httpStatus}${latency} — ${target.message}`;
+        row.className = target.ok ? "quota-status-success" : "quota-status-error";
+        results.appendChild(row);
+      });
+      results.hidden = false;
+      status.textContent = tested.ok
+        ? "Registry v2 API erişimi controller ve uyumlu build worker'larda doğrulandı."
+        : "Registry v2 API erişim testi bir veya daha fazla hedefte başarısız.";
+      status.className = `quota-form-status ${tested.ok ? "quota-status-success" : "quota-status-error"}`;
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      testButton.disabled = false;
+    }
   });
 }
 

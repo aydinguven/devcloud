@@ -25,6 +25,11 @@ from app.integrations.mlflow import (
     validate_config,
 )
 from app.mlflow_workspace import environment_from_config
+from app.model_container_registry import (
+    ModelContainerRegistryConfig,
+    effective_model_container_registry_config,
+    validate_model_container_registry_config,
+)
 from app.models.mlflow_deployment import (
     MlflowDeployment,
     MlflowDeploymentEvent,
@@ -238,10 +243,10 @@ def _mlflow_ca_certificate(client: MlflowClient) -> str:
     return content
 
 
-def _image_tag(build: MlflowModelBuild) -> str:
-    prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
+def _image_tag(build: MlflowModelBuild, registry_url: str) -> str:
+    prefix = registry_url.rstrip("/")
     if not prefix:
-        raise RuntimeError("MLflow deployments require DEVCLOUD_REGISTRY_URL.")
+        raise RuntimeError("Model Container Registry yapılandırılmamış.")
     safe_name = re.sub(r"[^a-z0-9._-]+", "-", build.model_name.lower()).strip("-.")
     safe_name = safe_name[:80] or "model"
     return (
@@ -328,6 +333,7 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
     build = await db.get(MlflowModelBuild, build_id)
     if build is None:
         return True
+    registry = await effective_model_container_registry_config(db)
     image = (
         await db.get(WorkspaceImage, build.workspace_image_id)
         if build.workspace_image_id
@@ -351,7 +357,11 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
     db.add(build)
     await db.commit()
 
-    image_ref = image.image_ref if image else _image_tag(build)
+    image_ref = (
+        image.image_ref
+        if image
+        else _image_tag(build, registry.registry_url)
+    )
     source_ref = image.source_ref if image else image_ref
     pending_worker = False
     nodes = (await db.execute(select(Node))).scalars().all()
@@ -383,8 +393,8 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
         await asyncio.to_thread(
             delete_registry_image,
             source_ref=source_ref,
-            username=settings.DEVCLOUD_REGISTRY_USERNAME,
-            password=settings.DEVCLOUD_REGISTRY_PASSWORD,
+            username=registry.username,
+            password=registry.password,
         )
     except WorkspaceImageError:
         registry_deleted = False
@@ -432,8 +442,11 @@ async def _build_image(
     deployment: MlflowDeployment,
     client: MlflowClient,
 ) -> MlflowModelBuild:
+    registry: ModelContainerRegistryConfig | None = None
     cached_build = None
     async with admission_transaction(db):
+        registry = await effective_model_container_registry_config(db)
+        validate_model_container_registry_config(registry, require_enabled=True)
         await _assert_deployment_lease(db, deployment)
         build = await _ready_build(db, deployment)
         if build is not None:
@@ -480,20 +493,33 @@ async def _build_image(
             )
     if cached_build is not None:
         return cached_build
+    if registry is None:
+        raise RuntimeError("Model Container Registry çözümlenemedi.")
 
     build_flavor = get_flavor("t1.nano")
     if build_flavor is None:
         raise RuntimeError("Image build kaynak profili bulunamadı.")
-    node = await select_worker_node(db, build_flavor)
+    node = await select_worker_node(
+        db, build_flavor, minimum_agent_version="3.7.2"
+    )
     await db.commit()
-    image_tag = _image_tag(build)
+    image_tag = _image_tag(build, registry.registry_url)
+    connection = agent_manager.get(node.id)
+    if registry.password and not connection.confidential_for_secrets:
+        raise RuntimeError(
+            "Registry parolası build worker'a yalnızca WSS veya loopback tunnel "
+            "üzerinden gönderilebilir."
+        )
     async with _maintain_deployment_lease(deployment.id, build.id):
-        result = await agent_manager.get(node.id).request(
+        result = await connection.request(
             "image.mlflow.build",
             {
                 "model_name": build.model_name,
                 "model_version": build.model_version,
                 "image_tag": image_tag,
+                "registry_url": registry.registry_url,
+                "registry_username": registry.username,
+                "registry_password": registry.password,
                 "mlflow_environment": environment_from_config(client.config),
                 "mlflow_ca_certificate": _mlflow_ca_certificate(client),
             },
@@ -522,8 +548,8 @@ async def _build_image(
             import_registry_image,
             image_ref=image_tag,
             source_ref=image_tag,
-            username=settings.DEVCLOUD_REGISTRY_USERNAME,
-            password=settings.DEVCLOUD_REGISTRY_PASSWORD,
+            username=registry.username,
+            password=registry.password,
         )
     await _assert_deployment_lease(db, deployment)
     image = WorkspaceImage(

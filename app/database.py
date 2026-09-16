@@ -262,6 +262,9 @@ async def init_db() -> None:
     from app.models.node import Node  # noqa: F401
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
     from app.models.mlflow_server_settings import MlflowServerSettings  # noqa: F401
+    from app.models.model_container_registry_settings import (  # noqa: F401
+        ModelContainerRegistrySettings,
+    )
     from app.models.mlflow_deployment import (  # noqa: F401
         MlflowDeployment,
         MlflowDeploymentEvent,

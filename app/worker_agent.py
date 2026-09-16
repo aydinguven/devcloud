@@ -31,6 +31,12 @@ from app.worker_transfers import WorkerTransfers
 from app.agents.transfers import CHUNK_BYTES
 from app.agents.manager import STREAM_WINDOW, MAX_STREAM_FRAME_BYTES, MAX_STREAMS
 from app.orchestrator.podman_service import podman_service
+from app.model_container_registry import (
+    ModelContainerRegistryConfig,
+    environment_model_container_registry_config,
+    test_model_container_registry,
+    validate_model_container_registry_config,
+)
 from app.release_catalog import semantic_version
 from app.schemas.jupyter_ai_settings import JupyterAiModel
 from app.worker_gpu import discover_nvidia_capabilities
@@ -48,6 +54,26 @@ def _required_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"{name} ayarlanmalıdır.")
     return value
+
+
+def _model_registry_config_from_payload(payload: dict) -> ModelContainerRegistryConfig:
+    keys = {"registry_url", "registry_username", "registry_password"}
+    if not any(key in payload for key in keys):
+        return environment_model_container_registry_config()
+    registry_url = str(payload.get("registry_url") or "").strip().rstrip("/")
+    username = str(payload.get("registry_username") or "").strip()
+    password = str(payload.get("registry_password") or "")
+    if len(registry_url) > 1024 or len(username) > 255 or len(password) > 4096:
+        raise ValueError("Model Container Registry ayarları izin verilen boyutu aşıyor.")
+    config = ModelContainerRegistryConfig(
+        managed=True,
+        enabled=bool(registry_url),
+        registry_url=registry_url,
+        username=username,
+        password=password,
+    )
+    validate_model_container_registry_config(config, require_enabled=True)
+    return config
 
 
 def _connection_url() -> str:
@@ -849,11 +875,22 @@ class WorkerAgent:
         raise ValueError(f"Desteklenmeyen dosya komutu: {action}")
 
     async def handle_image_command(self, action: str, payload: dict) -> dict:
+        if action == "image.registry.test":
+            registry = _model_registry_config_from_payload(payload)
+            return await test_model_container_registry(registry)
         if action == "image.remove":
             image_tag = str(payload.get("image_tag") or "").strip()
-            registry_prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
-            if not registry_prefix or not image_tag.startswith(f"{registry_prefix}/"):
-                raise ValueError("Silinecek image yönetilen registry altında olmalıdır.")
+            managed = any(
+                isinstance(value, dict) and value.get("image_ref") == image_tag
+                for value in self.image_state.values()
+            )
+            if not managed:
+                fallback = environment_model_container_registry_config()
+                if (
+                    not fallback.registry_url
+                    or not image_tag.startswith(f"{fallback.registry_url}/")
+                ):
+                    raise ValueError("Silinecek image worker yönetim kataloğunda bulunmuyor.")
             if podman_service.is_mock:
                 return {"success": True, "image_tag": image_tag}
             code, stdout, stderr = await podman_service.run_cmd(
@@ -880,7 +917,7 @@ class WorkerAgent:
             model_name = str(payload.get("model_name") or "").strip()
             model_version = str(payload.get("model_version") or "").strip()
             image_tag = str(payload.get("image_tag") or "").strip()
-            registry_prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
+            registry = _model_registry_config_from_payload(payload)
             if (
                 not model_name
                 or len(model_name) > 255
@@ -888,15 +925,15 @@ class WorkerAgent:
                 or int(model_version) < 1
             ):
                 raise ValueError("Geçerli model adı ve sayısal versiyonu gereklidir.")
-            if not registry_prefix or not image_tag.startswith(f"{registry_prefix}/"):
+            if not image_tag.startswith(f"{registry.registry_url}/"):
                 raise ValueError("MLflow image hedefi yönetilen registry altında olmalıdır.")
             success, logs = await podman_service.build_mlflow_model_image(
                 model_uri=f"models:/{model_name}/{int(model_version)}",
                 image_tag=image_tag,
                 mlflow_environment=payload.get("mlflow_environment") or {},
                 ca_certificate=str(payload.get("mlflow_ca_certificate") or ""),
-                registry_username=settings.DEVCLOUD_REGISTRY_USERNAME,
-                registry_password=settings.DEVCLOUD_REGISTRY_PASSWORD,
+                registry_username=registry.username,
+                registry_password=registry.password,
             )
             return {
                 "success": success,

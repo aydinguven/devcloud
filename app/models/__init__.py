@@ -5,6 +5,9 @@ from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
+from app.models.model_container_registry_settings import (
+    ModelContainerRegistrySettings,
+)
 from app.models.mlflow_deployment import (
     MlflowDeployment,
     MlflowDeploymentEvent,
@@ -30,6 +33,7 @@ __all__ = [
     "Node",
     "NodeStatus",
     "MlflowSettings",
+    "ModelContainerRegistrySettings",
     "MlflowDeployment",
     "MlflowDeploymentEvent",
     "MlflowDeploymentStatus",

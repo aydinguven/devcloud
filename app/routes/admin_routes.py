@@ -19,6 +19,7 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -55,8 +56,12 @@ from app.models.custom_template import CustomTemplate
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.models.model_container_registry_settings import (
+    ModelContainerRegistrySettings,
+)
 from app.models.flavor_settings import FlavorSettings
 from app.models.template_settings import TemplateSettings
+from app.orchestrator.admission import admission_transaction
 from app.agents.manager import agent_manager
 from app.schemas.user import UserOut, UserQuotaUpdate
 from app.schemas.directory import (
@@ -85,6 +90,21 @@ from app.schemas.jupyter_ai_settings import (
     JupyterAiSettingsUpdate,
 )
 from app.schemas.mlflow import MlflowServerSettingsOut, MlflowServerSettingsUpdate
+from app.schemas.model_container_registry import (
+    ModelContainerRegistrySettingsOut,
+    ModelContainerRegistrySettingsUpdate,
+    ModelContainerRegistryTargetResult,
+    ModelContainerRegistryTestRequest,
+    ModelContainerRegistryTestResult,
+)
+from app.model_container_registry import (
+    ModelContainerRegistryConfigurationError,
+    ModelContainerRegistryConfig,
+    config_from_record as model_registry_config_from_record,
+    config_from_update as model_registry_config_from_update,
+    effective_model_container_registry_config,
+    test_model_container_registry,
+)
 from app.integrations.mlflow import MlflowConfig, validate_config as validate_mlflow_config
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.config import settings
@@ -1172,6 +1192,235 @@ def _jupyter_ai_settings_out(
         ],
         has_shared_token=bool(record.encrypted_shared_token),
         updated_at=record.updated_at,
+    )
+
+
+def _model_container_registry_settings_out(
+    config: ModelContainerRegistryConfig,
+    record: ModelContainerRegistrySettings | None,
+) -> ModelContainerRegistrySettingsOut:
+    return ModelContainerRegistrySettingsOut(
+        managed=record is not None,
+        enabled=config.enabled,
+        registry_url=config.registry_url,
+        username=config.username,
+        has_password=bool(config.password),
+        updated_at=record.updated_at if record else None,
+    )
+
+
+async def _model_registry_current_for_update(
+    db: AsyncSession,
+    record: ModelContainerRegistrySettings | None,
+    submitted_password: str | None,
+) -> ModelContainerRegistryConfig:
+    try:
+        return await effective_model_container_registry_config(db)
+    except ModelContainerRegistryConfigurationError:
+        if submitted_password is None:
+            raise
+        fallback_url = (
+            record.registry_url
+            if record
+            else (
+                settings.MODEL_CONTAINER_REGISTRY_URL
+                or settings.DEVCLOUD_REGISTRY_URL
+            )
+        )
+        return ModelContainerRegistryConfig(
+            managed=record is not None,
+            enabled=False,
+            registry_url=fallback_url.strip().rstrip("/"),
+            username=record.username if record else "",
+            password="",
+        )
+
+
+@admin_router.get(
+    "/model-container-registry-settings",
+    response_model=ModelContainerRegistrySettingsOut,
+)
+async def get_model_container_registry_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the effective generated-model image destination without its password."""
+    record = await db.get(ModelContainerRegistrySettings, 1)
+    try:
+        config = (
+            model_registry_config_from_record(record)
+            if record
+            else await effective_model_container_registry_config(db)
+        )
+    except ModelContainerRegistryConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _model_container_registry_settings_out(config, record)
+
+
+@admin_router.put(
+    "/model-container-registry-settings",
+    response_model=ModelContainerRegistrySettingsOut,
+)
+async def update_model_container_registry_settings(
+    update: ModelContainerRegistrySettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Encrypt and store the destination used for generated model images."""
+    try:
+        async with admission_transaction(db):
+            record = await db.get(ModelContainerRegistrySettings, 1)
+            current = await _model_registry_current_for_update(
+                db, record, update.password
+            )
+            candidate = model_registry_config_from_update(update, current)
+            if candidate.registry_url != current.registry_url:
+                build_count = (
+                    await db.execute(select(func.count(MlflowModelBuild.id)))
+                ).scalar_one()
+                if build_count:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Model image kayıtları varken registry adresi değiştirilemez. "
+                            "Önce model deployment ve image kayıtlarını temizleyin."
+                        ),
+                    )
+            if record is None:
+                record = ModelContainerRegistrySettings(id=1)
+                record.encrypted_password = encrypt_secret(candidate.password)
+            elif update.password is not None:
+                record.encrypted_password = encrypt_secret(candidate.password)
+            record.enabled = candidate.enabled
+            record.registry_url = candidate.registry_url
+            record.username = candidate.username
+            record.updated_at = datetime.now(timezone.utc)
+            db.add(record)
+    except ModelContainerRegistryConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.refresh(record)
+    return _model_container_registry_settings_out(
+        model_registry_config_from_record(record), record
+    )
+
+
+@admin_router.post(
+    "/model-container-registry-settings/test",
+    response_model=ModelContainerRegistryTestResult,
+)
+async def test_model_container_registry_settings(
+    request: ModelContainerRegistryTestRequest,
+    response: Response,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Test unsaved registry settings from the controller and every enabled worker."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        record = await db.get(ModelContainerRegistrySettings, 1)
+        current = await _model_registry_current_for_update(
+            db, record, request.password
+        )
+        candidate = model_registry_config_from_update(
+            ModelContainerRegistrySettingsUpdate(
+                enabled=True,
+                registry_url=request.registry_url,
+                username=request.username,
+                password=request.password,
+            ),
+            current,
+        )
+    except ModelContainerRegistryConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    controller_result = await test_model_container_registry(candidate)
+    targets = [
+        ModelContainerRegistryTargetResult(
+            target_id="controller",
+            target_name="Controller",
+            target_kind="controller",
+            **controller_result,
+        )
+    ]
+    nodes = (
+        await db.execute(
+            select(Node)
+            .where(
+                Node.enabled.is_(True),
+                Node.schedulable.is_(True),
+            )
+            .order_by(Node.name)
+        )
+    ).scalars().all()
+
+    async def test_worker(node: Node) -> ModelContainerRegistryTargetResult:
+        current_version = semantic_version(node.agent_version)
+        minimum_version = semantic_version("3.7.2")
+        if (
+            current_version is None
+            or minimum_version is None
+            or current_version < minimum_version
+        ):
+            return ModelContainerRegistryTargetResult(
+                target_id=node.id,
+                target_name=node.name,
+                target_kind="worker",
+                ok=False,
+                message="Worker 3.7.2+ olmalıdır; kimlik bilgisi gönderilmedi.",
+            )
+        if not agent_manager.is_connected(node.id):
+            return ModelContainerRegistryTargetResult(
+                target_id=node.id,
+                target_name=node.name,
+                target_kind="worker",
+                ok=False,
+                message="Worker çevrimdışı veya controller tunnel'ına bağlı değil.",
+            )
+        try:
+            connection = agent_manager.get(node.id)
+            if candidate.password and not connection.confidential_for_secrets:
+                return ModelContainerRegistryTargetResult(
+                    target_id=node.id,
+                    target_name=node.name,
+                    target_kind="worker",
+                    ok=False,
+                    message=(
+                        "Registry parolası yalnızca WSS veya loopback worker tunnel'ı "
+                        "üzerinden gönderilebilir."
+                    ),
+                )
+            result = await connection.request(
+                "image.registry.test",
+                {
+                    "registry_url": candidate.registry_url,
+                    "registry_username": candidate.username,
+                    "registry_password": candidate.password,
+                },
+                timeout=20,
+            )
+            return ModelContainerRegistryTargetResult(
+                target_id=node.id,
+                target_name=node.name,
+                target_kind="worker",
+                ok=result.get("ok") is True,
+                status_code=result.get("status_code"),
+                latency_ms=result.get("latency_ms"),
+                message=str(result.get("message") or "Worker yanıt vermedi."),
+            )
+        except Exception as exc:
+            return ModelContainerRegistryTargetResult(
+                target_id=node.id,
+                target_name=node.name,
+                target_kind="worker",
+                ok=False,
+                message=f"Worker testi çalıştırılamadı: {exc}",
+            )
+
+    targets.extend(await asyncio.gather(*(test_worker(node) for node in nodes)))
+    return ModelContainerRegistryTestResult(
+        ok=all(target.ok for target in targets),
+        registry_url=candidate.registry_url,
+        targets=targets,
     )
 
 
