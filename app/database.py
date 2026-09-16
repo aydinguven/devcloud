@@ -1,5 +1,5 @@
 from typing import AsyncGenerator
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -12,6 +12,14 @@ engine = create_async_engine(
     echo=False,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
+
+
+if "sqlite" in settings.DATABASE_URL:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # Async session factory
 AsyncSessionLocal = async_sessionmaker(
@@ -254,6 +262,11 @@ async def init_db() -> None:
     from app.models.node import Node  # noqa: F401
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
     from app.models.mlflow_server_settings import MlflowServerSettings  # noqa: F401
+    from app.models.mlflow_deployment import (  # noqa: F401
+        MlflowDeployment,
+        MlflowDeploymentEvent,
+        MlflowModelBuild,
+    )
     from app.models.download_settings import DownloadSettings  # noqa: F401
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401

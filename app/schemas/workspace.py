@@ -51,6 +51,7 @@ class WorkspaceOut(BaseModel):
     node_id: str
     template_id: str
     flavor_id: str
+    image_id: str | None = None
     container_name: str
     host_port: int
     container_port: int

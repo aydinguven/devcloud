@@ -213,6 +213,9 @@ class AgentManager:
     def is_connected(self, node_id: str) -> bool:
         return node_id in self._connections
 
+    def connected_node_ids(self) -> tuple[str, ...]:
+        return tuple(self._connections)
+
     async def disconnect(self, node_id: str, reason: str = "Worker bağlantısı sonlandırıldı") -> None:
         connection = self._connections.pop(node_id, None)
         if not connection:

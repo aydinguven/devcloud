@@ -50,6 +50,7 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
+from app.models.mlflow_deployment import MlflowModelBuild
 from app.models.custom_template import CustomTemplate
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
@@ -339,11 +340,15 @@ async def _register_workspace_image(
     metadata: dict[str, object],
     custom_template: CustomTemplate | None = None,
 ) -> WorkspaceImage:
-    await db.execute(
-        update(WorkspaceImage)
-        .where(WorkspaceImage.template_id == template_id)
-        .values(enabled=False)
-    )
+    previous_images = (
+        await db.execute(
+            select(WorkspaceImage).where(WorkspaceImage.template_id == template_id)
+        )
+    ).scalars().all()
+    for previous in previous_images:
+        if not await _workspace_image_in_use(db, previous.id):
+            previous.enabled = False
+            db.add(previous)
     record = WorkspaceImage(
         id=str(metadata["id"]),
         template_id=template_id,
@@ -496,6 +501,22 @@ async def upload_workspace_image_archive(
     return _workspace_image_out(record, nodes)
 
 
+async def _workspace_image_in_use(db: AsyncSession, image_id: str) -> bool:
+    workspace_count = (
+        await db.execute(
+            select(func.count(Workspace.id)).where(Workspace.image_id == image_id)
+        )
+    ).scalar_one()
+    build_count = (
+        await db.execute(
+            select(func.count(MlflowModelBuild.id)).where(
+                MlflowModelBuild.workspace_image_id == image_id
+            )
+        )
+    ).scalar_one()
+    return bool(workspace_count or build_count)
+
+
 @admin_router.patch("/workspace-images/{image_id}", response_model=WorkspaceImageOut)
 async def update_workspace_image(
     image_id: str,
@@ -506,15 +527,24 @@ async def update_workspace_image(
     record = await db.get(WorkspaceImage, image_id)
     if not record:
         raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
-    if payload.enabled:
-        await db.execute(
-            update(WorkspaceImage)
-            .where(
-                WorkspaceImage.template_id == record.template_id,
-                WorkspaceImage.id != record.id,
-            )
-            .values(enabled=False)
+    if not payload.enabled and await _workspace_image_in_use(db, record.id):
+        raise HTTPException(
+            status_code=409,
+            detail="Aktif workspace veya model build tarafından kullanılan image devre dışı bırakılamaz.",
         )
+    if payload.enabled:
+        previous_images = (
+            await db.execute(
+                select(WorkspaceImage).where(
+                    WorkspaceImage.template_id == record.template_id,
+                    WorkspaceImage.id != record.id,
+                )
+            )
+        ).scalars().all()
+        for previous in previous_images:
+            if not await _workspace_image_in_use(db, previous.id):
+                previous.enabled = False
+                db.add(previous)
     record.enabled = payload.enabled
     db.add(record)
     await db.commit()
@@ -645,6 +675,11 @@ async def delete_workspace_image(
     record = await db.get(WorkspaceImage, image_id)
     if not record:
         raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
+    if await _workspace_image_in_use(db, record.id):
+        raise HTTPException(
+            status_code=409,
+            detail="Aktif workspace veya model build tarafından kullanılan image silinemez.",
+        )
     archive_path = image_archive_path(record.filename)
     await db.delete(record)
     await db.commit()

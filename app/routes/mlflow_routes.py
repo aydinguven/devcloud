@@ -1,15 +1,20 @@
 import asyncio
 import base64
+import hashlib
+import secrets
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.config import settings
 from app.database import get_db
 from app.integrations.mlflow import (
     MlflowClient,
@@ -25,9 +30,38 @@ from app.integrations.mlflow import (
 )
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.models.mlflow_deployment import (
+    MlflowDeployment,
+    MlflowDeploymentEvent,
+    MlflowDeploymentStatus,
+    MlflowModelBuild,
+    MlflowModelBuildStatus,
+)
 from app.models.user import User
+from app.models.workspace import Workspace
+from app.schemas.mlflow_deployment import (
+    MlflowDeploymentCreate,
+    MlflowDeploymentCreated,
+    MlflowDeploymentEventOut,
+    MlflowDeploymentEvents,
+    MlflowDeploymentList,
+    MlflowDeploymentOut,
+    MlflowDeploymentTokenOut,
+)
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.security.secrets import encrypt_secret
+from app.workspace_catalog import flavor_enabled, resolve_flavor
+from app.routes.workspace_routes import (
+    delete_workspace_resources,
+    start_workspace_endpoint,
+    stop_workspace_endpoint,
+)
+from app.orchestrator.mlflow_deployment_service import (
+    append_deployment_event,
+    enroll_model_build_cleanup,
+    garbage_collect_model_build,
+)
+from app.orchestrator.admission import admission_transaction
 
 mlflow_router = APIRouter(prefix="/api/mlflow", tags=["MLflow"])
 
@@ -136,6 +170,31 @@ def _safe_artifact_path(value: str) -> PurePosixPath:
     if any(part in {"", ".", ".."} for part in path.parts):
         raise HTTPException(status_code=400, detail="Geçersiz artifact yolu.")
     return path
+
+
+def _deployment_out(deployment: MlflowDeployment) -> MlflowDeploymentOut:
+    base = f"/api/model-endpoints/{deployment.id}"
+    return MlflowDeploymentOut(
+        id=deployment.id,
+        user_id=deployment.user_id,
+        build_id=deployment.build_id,
+        workspace_id=deployment.workspace_id,
+        name=deployment.name,
+        model_name=deployment.model_name,
+        model_version=deployment.model_version,
+        run_id=deployment.run_id,
+        source_uri=deployment.source_uri,
+        flavor_id=deployment.flavor_id,
+        auto_stop_minutes=deployment.auto_stop_minutes,
+        gunicorn_workers=deployment.gunicorn_workers,
+        status=deployment.status,
+        status_message=deployment.status_message,
+        error_message=deployment.error_message,
+        created_at=deployment.created_at,
+        updated_at=deployment.updated_at,
+        endpoint_url=f"{base}/invocations",
+        health_url=f"{base}/ping",
+    )
 
 
 def _downsample_metrics(metrics: list[dict], limit: int = 500) -> list[dict]:
@@ -590,3 +649,323 @@ async def preview_mlflow_artifact(
         "size": len(content),
         "content": content.decode("utf-8-sig", errors="replace"),
     }
+
+
+
+@mlflow_router.post(
+    "/deployments",
+    response_model=MlflowDeploymentCreated,
+    status_code=202,
+)
+async def create_mlflow_deployment(
+    payload: MlflowDeploymentCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Validate an immutable model version and enqueue a durable deployment."""
+    if not settings.DEVCLOUD_REGISTRY_URL.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Model deployment için yönetilen container registry yapılandırılmamış.",
+        )
+    flavor = await resolve_flavor(db, payload.flavor_id)
+    if flavor is None or not await flavor_enabled(db, payload.flavor_id):
+        raise HTTPException(status_code=400, detail="Geçersiz veya devre dışı kaynak profili.")
+    existing = (
+        await db.execute(
+            select(MlflowDeployment).where(
+                MlflowDeployment.user_id == current_user.id,
+                MlflowDeployment.name == payload.name,
+                MlflowDeployment.status != MlflowDeploymentStatus.FAILED,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Bu adla etkin bir model deployment zaten var.")
+
+    client = await get_mlflow_client(db, current_user.id)
+    try:
+        version_payload = await client.get_model_version(
+            payload.model_name, payload.model_version
+        )
+    except MlflowConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MlflowConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    version = version_payload.get("model_version") or {}
+    if (
+        str(version.get("name") or "") != payload.model_name
+        or str(version.get("version") or "") != payload.model_version
+    ):
+        raise HTTPException(status_code=409, detail="MLflow beklenen model versiyonunu döndürmedi.")
+
+    access_token = secrets.token_urlsafe(32)
+    deployment = MlflowDeployment(
+        user_id=current_user.id,
+        name=payload.name,
+        model_name=payload.model_name,
+        model_version=payload.model_version,
+        run_id=str(version.get("run_id") or ""),
+        source_uri=str(version.get("source") or ""),
+        flavor_id=payload.flavor_id,
+        auto_stop_minutes=payload.auto_stop_minutes,
+        gunicorn_workers=payload.gunicorn_workers,
+        access_token_hash=hashlib.sha256(access_token.encode("utf-8")).hexdigest(),
+        status=MlflowDeploymentStatus.QUEUED,
+        status_message="Deployment kuyruğa alındı.",
+    )
+    db.add(deployment)
+    await db.flush()
+    db.add(
+        MlflowDeploymentEvent(
+            deployment_id=deployment.id,
+            sequence=1,
+            level="info",
+            message=(
+                f"{deployment.model_name} v{deployment.model_version} için "
+                "deployment kuyruğa alındı."
+            ),
+        )
+    )
+    try:
+        await db.commit()
+        await db.refresh(deployment)
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Deployment kaydı oluşturulamadı.") from exc
+    return MlflowDeploymentCreated(
+        **_deployment_out(deployment).model_dump(),
+        access_token=access_token,
+    )
+
+
+@mlflow_router.get("/deployments", response_model=MlflowDeploymentList)
+async def list_mlflow_deployments(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployments = (
+        await db.execute(
+            select(MlflowDeployment)
+            .where(MlflowDeployment.user_id == current_user.id)
+            .order_by(MlflowDeployment.created_at.desc())
+        )
+    ).scalars().all()
+    return MlflowDeploymentList(
+        deployments=[_deployment_out(item) for item in deployments]
+    )
+
+
+async def _garbage_collect_model_build(
+    db: AsyncSession,
+    build_id: str | None,
+) -> None:
+    await garbage_collect_model_build(db, build_id)
+
+
+async def _owned_deployment(
+    db: AsyncSession,
+    deployment_id: str,
+    current_user: User,
+) -> MlflowDeployment:
+    deployment = await db.get(MlflowDeployment, deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Model deployment bulunamadı.")
+    if deployment.user_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Bu model deployment için erişim reddedildi.")
+    return deployment
+
+
+@mlflow_router.get("/deployments/{deployment_id}", response_model=MlflowDeploymentOut)
+async def get_mlflow_deployment(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return _deployment_out(await _owned_deployment(db, deployment_id, current_user))
+
+
+@mlflow_router.get(
+    "/deployments/{deployment_id}/events",
+    response_model=MlflowDeploymentEvents,
+)
+async def get_mlflow_deployment_events(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await _owned_deployment(db, deployment_id, current_user)
+    events = (
+        await db.execute(
+            select(MlflowDeploymentEvent)
+            .where(MlflowDeploymentEvent.deployment_id == deployment_id)
+            .order_by(MlflowDeploymentEvent.sequence)
+        )
+    ).scalars().all()
+    return MlflowDeploymentEvents(
+        events=[MlflowDeploymentEventOut.model_validate(item) for item in events]
+    )
+
+
+@mlflow_router.post(
+    "/deployments/{deployment_id}/token",
+    response_model=MlflowDeploymentTokenOut,
+)
+async def rotate_mlflow_deployment_token(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    access_token = secrets.token_urlsafe(32)
+    deployment.access_token_hash = hashlib.sha256(
+        access_token.encode("utf-8")
+    ).hexdigest()
+    await append_deployment_event(
+        db, deployment, "Model endpoint erişim tokenı yenilendi."
+    )
+    db.add(deployment)
+    await db.commit()
+    return MlflowDeploymentTokenOut(access_token=access_token)
+
+
+@mlflow_router.post(
+    "/deployments/{deployment_id}/stop",
+    response_model=MlflowDeploymentOut,
+)
+async def stop_mlflow_deployment(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    if not deployment.workspace_id:
+        raise HTTPException(status_code=409, detail="Deployment henüz workspace oluşturmadı.")
+    await stop_workspace_endpoint(deployment.workspace_id, current_user, db)
+    deployment.status = MlflowDeploymentStatus.STOPPED
+    deployment.status_message = "Model servisi durduruldu."
+    deployment.error_message = None
+    await append_deployment_event(db, deployment, deployment.status_message)
+    await db.commit()
+    await db.refresh(deployment)
+    return _deployment_out(deployment)
+
+
+@mlflow_router.post(
+    "/deployments/{deployment_id}/start",
+    response_model=MlflowDeploymentOut,
+)
+async def start_mlflow_deployment(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    if not deployment.workspace_id:
+        raise HTTPException(status_code=409, detail="Deployment henüz workspace oluşturmadı.")
+    workspace = await start_workspace_endpoint(deployment.workspace_id, current_user, db)
+    if workspace.status.value != "running":
+        raise HTTPException(status_code=502, detail=workspace.error_message or "Model servisi başlatılamadı.")
+    deployment.status = MlflowDeploymentStatus.RUNNING
+    deployment.status_message = "Model servisi yeniden başlatıldı."
+    deployment.error_message = None
+    await append_deployment_event(db, deployment, deployment.status_message, "success")
+    await db.commit()
+    await db.refresh(deployment)
+    return _deployment_out(deployment)
+
+
+@mlflow_router.post(
+    "/deployments/{deployment_id}/retry",
+    response_model=MlflowDeploymentOut,
+    status_code=202,
+)
+async def retry_mlflow_deployment(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    if deployment.status != MlflowDeploymentStatus.FAILED:
+        raise HTTPException(status_code=409, detail="Yalnızca başarısız deployment yeniden denenebilir.")
+    if deployment.workspace_id:
+        workspace = await db.get(Workspace, deployment.workspace_id)
+        if workspace:
+            await delete_workspace_resources(
+                db, workspace, allow_transient=True
+            )
+        deployment.workspace_id = None
+    failed_build_id = None
+    if deployment.build_id:
+        async with admission_transaction(db):
+            await db.refresh(deployment)
+            build = await db.get(MlflowModelBuild, deployment.build_id)
+            if build and build.status == MlflowModelBuildStatus.FAILED:
+                failed_build_id = build.id
+                await enroll_model_build_cleanup(
+                    db,
+                    failed_build_id,
+                    excluding_deployment_id=deployment.id,
+                )
+                deployment.build_id = None
+                db.add(deployment)
+        if failed_build_id:
+            await _garbage_collect_model_build(db, failed_build_id)
+    deployment.status = MlflowDeploymentStatus.QUEUED
+    deployment.status_message = "Deployment yeniden kuyruğa alındı."
+    deployment.error_message = None
+    await append_deployment_event(db, deployment, deployment.status_message)
+    await db.commit()
+    await db.refresh(deployment)
+    return _deployment_out(deployment)
+
+
+@mlflow_router.delete("/deployments/{deployment_id}", status_code=204)
+async def delete_mlflow_deployment(
+    deployment_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    if deployment.status not in {
+        MlflowDeploymentStatus.RUNNING,
+        MlflowDeploymentStatus.STOPPED,
+        MlflowDeploymentStatus.FAILED,
+        MlflowDeploymentStatus.DELETING,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Devam eden deployment silinemez; tamamlanmasını bekleyin.",
+        )
+    deployment.status = MlflowDeploymentStatus.DELETING
+    deployment.status_message = "Model deployment siliniyor."
+    deployment.lease_owner = f"api-delete:{current_user.id}"
+    deployment.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    build_id = deployment.build_id
+    await db.commit()
+    try:
+        if deployment.workspace_id:
+            workspace = await db.get(Workspace, deployment.workspace_id)
+            if workspace:
+                await delete_workspace_resources(
+                db, workspace, allow_transient=True
+            )
+            deployment.workspace_id = None
+    except HTTPException as exc:
+        deployment.status = MlflowDeploymentStatus.FAILED
+        deployment.status_message = "Model deployment silinemedi; yeniden deneyin."
+        deployment.error_message = str(exc.detail)[:4000]
+        deployment.lease_owner = ""
+        deployment.lease_expires_at = None
+        db.add(deployment)
+        await db.commit()
+        raise
+    async with admission_transaction(db):
+        await db.refresh(deployment)
+        await enroll_model_build_cleanup(
+            db,
+            build_id,
+            excluding_deployment_id=deployment.id,
+        )
+        await db.delete(deployment)
+    return None

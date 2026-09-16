@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 19
 
 
 class MigrationError(RuntimeError):
@@ -518,6 +518,155 @@ async def _migrate_mlflow_server_settings(conn) -> bool:
     return True
 
 
+async def _add_mlflow_deployment_columns(conn) -> None:
+    """Add immutable image ownership/pinning fields to existing installations."""
+    workspace_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("workspaces")
+        }
+    )
+    if "image_id" not in workspace_columns:
+        await conn.execute(text("ALTER TABLE workspaces ADD COLUMN image_id VARCHAR(36)"))
+    image_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("workspace_images")
+        }
+    )
+    if "purpose" not in image_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE workspace_images ADD COLUMN purpose "
+                "VARCHAR(32) NOT NULL DEFAULT 'template'"
+            )
+        )
+    if "owner_user_id" not in image_columns:
+        await conn.execute(
+            text("ALTER TABLE workspace_images ADD COLUMN owner_user_id INTEGER")
+        )
+    deployment_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("mlflow_deployments")
+        }
+    )
+    if "lease_owner" not in deployment_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE mlflow_deployments ADD COLUMN lease_owner "
+                "VARCHAR(128) NOT NULL DEFAULT ''"
+            )
+        )
+    if "lease_expires_at" not in deployment_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE mlflow_deployments ADD COLUMN lease_expires_at TIMESTAMP"
+            )
+        )
+    if "quota_reserved" not in deployment_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE mlflow_deployments ADD COLUMN quota_reserved "
+                "BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_mlflow_deployments_quota_reserved "
+            "ON mlflow_deployments (quota_reserved)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_mlflow_deployments_lease_expires_at "
+            "ON mlflow_deployments (lease_expires_at)"
+        )
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_workspaces_image_id ON workspaces (image_id)")
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_workspace_images_owner_user_id "
+            "ON workspace_images (owner_user_id)"
+        )
+    )
+
+
+async def _enforce_mlflow_image_references(conn) -> None:
+    """Enforce image pin integrity on upgraded SQLite and PostgreSQL schemas."""
+    if conn.dialect.name == "sqlite":
+        await conn.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS fk_workspaces_image_insert "
+                "BEFORE INSERT ON workspaces WHEN NEW.image_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM workspace_images WHERE id = NEW.image_id) "
+                "BEGIN SELECT RAISE(ABORT, 'workspace image foreign key violation'); END"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS fk_workspaces_image_update "
+                "BEFORE UPDATE OF image_id ON workspaces WHEN NEW.image_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM workspace_images WHERE id = NEW.image_id) "
+                "BEGIN SELECT RAISE(ABORT, 'workspace image foreign key violation'); END"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS fk_workspace_images_delete_restrict "
+                "BEFORE DELETE ON workspace_images WHEN EXISTS "
+                "(SELECT 1 FROM workspaces WHERE image_id = OLD.id) "
+                "BEGIN SELECT RAISE(ABORT, 'workspace image is pinned'); END"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS fk_workspace_images_owner_insert "
+                "BEFORE INSERT ON workspace_images WHEN NEW.owner_user_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM users WHERE id = NEW.owner_user_id) "
+                "BEGIN SELECT RAISE(ABORT, 'workspace image owner foreign key violation'); END"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS fk_workspace_images_owner_update "
+                "BEFORE UPDATE OF owner_user_id ON workspace_images "
+                "WHEN NEW.owner_user_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM users WHERE id = NEW.owner_user_id) "
+                "BEGIN SELECT RAISE(ABORT, 'workspace image owner foreign key violation'); END"
+            )
+        )
+        return
+    if conn.dialect.name == "postgresql":
+        foreign_keys = await conn.run_sync(
+            lambda sync_conn: {
+                tuple(item.get("constrained_columns") or ())
+                for item in inspect(sync_conn).get_foreign_keys("workspaces")
+            }
+        )
+        if ("image_id",) not in foreign_keys:
+            await conn.execute(
+                text(
+                    "ALTER TABLE workspaces ADD CONSTRAINT fk_workspaces_image_id "
+                    "FOREIGN KEY (image_id) REFERENCES workspace_images(id) ON DELETE RESTRICT"
+                )
+            )
+        image_foreign_keys = await conn.run_sync(
+            lambda sync_conn: {
+                tuple(item.get("constrained_columns") or ())
+                for item in inspect(sync_conn).get_foreign_keys("workspace_images")
+            }
+        )
+        if ("owner_user_id",) not in image_foreign_keys:
+            await conn.execute(
+                text(
+                    "ALTER TABLE workspace_images ADD CONSTRAINT "
+                    "fk_workspace_images_owner_user_id FOREIGN KEY (owner_user_id) "
+                    "REFERENCES users(id) ON DELETE CASCADE"
+                )
+            )
+
+
 async def upgrade() -> None:
     # The legacy initializer remains the compatibility migration for all
     # pre-versioned installations.
@@ -569,6 +718,19 @@ async def upgrade() -> None:
             # init_db creates the portable singleton settings table.
             await _migrate_mlflow_server_settings(conn)
             await _record_version(conn, 15, "admin-managed MLflow server")
+        if 16 not in applied:
+            # init_db creates the deployment/build/event tables portably.
+            await _add_mlflow_deployment_columns(conn)
+            await _record_version(conn, 16, "MLflow model deployments and pinned images")
+        if 17 not in applied:
+            await _add_mlflow_deployment_columns(conn)
+            await _record_version(conn, 17, "durable MLflow deployment leases")
+        if 18 not in applied:
+            await _add_mlflow_deployment_columns(conn)
+            await _record_version(conn, 18, "MLflow deployment quota reservations")
+        if 19 not in applied:
+            await _enforce_mlflow_image_references(conn)
+            await _record_version(conn, 19, "enforce MLflow image pin references")
 
 
 async def current_version() -> int:

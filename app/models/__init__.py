@@ -5,6 +5,13 @@ from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
 from app.models.mlflow_settings import MlflowSettings
+from app.models.mlflow_deployment import (
+    MlflowDeployment,
+    MlflowDeploymentEvent,
+    MlflowDeploymentStatus,
+    MlflowModelBuild,
+    MlflowModelBuildStatus,
+)
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
@@ -23,6 +30,11 @@ __all__ = [
     "Node",
     "NodeStatus",
     "MlflowSettings",
+    "MlflowDeployment",
+    "MlflowDeploymentEvent",
+    "MlflowDeploymentStatus",
+    "MlflowModelBuild",
+    "MlflowModelBuildStatus",
     "DownloadSettings",
     "WorkspaceImage",
     "WorkerBootstrapTicket",

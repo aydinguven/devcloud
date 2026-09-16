@@ -25,6 +25,30 @@ def environment_from_config(config: MlflowConfig) -> dict[str, str]:
     return environment
 
 
+MLFLOW_SERVICE_ENV_KEYS = {
+    "DISABLE_NGINX",
+    "GUNICORN_CMD_ARGS",
+}
+
+
+def validate_mlflow_service_environment(values: Mapping | None) -> dict[str, str]:
+    """Allow only the small serving-runtime surface controlled by DevCloud."""
+    if not values:
+        return {}
+    if not isinstance(values, Mapping):
+        raise ValueError("MLflow servis ayarları geçersiz.")
+    environment = {}
+    for raw_key, raw_value in values.items():
+        key = str(raw_key)
+        value = str(raw_value)
+        if key not in MLFLOW_SERVICE_ENV_KEYS:
+            raise ValueError("Desteklenmeyen MLflow servis ayarı.")
+        if len(value) > 1024 or any(ord(character) < 32 for character in value):
+            raise ValueError("MLflow servis ayarı geçersiz karakter içeriyor.")
+        environment[key] = value
+    return environment
+
+
 def validate_mlflow_environment(values: Mapping | None) -> dict[str, str]:
     """Reject arbitrary environment injection at controller/worker boundaries."""
     if not values:

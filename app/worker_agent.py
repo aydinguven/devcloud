@@ -619,7 +619,8 @@ class WorkerAgent:
             allowed = {
                 "workspace_id", "user_id", "container_name", "template_id",
                 "flavor_id", "host_port", "workspace_token",
-                "accelerator_cdi_name", "mlflow_environment",
+                "accelerator_cdi_name", "image_ref", "image_sha256",
+                "mlflow_environment", "service_environment",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
             async with self.registry_lock:
@@ -687,6 +688,32 @@ class WorkerAgent:
             except OSError:
                 pass
             return {"ready": True}
+        if action == "container.health_ready":
+            host_port = int(payload.get("host_port", -1))
+            path = str(payload.get("path") or "")
+            if int(registered.get("host_port", -2)) != host_port:
+                raise PermissionError("Workspace port eşleşmesi doğrulanamadı.")
+            if (
+                not path.startswith("/")
+                or len(path) > 128
+                or ".." in path
+                or "?" in path
+                or "#" in path
+            ):
+                raise ValueError("Geçersiz container sağlık yolu.")
+            if podman_service.is_mock:
+                return {"ready": True}
+            try:
+                async with httpx.AsyncClient(
+                    timeout=1.0, follow_redirects=False, trust_env=False
+                ) as client:
+                    response = await client.get(
+                        f"http://127.0.0.1:{host_port}{path}"
+                    )
+                    response.raise_for_status()
+                return {"ready": True}
+            except httpx.HTTPError:
+                return {"ready": False}
         if action == "container.stats":
             return await podman_service.get_container_stats(name)
         if action == "container.storage_size":
@@ -822,6 +849,60 @@ class WorkerAgent:
         raise ValueError(f"Desteklenmeyen dosya komutu: {action}")
 
     async def handle_image_command(self, action: str, payload: dict) -> dict:
+        if action == "image.remove":
+            image_tag = str(payload.get("image_tag") or "").strip()
+            registry_prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
+            if not registry_prefix or not image_tag.startswith(f"{registry_prefix}/"):
+                raise ValueError("Silinecek image yönetilen registry altında olmalıdır.")
+            if podman_service.is_mock:
+                return {"success": True, "image_tag": image_tag}
+            code, stdout, stderr = await podman_service.run_cmd(
+                "rmi", image_tag, timeout=120
+            )
+            detail = (stderr or stdout)[-1000:]
+            missing = any(
+                marker in detail.lower()
+                for marker in ("no such image", "image not known", "not found")
+            )
+            success = code == 0 or missing
+            if success:
+                self.image_state = {
+                    key: value
+                    for key, value in self.image_state.items()
+                    if value.get("image_ref") != image_tag
+                }
+            return {
+                "success": success,
+                "image_tag": image_tag,
+                "message": detail,
+            }
+        if action == "image.mlflow.build":
+            model_name = str(payload.get("model_name") or "").strip()
+            model_version = str(payload.get("model_version") or "").strip()
+            image_tag = str(payload.get("image_tag") or "").strip()
+            registry_prefix = settings.DEVCLOUD_REGISTRY_URL.rstrip("/")
+            if (
+                not model_name
+                or len(model_name) > 255
+                or not model_version.isdigit()
+                or int(model_version) < 1
+            ):
+                raise ValueError("Geçerli model adı ve sayısal versiyonu gereklidir.")
+            if not registry_prefix or not image_tag.startswith(f"{registry_prefix}/"):
+                raise ValueError("MLflow image hedefi yönetilen registry altında olmalıdır.")
+            success, logs = await podman_service.build_mlflow_model_image(
+                model_uri=f"models:/{model_name}/{int(model_version)}",
+                image_tag=image_tag,
+                mlflow_environment=payload.get("mlflow_environment") or {},
+                ca_certificate=str(payload.get("mlflow_ca_certificate") or ""),
+                registry_username=settings.DEVCLOUD_REGISTRY_USERNAME,
+                registry_password=settings.DEVCLOUD_REGISTRY_PASSWORD,
+            )
+            return {
+                "success": success,
+                "logs": logs,
+                "image_tag": image_tag,
+            }
         if action != "image.build":
             raise ValueError(f"Desteklenmeyen image komutu: {action}")
         image_tag = str(payload.get("image_tag") or "").strip()

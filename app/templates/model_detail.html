@@ -18,12 +18,13 @@
     <div id="model-tags" style="display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1rem;"></div>
     <div class="data-table-shell">
       <table class="table">
-        <thead><tr><th>Versiyon</th><th>Alias</th><th>Durum</th><th>Run / Soy Ağacı</th><th>Kaynak</th><th>Oluşturulma</th></tr></thead>
+        <thead><tr><th>Versiyon</th><th>Alias</th><th>Durum</th><th>Run / Soy Ağacı</th><th>Kaynak</th><th>Oluşturulma</th><th>Dağıtım</th></tr></thead>
         <tbody id="model-versions"></tbody>
       </table>
     </div>
   </div>
 </section>
+{% include "partials/mlflow_deploy_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -44,7 +45,7 @@
         const aliases = (version.aliases || []).map(escapeHtml).join(", ") || "—";
         const created = version.creation_timestamp ? new Date(Number(version.creation_timestamp)).toLocaleString("tr-TR") : "—";
         const run = version.run_id ? `<a href="${escapeHtml(version.devcloud_run_url)}"><code>${escapeHtml(version.run_id)}</code></a>${version.mlflow_run_url ? ` · <a href="${escapeHtml(version.mlflow_run_url)}" target="_blank" rel="noopener noreferrer">MLflow ↗</a>` : ""}` : "—";
-        return `<tr><td><strong>v${escapeHtml(version.version)}</strong></td><td>${aliases}</td><td>${escapeHtml(version.status || "—")}</td><td class="data-value">${run}</td><td class="data-value"><code>${escapeHtml(version.source || "—")}</code></td><td>${created}</td></tr>`;
+        return `<tr><td><strong>v${escapeHtml(version.version)}</strong></td><td>${aliases}</td><td>${escapeHtml(version.status || "—")}</td><td class="data-value">${run}</td><td class="data-value"><code>${escapeHtml(version.source || "—")}</code></td><td>${created}</td><td><button type="button" class="btn btn-primary btn-sm" data-deploy-model data-model-name="${escapeHtml(version.name || root.dataset.modelName)}" data-model-version="${escapeHtml(version.version)}" data-run-id="${escapeHtml(version.run_id || "")}">Dağıt</button></td></tr>`;
       }).join("");
       status.textContent = "";
       content.hidden = false;
@@ -52,5 +53,6 @@
     .catch(error => { status.textContent = error.message; status.className = "text-destructive"; });
 })();
 </script>
+<script src="/static/js/mlflow_deployments.js?v={{ static_version }}"></script>
 {% endblock %}
 

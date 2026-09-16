@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Model Deployment'ları - {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="page-kicker">MLflow Serving</span><h1>Model Deployment'ları</h1><p>Kayıtlı model versiyonlarından oluşturulan yönetilen inference servisleri.</p></div></div>
+{% include "partials/mlflow_nav.html" %}
+<section id="mlflow-deployment-list" class="card">
+  <div id="mlflow-deployment-list-status" role="status">Deployment'lar yükleniyor...</div>
+  <div class="data-table-shell">
+    <table class="table"><thead><tr><th>Deployment / Model</th><th>Durum</th><th>Kaynak</th><th>Endpoint</th><th>İşlem</th></tr></thead><tbody id="mlflow-deployment-list-body"></tbody></table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/mlflow_deployments.js?v={{ static_version }}"></script>{% endblock %}

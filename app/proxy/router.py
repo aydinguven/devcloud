@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 from app.agents.transfers import upload_transfer, abort_transfer
 import base64
 import logging
@@ -19,11 +21,15 @@ from app.shares import COOKIE_PREFIX, cookie_name, shared_workspace
 from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.mlflow_deployment import MlflowDeployment, MlflowDeploymentStatus
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentCommandError, AgentUnavailable, agent_manager
 
 logger = logging.getLogger("devcloud.proxy")
 proxy_router = APIRouter(prefix="/proxy", tags=["Proxy"])
+model_endpoint_router = APIRouter(
+    prefix="/api/model-endpoints", tags=["Model Endpoints"]
+)
 
 
 async def get_authorized_workspace(
@@ -595,4 +601,78 @@ async def proxy_custom_port_http(
     response = await proxy_remote_http(workspace, request, subpath, custom_port=port)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+
+async def _authorized_model_endpoint(
+    deployment_id: str,
+    request: Request,
+    db: AsyncSession,
+    current_user: User | None,
+) -> tuple[MlflowDeployment, Workspace]:
+    deployment = await db.get(MlflowDeployment, deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Model endpoint bulunamadı.")
+
+    authorized = bool(
+        current_user
+        and current_user.is_active
+        and (
+            current_user.id == deployment.user_id
+            or current_user.role == UserRole.ADMIN
+        )
+    )
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if not authorized and scheme.lower() == "bearer" and token:
+        supplied_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        authorized = hmac.compare_digest(supplied_hash, deployment.access_token_hash)
+    if not authorized:
+        raise HTTPException(
+            status_code=401,
+            detail="Model endpoint tokenı veya kullanıcı oturumu gereklidir.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if deployment.status != MlflowDeploymentStatus.RUNNING or not deployment.workspace_id:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model servisi hazır değil (durum: {deployment.status.value}).",
+            headers={"Retry-After": "5"},
+        )
+    workspace = await db.get(Workspace, deployment.workspace_id)
+    if workspace is None or workspace.status != WorkspaceStatus.RUNNING:
+        raise HTTPException(
+            status_code=503,
+            detail="Model servis workspace'i çalışmıyor.",
+            headers={"Retry-After": "5"},
+        )
+    await release_read_only_connection(db)
+    return deployment, workspace
+
+
+@model_endpoint_router.api_route(
+    "/{deployment_id}/{path:path}",
+    methods=["GET", "POST", "OPTIONS", "HEAD"],
+)
+async def invoke_model_endpoint(
+    deployment_id: str,
+    path: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    """Expose a stable, token-authenticated path to one MLflow scoring service."""
+    normalized_path = path.strip("/")
+    if normalized_path not in {"ping", "health", "invocations"}:
+        raise HTTPException(status_code=404, detail="Model endpoint yolu desteklenmiyor.")
+    _deployment, workspace = await _authorized_model_endpoint(
+        deployment_id, request, db, current_user
+    )
+    response = await proxy_remote_http(
+        workspace,
+        request,
+        f"/{normalized_path}",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return response

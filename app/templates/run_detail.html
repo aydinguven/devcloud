@@ -15,5 +15,6 @@
   <section class="card" style="margin-bottom:1rem"><h2 class="card-title">Artifact tarayıcısı</h2><p class="text-muted">Desteklenen metin ve görsel artifact'larını güvenli boyut sınırıyla önizleyin.</p><div class="mlflow-artifact-toolbar"><div><strong id="run-artifact-path">Kök dizin</strong><div id="run-artifact-status" class="text-muted" aria-live="polite"></div></div><button id="run-artifact-back" class="btn btn-secondary btn-sm" type="button" hidden>← Üst klasör</button></div><div id="run-artifact-list" class="mlflow-artifact-list"></div><div id="run-artifact-preview" class="mlflow-artifact-preview" hidden></div></section>
   <section class="card"><h2 class="card-title">Model Soy Ağacı</h2><div id="run-lineage"></div></section>
 </div></div>
+{% include "partials/mlflow_deploy_modal.html" %}
 {% endblock %}
-{% block scripts %}<script src="/static/js/mlflow.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/mlflow.js?v={{ static_version }}"></script><script src="/static/js/mlflow_deployments.js?v={{ static_version }}"></script>{% endblock %}

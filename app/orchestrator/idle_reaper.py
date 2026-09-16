@@ -1,10 +1,11 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.database import AsyncSessionLocal
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.mlflow_deployment import MlflowDeployment, MlflowDeploymentStatus
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.admission import admission_transaction
 from app.time_utils import ensure_utc
@@ -43,6 +44,15 @@ async def run_idle_reaper_cycle() -> int:
                 ws.status = WorkspaceStatus.STOPPED
                 ws.error_message = None
                 ws.last_stopped_at = now
+                await db.execute(
+                    update(MlflowDeployment)
+                    .where(MlflowDeployment.workspace_id == ws.id)
+                    .values(
+                        status=MlflowDeploymentStatus.STOPPED,
+                        status_message="Maksimum çalışma süresi dolduğu için servis durduruldu.",
+                        error_message=None,
+                    )
+                )
                 stopped_count += 1
             except Exception as exc:
                 ws.status = WorkspaceStatus.RUNNING

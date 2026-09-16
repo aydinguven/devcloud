@@ -327,7 +327,7 @@
       document.getElementById("run-end").textContent = formatDate(data.end_time);
       document.getElementById("run-params").innerHTML = dataTable(data.params_map);
       document.getElementById("run-metrics").innerHTML = dataTable(data.metrics_map);
-      document.getElementById("run-lineage").innerHTML = (data.registered_model_versions || []).map(version => `<div class="admin-user-card"><div><a class="admin-user-name" href="/models/${encodeURIComponent(version.name)}">${esc(version.name)}</a> <span class="badge badge-neutral">v${esc(version.version)}</span></div><a href="${esc(version.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div>`).join("") || '<p class="text-muted">Bu run ile ilişkili kayıtlı model sürümü bulunamadı.</p>';
+      document.getElementById("run-lineage").innerHTML = (data.registered_model_versions || []).map(version => `<div class="admin-user-card"><div><a class="admin-user-name" href="/models/${encodeURIComponent(version.name)}">${esc(version.name)}</a> <span class="badge badge-neutral">v${esc(version.version)}</span></div><div style="display:flex;gap:.5rem;align-items:center;"><button type="button" class="btn btn-primary btn-sm" data-deploy-model data-model-name="${esc(version.name)}" data-model-version="${esc(version.version)}" data-run-id="${esc(version.run_id || data.run_id)}">Dağıt</button><a href="${esc(version.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div></div>`).join("") || '<p class="text-muted">Bu run ile ilişkili kayıtlı model sürümü bulunamadı.</p>';
       if ((data.warnings || []).length) {
         status.textContent = data.warnings.join(" ");
         status.className = "text-muted";

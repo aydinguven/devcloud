@@ -55,6 +55,9 @@ class Workspace(Base):
     # Specifications
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-empty, vscode-python, etc.
     flavor_id: Mapped[str] = mapped_column(String(50), nullable=False)    # t1.nano through t1.xlarge
+    image_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workspace_images.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     accelerator_device_id: Mapped[str | None] = mapped_column(
         String(160), nullable=True
     )

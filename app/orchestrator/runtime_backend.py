@@ -14,6 +14,9 @@ class RuntimeBackend(Protocol):
     async def get_container_status(self, container_name: str) -> str: ...
     async def get_logs(self, container_name: str, tail: int = 100) -> str: ...
     async def port_ready(self, container_name: str, host_port: int) -> bool: ...
+    async def health_ready(
+        self, container_name: str, host_port: int, path: str
+    ) -> bool: ...
     async def get_container_stats(self, container_name: str) -> dict: ...
     async def get_storage_size(self, container_name: str, storage_path: str) -> int: ...
 
@@ -67,6 +70,19 @@ class AgentRuntimeBackend:
         result = await self._request(
             "container.port_ready",
             {"container_name": container_name, "host_port": host_port},
+        )
+        return bool(result.get("ready"))
+
+    async def health_ready(
+        self, container_name: str, host_port: int, path: str
+    ) -> bool:
+        result = await self._request(
+            "container.health_ready",
+            {
+                "container_name": container_name,
+                "host_port": host_port,
+                "path": path,
+            },
         )
         return bool(result.get("ready"))
 

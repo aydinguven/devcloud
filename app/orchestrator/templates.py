@@ -16,6 +16,9 @@ class WorkspaceTemplate:
     ide_type: str
     env_vars: dict[str, str] = field(default_factory=dict)
     startup_command: list[str] = field(default_factory=list)
+    mount_workspace: bool = True
+    health_path: str = ""
+    require_ready: bool = False
 
     def to_schema(self) -> TemplateInfo:
         return TemplateInfo(
@@ -98,7 +101,26 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
     ),
 }
 
-BUILTIN_TEMPLATE_IDS = tuple(TEMPLATES)
+INTERNAL_TEMPLATE_IDS = {"mlflow-serving"}
+TEMPLATES["mlflow-serving"] = WorkspaceTemplate(
+    id="mlflow-serving",
+    name="MLflow Model Service",
+    description="Immutable MLflow model version served as an authenticated HTTP endpoint.",
+    category="Internal",
+    icon="server-stack",
+    default_port=8080,
+    container_workdir="/",
+    image_tag="",
+    features=["MLflow scoring server", "Authenticated inference endpoint"],
+    ide_type="service",
+    mount_workspace=False,
+    health_path="/ping",
+    require_ready=True,
+)
+
+BUILTIN_TEMPLATE_IDS = tuple(
+    template_id for template_id in TEMPLATES if template_id not in INTERNAL_TEMPLATE_IDS
+)
 
 
 def get_template(template_id: str) -> WorkspaceTemplate | None:
@@ -106,7 +128,11 @@ def get_template(template_id: str) -> WorkspaceTemplate | None:
 
 
 def list_templates() -> list[TemplateInfo]:
-    return [template.to_schema() for template in TEMPLATES.values()]
+    return [
+        template.to_schema()
+        for template_id, template in TEMPLATES.items()
+        if template_id not in INTERNAL_TEMPLATE_IDS
+    ]
 
 
 def list_builtin_templates() -> list[TemplateInfo]:
@@ -122,9 +148,16 @@ def register_custom_template(
     default_port: int = 8080,
     ide_type: str = "vscode",
     icon: str = "cube",
+    mount_workspace: bool | None = None,
+    health_path: str = "",
+    require_ready: bool = False,
 ) -> WorkspaceTemplate:
     """Register a custom template into the runtime registry."""
     workdir = "/home/jovyan/work" if ide_type == "jupyter" else "/home/coder/project"
+    if ide_type == "service":
+        workdir = "/"
+    if mount_workspace is None:
+        mount_workspace = ide_type != "service"
     features = ["Özel Şablon", f"Port: {default_port}", f"Görüntü: {image_tag}"]
     
     tpl = WorkspaceTemplate(
@@ -138,7 +171,14 @@ def register_custom_template(
         image_tag=image_tag,
         features=features,
         ide_type=ide_type,
-        env_vars={"DOCKER_USER": "coder"} if ide_type != "jupyter" else {"JUPYTER_ENABLE_LAB": "yes"},
+        env_vars=(
+            {"JUPYTER_ENABLE_LAB": "yes"}
+            if ide_type == "jupyter"
+            else ({"DOCKER_USER": "coder"} if ide_type == "vscode" else {})
+        ),
+        mount_workspace=mount_workspace,
+        health_path=health_path,
+        require_ready=require_ready,
     )
     TEMPLATES[template_id] = tpl
     return tpl

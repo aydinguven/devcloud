@@ -20,8 +20,10 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.workspace_image import WorkspaceImage
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.models.mlflow_deployment import MlflowDeployment, MlflowDeploymentStatus
 from app.integrations.mlflow import (
     MlflowConfigurationError,
     config_from_record as mlflow_config_from_record,
@@ -69,6 +71,9 @@ def _template_definition(template) -> dict:
         "default_port": template.default_port,
         "ide_type": template.ide_type,
         "icon": template.icon,
+        "mount_workspace": template.mount_workspace,
+        "health_path": template.health_path,
+        "require_ready": template.require_ready,
     }
 
 
@@ -111,12 +116,92 @@ async def _workspace_mlflow_environment(
         return {}
     return environment_from_config(config)
 
+
+async def _workspace_service_environment(
+    db: AsyncSession,
+    workspace: Workspace,
+) -> dict[str, str]:
+    if workspace.template_id != "mlflow-serving":
+        return {}
+    deployment = (
+        await db.execute(
+            select(MlflowDeployment).where(
+                MlflowDeployment.workspace_id == workspace.id
+            )
+        )
+    ).scalar_one_or_none()
+    workers = deployment.gunicorn_workers if deployment else 1
+    return {
+        "DISABLE_NGINX": "false",
+        "GUNICORN_CMD_ARGS": f"--workers={workers}",
+    }
+
+async def _sync_mlflow_deployment_status(
+    db: AsyncSession,
+    workspace: Workspace,
+    status,
+    message: str,
+    error: str | None = None,
+) -> None:
+    if workspace.template_id != "mlflow-serving":
+        return
+    deployment = (
+        await db.execute(
+            select(MlflowDeployment).where(
+                MlflowDeployment.workspace_id == workspace.id
+            )
+        )
+    ).scalar_one_or_none()
+    if deployment:
+        deployment.status = status
+        deployment.status_message = message
+        deployment.error_message = error
+        db.add(deployment)
+
+
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 
 
 class QuotaExceeded(RuntimeError):
     pass
+
+
+async def active_workspace_image(
+    db: AsyncSession,
+    *,
+    template_id: str,
+    image_ref: str,
+) -> WorkspaceImage | None:
+    """Resolve the exact enabled managed image used for a new workspace."""
+    if not image_ref:
+        return None
+    return (
+        await db.execute(
+            select(WorkspaceImage)
+            .where(
+                WorkspaceImage.template_id == template_id,
+                WorkspaceImage.image_ref == image_ref,
+                WorkspaceImage.enabled.is_(True),
+            )
+            .order_by(WorkspaceImage.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def workspace_runtime_image(
+    db: AsyncSession,
+    workspace: Workspace,
+    template,
+) -> tuple[str, str]:
+    """Return the immutable image reference/checksum pinned to a workspace."""
+    if workspace.image_id:
+        image = await db.get(WorkspaceImage, workspace.image_id)
+        if image is None:
+            raise RuntimeError("Workspace için sabitlenen image kaydı bulunamadı.")
+        return image.image_ref, image.sha256
+    return template.image_tag, ""
 
 
 async def allocate_workspace_port(db: AsyncSession, node_id: str) -> int:
@@ -145,6 +230,7 @@ async def reserve_workspace(
     placement: WorkspacePlacement,
     template,
     flavor: Flavor,
+    workspace_image: WorkspaceImage | None = None,
 ) -> Workspace:
     """Atomically reserve a worker port and, when requested, one GPU slot."""
     node = placement.node
@@ -159,6 +245,7 @@ async def reserve_workspace(
             node_id=node.id,
             template_id=data.template_id,
             flavor_id=data.flavor_id,
+            image_id=workspace_image.id if workspace_image else None,
             container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
             host_port=host_port,
             container_port=template.default_port,
@@ -186,27 +273,44 @@ async def schedule_and_reserve_workspace(
     current_user: User,
     template,
     flavor: Flavor,
+    workspace_image: WorkspaceImage | None = None,
+    linked_deployment: MlflowDeployment | None = None,
 ) -> tuple[Workspace, WorkspacePlacement]:
     """Check user quota and placement inside one serialized reservation."""
     user_id = current_user.id
     existing = (await db.execute(select(Workspace).where(Workspace.user_id == user_id))).scalars().all()
     disk_usage = await get_workspace_disk_usage_by_user(existing)
+    if workspace_image is None:
+        workspace_image = await active_workspace_image(
+            db, template_id=template.id, image_ref=template.image_tag
+        )
+    required_image = workspace_image.image_ref if workspace_image else template.image_tag
+    required_sha256 = workspace_image.sha256 if workspace_image else None
     for attempt in range(5):
         try:
             async with admission_transaction(db):
                 user = await db.get(User, user_id, populate_existing=True)
-                error = await get_quota_error(
-                    db, user, flavor, disk_used_bytes=disk_usage.get(user_id, 0)
-                )
+                error = None
+                if not (linked_deployment and linked_deployment.quota_reserved):
+                    error = await get_quota_error(
+                        db, user, flavor, disk_used_bytes=disk_usage.get(user_id, 0)
+                    )
                 if error:
                     raise QuotaExceeded(error)
                 placement = await select_workspace_placement(
-                    db, flavor, required_image=template.image_tag
+                    db,
+                    flavor,
+                    required_image=required_image,
+                    required_image_sha256=required_sha256,
                 )
                 workspace = await reserve_workspace(
                     db, data=data, current_user=user, placement=placement,
-                    template=template, flavor=flavor,
+                    template=template, flavor=flavor, workspace_image=workspace_image,
                 )
+                if linked_deployment is not None:
+                    linked_deployment.workspace_id = workspace.id
+                    linked_deployment.quota_reserved = False
+                    db.add(linked_deployment)
             return workspace, placement
         except IntegrityError:
             if attempt == 4:
@@ -226,13 +330,27 @@ async def get_quota_error(
         select(Workspace).where(Workspace.user_id == user.id)
     )
     workspaces = result.scalars().all()
+    reservations = (
+        await db.execute(
+            select(MlflowDeployment).where(
+                MlflowDeployment.user_id == user.id,
+                MlflowDeployment.quota_reserved.is_(True),
+                MlflowDeployment.workspace_id.is_(None),
+            )
+        )
+    ).scalars().all()
+    from types import SimpleNamespace
+    quota_allocations = [
+        *workspaces,
+        *(SimpleNamespace(flavor_id=item.flavor_id) for item in reservations),
+    ]
     if disk_used_bytes is None:
         disk_usage = await get_workspace_disk_usage_by_user(workspaces)
         disk_used_bytes = disk_usage.get(user.id, 0)
     violations = await asyncio.to_thread(
         quota_violations,
         user,
-        workspaces,
+        quota_allocations,
         flavor,
         disk_used_bytes=disk_used_bytes,
     )
@@ -299,7 +417,10 @@ async def list_user_workspaces(
     """List all workspaces owned by the logged-in user."""
     stmt = (
         select(Workspace)
-        .where(Workspace.user_id == current_user.id)
+        .where(
+            Workspace.user_id == current_user.id,
+            Workspace.template_id != "mlflow-serving",
+        )
         .order_by(Workspace.created_at.desc())
     )
     result = await db.execute(stmt)
@@ -324,6 +445,11 @@ async def create_workspace(
     template = await resolve_template(db, data.template_id)
     if not template:
         raise HTTPException(status_code=400, detail=f"Geçersiz şablon ID: {data.template_id}")
+    if template.id == "mlflow-serving":
+        raise HTTPException(
+            status_code=400,
+            detail="MLflow servis workspace yalnızca model deployment API'si ile oluşturulabilir.",
+        )
     if not await template_enabled(db, data.template_id):
         raise HTTPException(status_code=400, detail=f"Şablon devre dışı: {data.template_id}")
 
@@ -348,6 +474,7 @@ async def create_workspace(
     # Launch container via Podman
     try:
         runtime = runtime_for_node(workspace.node_id)
+        image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
         container_id, storage_path = await runtime.create_workspace_container(
             workspace_id=workspace.id,
             user_id=current_user.id,
@@ -359,6 +486,8 @@ async def create_workspace(
             host_port=workspace.host_port,
             workspace_token=workspace.workspace_token,
             accelerator_cdi_name=workspace.accelerator_cdi_name or "",
+            image_ref=image_ref,
+            image_sha256=image_sha256,
             mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
         )
         workspace.container_id = container_id
@@ -413,6 +542,11 @@ async def deploy_workspace_stream(
             if not template:
                 await emit_error(f"Geçersiz şablon: {data.template_id}")
                 return
+            if template.id == "mlflow-serving":
+                await emit_error(
+                    "MLflow servis workspace yalnızca model deployment ekranından oluşturulabilir."
+                )
+                return
             if not await template_enabled(db, data.template_id):
                 await emit_error(f"Şablon devre dışı: {data.template_id}")
                 return
@@ -453,6 +587,7 @@ async def deploy_workspace_stream(
 
             # Launch container with progress callback
             runtime = runtime_for_node(workspace.node_id)
+            image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=current_user.id,
@@ -464,6 +599,8 @@ async def deploy_workspace_stream(
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
+                image_ref=image_ref,
+                image_sha256=image_sha256,
                 mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
                 progress_callback=emit_log,
             )
@@ -565,6 +702,17 @@ async def start_workspace_endpoint(
 
         if container_exists:
             success = await runtime.start_container(workspace.container_name)
+            if success and workspace.template_id == "mlflow-serving":
+                success = False
+                for _ in range(30):
+                    if await runtime.health_ready(
+                        workspace.container_name, workspace.host_port, "/ping"
+                    ):
+                        success = True
+                        break
+                    await asyncio.sleep(0.5)
+                if not success:
+                    workspace.error_message = "Model servisi /ping sağlık kontrolünü geçemedi."
         else:
             logger.info(
                 "Recreating missing container %s with persistent storage %s",
@@ -575,6 +723,7 @@ async def start_workspace_endpoint(
             flavor = await resolve_flavor(db, workspace.flavor_id)
             if not template or not flavor:
                 raise ValueError("Workspace şablonu veya kaynak profili artık bulunamıyor.")
+            image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=workspace.user_id,
@@ -586,7 +735,14 @@ async def start_workspace_endpoint(
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
-                mlflow_environment=await _workspace_mlflow_environment(db, workspace.user_id),
+                image_ref=image_ref,
+                image_sha256=image_sha256,
+                mlflow_environment=(
+                    {}
+                    if workspace.template_id == "mlflow-serving"
+                    else await _workspace_mlflow_environment(db, workspace.user_id)
+                ),
+                service_environment=await _workspace_service_environment(db, workspace),
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path
@@ -600,9 +756,22 @@ async def start_workspace_endpoint(
         workspace.status = WorkspaceStatus.RUNNING
         workspace.last_started_at = datetime.now(timezone.utc)
         workspace.error_message = None
+        await _sync_mlflow_deployment_status(
+            db,
+            workspace,
+            MlflowDeploymentStatus.RUNNING,
+            "Model servisi başlatıldı.",
+        )
     else:
         workspace.status = WorkspaceStatus.ERROR
         workspace.error_message = workspace.error_message or "Container yeniden başlatılamadı."
+        await _sync_mlflow_deployment_status(
+            db,
+            workspace,
+            MlflowDeploymentStatus.FAILED,
+            "Model servisi başlatılamadı.",
+            workspace.error_message,
+        )
 
     db.add(workspace)
     await db.commit()
@@ -646,6 +815,12 @@ async def stop_workspace_endpoint(
     workspace.status = WorkspaceStatus.STOPPED
     workspace.error_message = None
     workspace.last_stopped_at = datetime.now(timezone.utc)
+    await _sync_mlflow_deployment_status(
+        db,
+        workspace,
+        MlflowDeploymentStatus.STOPPED,
+        "Model servisi durduruldu.",
+    )
 
     db.add(workspace)
     await db.commit()
@@ -655,45 +830,64 @@ async def stop_workspace_endpoint(
     return ws_out
 
 
+async def delete_workspace_resources(
+    db: AsyncSession,
+    workspace: Workspace,
+    *,
+    allow_transient: bool = False,
+) -> None:
+    """Delete one workspace after its owning domain has authorized lifecycle."""
+    async with admission_transaction(db):
+        await db.refresh(workspace)
+        if (
+            workspace.status in {
+                WorkspaceStatus.CREATING,
+                WorkspaceStatus.STARTING,
+                WorkspaceStatus.STOPPING,
+            }
+            and not allow_transient
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Çalışma alanı kurulumu devam ediyor veya başka bir işlem sürüyor.",
+            )
+        previous_status = workspace.status
+        workspace.status = WorkspaceStatus.STOPPING
+    runtime = runtime_for_node(workspace.node_id)
+    try:
+        if not await runtime.delete_container(
+            workspace.container_name, workspace.storage_path
+        ):
+            raise RuntimeError(
+                "Worker could not delete the workspace; data and tracking were preserved."
+            )
+    except (RuntimeError, TimeoutError) as exc:
+        workspace.status = previous_status
+        workspace.error_message = str(exc)
+        await db.commit()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await db.delete(workspace)
+    await db.commit()
+
+
 @workspace_router.delete("/{workspace_id}")
 async def delete_workspace_endpoint(
     workspace_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Delete a workspace container, remove its persistent storage, and delete from DB."""
-    import os
-    import shutil
-
-    stmt = select(Workspace).where(Workspace.id == workspace_id)
-    result = await db.execute(stmt)
-    workspace = result.scalar_one_or_none()
-
+    """Delete a user workspace; managed model services use deployment deletion."""
+    workspace = await db.get(Workspace, workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Çalışma alanı bulunamadı.")
     if workspace.user_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Erişim reddedildi.")
-    async with admission_transaction(db):
-        await db.refresh(workspace)
-        if workspace.status in {WorkspaceStatus.CREATING, WorkspaceStatus.STARTING, WorkspaceStatus.STOPPING}:
-            raise HTTPException(status_code=409, detail="Çalışma alanı kurulumu devam ediyor veya başka bir işlem sürüyor.")
-        previous_status = workspace.status
-        workspace.status = WorkspaceStatus.STOPPING
-
-    # 1. Stop and remove container in Podman
-    runtime = runtime_for_node(workspace.node_id)
-    try:
-        if not await runtime.delete_container(workspace.container_name, workspace.storage_path):
-            raise RuntimeError("Worker could not delete the workspace; data and tracking were preserved.")
-    except (RuntimeError, TimeoutError) as exc:
-        workspace.status = previous_status
-        workspace.error_message = str(exc)
-        await db.commit()
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    # 2. Remove record from database. The worker owns and removes storage.
-    await db.delete(workspace)
-    await db.commit()
+    if workspace.template_id == "mlflow-serving":
+        raise HTTPException(
+            status_code=409,
+            detail="Model servis workspace'i deployment ekranından silinmelidir.",
+        )
+    await delete_workspace_resources(db, workspace)
     return {"message": f"Çalışma alanı {workspace_id} ve kalıcı depolaması silindi."}
 
 
