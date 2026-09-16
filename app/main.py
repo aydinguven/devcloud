@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.user import User, UserRole
 from app.models.node import Node, NodeStatus
-from app.proxy.router import proxy_router
+from app.proxy.router import proxy_router, model_endpoint_router
 from app.routes.admin_routes import admin_router
 from app.routes.agent_routes import agent_router
 from app.routes.auth_routes import auth_router
@@ -99,6 +99,10 @@ async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
     import asyncio
     from app.orchestrator.idle_reaper import idle_reaper_background_worker
+    from app.orchestrator.mlflow_deployment_service import (
+        mlflow_deployment_background_worker,
+        recover_interrupted_mlflow_deployments,
+    )
     from app.migrations import require_current, upgrade
 
     logger.info("Initializing DevCloud Database...")
@@ -109,14 +113,20 @@ async def lifespan(app: FastAPI):
     await seed_bootstrap_worker()
     await mark_workers_offline_on_startup()
     await recover_interrupted_workspace_operations()
+    await recover_interrupted_mlflow_deployments()
     await seed_initial_admin()
     logger.info("DevCloud controller ready; workspace execution is worker-only.")
 
-    # Enforce the explicitly configured maximum runtime
+    # Enforce runtime policies and advance durable model deployment jobs.
     reaper_task = asyncio.create_task(idle_reaper_background_worker(check_interval_seconds=60))
+    deployment_task = asyncio.create_task(
+        mlflow_deployment_background_worker(check_interval_seconds=2)
+    )
 
     yield
     reaper_task.cancel()
+    deployment_task.cancel()
+    await asyncio.gather(reaper_task, deployment_task, return_exceptions=True)
     logger.info("DevCloud shutting down...")
 
 
@@ -167,6 +177,7 @@ app.include_router(admin_router)
 app.include_router(agent_router)
 app.include_router(mlflow_router)
 app.include_router(share_router)
+app.include_router(model_endpoint_router)
 app.include_router(proxy_router)
 app.include_router(download_router)
 app.include_router(bootstrap_router)

@@ -125,7 +125,10 @@ async def dashboard_page(
 
     stmt = (
         select(Workspace)
-        .where(Workspace.user_id == current_user.id)
+        .where(
+            Workspace.user_id == current_user.id,
+            Workspace.template_id != "mlflow-serving",
+        )
         .order_by(Workspace.created_at.desc())
     )
     result = await db.execute(stmt)
@@ -352,6 +355,20 @@ async def model_detail_page(
             "user": current_user,
             "model_name": model_name,
         },
+    )
+
+
+@view_router.get("/deployments", response_class=HTMLResponse)
+async def mlflow_deployments_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="mlflow_deployments.html",
+        context={"app_name": settings.APP_NAME, "user": current_user},
     )
 
 

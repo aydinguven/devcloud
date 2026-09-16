@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -9,10 +10,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from app.config import settings
 from app.cline import managed_cline_files, managed_vscode_settings
 from app.jupyter_ai import claude_settings, model_environment, parse_model_catalog
-from app.mlflow_workspace import validate_mlflow_environment
+from app.mlflow_workspace import (
+    validate_mlflow_environment,
+    validate_mlflow_service_environment,
+)
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 
@@ -206,7 +212,10 @@ class PodmanService:
         host_port: int,
         workspace_token: str,
         accelerator_cdi_name: str = "",
+        image_ref: str = "",
+        image_sha256: str = "",
         mlflow_environment: dict[str, str] | None = None,
+        service_environment: dict[str, str] | None = None,
         progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
@@ -236,8 +245,17 @@ class PodmanService:
 
         storage_path = self.ensure_workspace_storage(user_id, workspace_id)
         mlflow_environment = validate_mlflow_environment(mlflow_environment)
+        service_environment = validate_mlflow_service_environment(service_environment)
+        image_ref = str(image_ref or template.image_tag).strip()
+        if (
+            not image_ref
+            or len(image_ref) > 512
+            or any(ord(character) < 32 for character in image_ref)
+        ):
+            raise ValueError("Geçerli bir workspace image referansı gereklidir.")
         is_vscode = template.ide_type == "vscode"
         is_jupyter = template.ide_type == "jupyter"
+        is_service = template.ide_type == "service"
 
         if self._mock_mode:
             container_id = f"mock-cid-{workspace_id[:12]}"
@@ -249,7 +267,10 @@ class PodmanService:
                 "host_port": host_port,
                 "storage_path": storage_path,
                 "accelerator_cdi_name": accelerator_cdi_name,
+                "image_ref": image_ref,
+                "image_sha256": image_sha256,
                 "mlflow_environment": mlflow_environment,
+                "service_environment": service_environment,
                 "logs": [
                     f"[{container_name}] {template.name} başlatılıyor...",
                     f"[{container_name}] Kalıcı volume bağlandı: {template.container_workdir}",
@@ -269,11 +290,11 @@ class PodmanService:
 
         # 2. Refuse implicit pulls/builds when the managed image is unavailable.
         image_ready = await self.ensure_image_exists(
-            template_id, template.image_tag, progress_callback
+            template_id, image_ref, progress_callback
         )
         if not image_ready:
             raise RuntimeError(
-                f"Controller-managed workspace image is not synchronized: {template.image_tag}"
+                f"Controller-managed workspace image is not synchronized: {image_ref}"
             )
 
         # 3. Podman run flags
@@ -287,12 +308,14 @@ class PodmanService:
             "--cpus", str(flavor.cpus),
             "--memory", f"{flavor.memory_mb}m",
             "-p", f"127.0.0.1:{host_port}:{template.default_port}",
-            # Relabel for SELinux and align bind-mount ownership with the
-            # image's non-root user (jovyan/coder). This also repairs files
-            # initialized by the host service account.
-            "-v", f"{storage_path}:{template.container_workdir}:Z,U",
             "--restart", "unless-stopped",
         ]
+        if template.mount_workspace:
+            # Relabel for SELinux and align bind-mount ownership with the
+            # image's non-root user (jovyan/coder).
+            cmd_args.extend([
+                "-v", f"{storage_path}:{template.container_workdir}:Z,U",
+            ])
         if accelerator_cdi_name:
             cmd_args.extend([
                 "--device", accelerator_cdi_name,
@@ -376,13 +399,15 @@ class PodmanService:
             cmd_args.extend(["-e", f"{k}={v}"])
         for key, value in mlflow_environment.items():
             cmd_args.extend(["-e", f"{key}={value}"])
+        for key, value in service_environment.items():
+            cmd_args.extend(["-e", f"{key}={value}"])
         cmd_args.extend([
             "-e", f"DEVCLOUD_WORKSPACE_ID={workspace_id}",
             "-e", f"DEVCLOUD_USER_ID={user_id}",
         ])
 
-        # Image tag
-        cmd_args.append(template.image_tag)
+        # Exact image selected and pinned by the controller.
+        cmd_args.append(image_ref)
 
         if is_jupyter:
             cmd_args.extend([
@@ -473,24 +498,45 @@ class PodmanService:
 
         start_time = time.monotonic()
         is_ready = False
-        for _ in range(15):
+        for _ in range(30 if template.require_ready else 15):
             try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection("127.0.0.1", host_port),
-                    timeout=0.6,
-                )
-                writer.close()
-                await writer.wait_closed()
+                if template.health_path:
+                    async with httpx.AsyncClient(
+                        timeout=0.8, follow_redirects=False, trust_env=False
+                    ) as client:
+                        response = await client.get(
+                            f"http://127.0.0.1:{host_port}{template.health_path}"
+                        )
+                        response.raise_for_status()
+                else:
+                    _reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection("127.0.0.1", host_port),
+                        timeout=0.6,
+                    )
+                    writer.close()
+                    await writer.wait_closed()
                 is_ready = True
                 elapsed = time.monotonic() - start_time
                 if progress_callback:
-                    await progress_callback(f"Port {host_port} açık ve bağlantı kabul ediyor ({elapsed:.1f} sn)", "success")
+                    check = template.health_path or f"port {host_port}"
+                    await progress_callback(
+                        f"Servis sağlık kontrolü başarılı: {check} ({elapsed:.1f} sn)",
+                        "success",
+                    )
                 break
             except Exception:
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.5)
 
+        if not is_ready and template.require_ready:
+            await self.run_cmd("rm", "-f", container_name, timeout=10)
+            raise PodmanExecutionError(
+                f"Servis sağlık kontrolü başarısız: {template.health_path or host_port}"
+            )
         if not is_ready and progress_callback:
-            await progress_callback(f"Container çevrimiçi; IDE sunucusu {host_port} portunda başlatılmayı tamamlıyor.", "info")
+            await progress_callback(
+                f"Container çevrimiçi; servis {host_port} portunda başlatılmayı tamamlıyor.",
+                "info",
+            )
 
         return container_id, storage_path
 
@@ -708,6 +754,124 @@ class PodmanService:
             return False
         logger.info(f"Successfully committed container {container_name} -> {target_image_tag}")
         return True
+
+    async def build_mlflow_model_image(
+        self,
+        *,
+        model_uri: str,
+        image_tag: str,
+        mlflow_environment: dict[str, str],
+        ca_certificate: str = "",
+        registry_username: str = "",
+        registry_password: str = "",
+    ) -> tuple[bool, str]:
+        """Build and push one MLflow serving image without persisting credentials."""
+        mlflow_environment = validate_mlflow_environment(mlflow_environment)
+        if not model_uri.startswith("models:/") or not model_uri.rsplit("/", 1)[-1].isdigit():
+            raise ValueError("Immutable models:/name/version URI is required.")
+        if not image_tag or len(image_tag) > 512 or any(ord(c) < 32 for c in image_tag):
+            raise ValueError("Invalid MLflow serving image reference.")
+        if "\x00" in model_uri or any(ord(c) < 32 for c in model_uri):
+            raise ValueError("Invalid MLflow model URI.")
+        if bool(registry_username) != bool(registry_password):
+            raise ValueError("Registry username and password must be supplied together.")
+        if ca_certificate and (
+            len(ca_certificate.encode("utf-8")) > 1024 * 1024
+            or "BEGIN CERTIFICATE" not in ca_certificate
+        ):
+            raise ValueError("Invalid MLflow CA certificate.")
+        if self._mock_mode:
+            return True, f"Mock MLflow image build succeeded: {image_tag}"
+
+        process_environment = {**os.environ, **mlflow_environment}
+
+        def redact(value: str) -> str:
+            redacted = value
+            for secret in (
+                mlflow_environment.get("MLFLOW_TRACKING_TOKEN", ""),
+                mlflow_environment.get("MLFLOW_TRACKING_PASSWORD", ""),
+                registry_password,
+            ):
+                if secret:
+                    redacted = redacted.replace(secret, "<redacted>")
+            return redacted[-200_000:]
+
+        async def run_process(*arguments: str, cwd: str | None = None) -> tuple[int, str]:
+            process = await asyncio.create_subprocess_exec(
+                *arguments,
+                cwd=cwd,
+                env=process_environment,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                output, _ = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+                raise RuntimeError("MLflow model image build timed out.")
+            return process.returncode or 0, redact(output.decode("utf-8", errors="replace"))
+
+        with tempfile.TemporaryDirectory(prefix="devcloud-mlflow-build-") as tmpdir:
+            os.chmod(tmpdir, 0o700)
+            temporary_root = Path(tmpdir)
+            build_directory = temporary_root / "context"
+            if ca_certificate:
+                ca_path = temporary_root / "mlflow-ca.pem"
+                ca_path.write_text(ca_certificate, encoding="utf-8")
+                os.chmod(ca_path, 0o600)
+                process_environment["MLFLOW_TRACKING_SERVER_CERT_PATH"] = str(ca_path)
+                process_environment["REQUESTS_CA_BUNDLE"] = str(ca_path)
+            code, generate_logs = await run_process(
+                settings.MLFLOW_BIN,
+                "models",
+                "generate-dockerfile",
+                "--model-uri",
+                model_uri,
+                "-d",
+                str(build_directory),
+            )
+            if code != 0:
+                return False, generate_logs
+            build_code, build_stdout, build_stderr = await self.run_cmd(
+                "build",
+                "-t",
+                image_tag,
+                str(build_directory),
+                timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+            )
+            logs = redact("\n".join(filter(None, [generate_logs, build_stdout, build_stderr])))
+            if build_code != 0:
+                return False, logs
+
+            auth_path: Path | None = None
+            try:
+                push_args = ["push"]
+                if registry_username:
+                    registry = image_tag.split("/", 1)[0]
+                    encoded = base64.b64encode(
+                        f"{registry_username}:{registry_password}".encode("utf-8")
+                    ).decode("ascii")
+                    auth_path = temporary_root / "registry-auth.json"
+                    auth_path.write_text(
+                        json.dumps({"auths": {registry: {"auth": encoded}}}),
+                        encoding="utf-8",
+                    )
+                    os.chmod(auth_path, 0o600)
+                    push_args.extend(["--authfile", str(auth_path)])
+                push_args.append(image_tag)
+                push_code, push_stdout, push_stderr = await self.run_cmd(
+                    *push_args,
+                    timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+                )
+                logs = redact("\n".join(filter(None, [logs, push_stdout, push_stderr])))
+                return push_code == 0, logs
+            finally:
+                if auth_path:
+                    auth_path.unlink(missing_ok=True)
 
     async def build_image_from_content(self, containerfile_content: str, image_tag: str, progress_callback=None) -> tuple[bool, str]:
         """Build a container image on the fly from raw Containerfile text."""

@@ -186,3 +186,33 @@ def import_uploaded_archive(*, image_ref: str, upload_path: Path) -> dict[str, o
         "Uploaded file is not a supported OCI or Docker image archive: "
         + "; ".join(errors[-2:])
     )
+
+
+
+def delete_registry_image(
+    *,
+    source_ref: str,
+    username: str = "",
+    password: str = "",
+) -> None:
+    """Delete a managed registry tag using an ephemeral authentication file."""
+    normalized = source_ref.strip()
+    if not normalized:
+        raise WorkspaceImageError("Registry image reference is required")
+    if "://" in normalized and not normalized.startswith("docker://"):
+        raise WorkspaceImageError("Only docker:// registry references are supported")
+    source = normalized if normalized.startswith("docker://") else f"docker://{normalized}"
+    environment, auth_path = _registry_auth_environment(source, username, password)
+    try:
+        try:
+            _run_skopeo(["delete", source], environment=environment)
+        except WorkspaceImageError as exc:
+            detail = str(exc).lower()
+            if not any(
+                marker in detail
+                for marker in ("manifest unknown", "name unknown", "not found")
+            ):
+                raise
+    finally:
+        if auth_path:
+            auth_path.unlink(missing_ok=True)

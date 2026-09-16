@@ -241,6 +241,17 @@ class MlflowClient:
             {"name": name},
         )
 
+    async def get_model_version(self, name: str, version: str) -> dict:
+        """Fetch one immutable model version without relying on search ordering."""
+        if not name.strip() or not version.isdigit() or int(version) < 1:
+            raise MlflowConfigurationError(
+                "Model adı ve pozitif sayısal model versiyonu gereklidir."
+            )
+        return await self._get(
+            "/api/2.0/mlflow/model-versions/get",
+            {"name": name, "version": str(int(version))},
+        )
+
     async def search_model_versions(
         self,
         name: str = "",

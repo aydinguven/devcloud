@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,6 +16,12 @@ class WorkspaceImage(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     template_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    purpose: Mapped[str] = mapped_column(
+        String(32), default="template", server_default="template", index=True, nullable=False
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     display_name: Mapped[str] = mapped_column(String(160), nullable=False)
     image_ref: Mapped[str] = mapped_column(String(512), nullable=False)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)

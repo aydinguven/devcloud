@@ -264,6 +264,7 @@ async def select_workspace_placement(
     flavor: Flavor,
     node_selector: dict[str, str] | None = None,
     required_image: str | None = None,
+    required_image_sha256: str | None = None,
 ) -> WorkspacePlacement:
     """Pick a connected worker and, for GPU flavors, one exact free CDI slot."""
     nodes = (
@@ -274,9 +275,8 @@ async def select_workspace_placement(
             "Henüz kayıtlı worker yok. Bir worker kurup controller'a bağlayın."
         )
 
-    required_sha256 = None
-    if required_image:
-        required_sha256 = (
+    if required_image and required_image_sha256 is None:
+        required_image_sha256 = (
             await db.execute(
                 select(WorkspaceImage.sha256).where(
                     WorkspaceImage.enabled.is_(True),
@@ -294,7 +294,7 @@ async def select_workspace_placement(
         and node.cpu_total >= flavor.cpus
         and node.memory_total_mb >= flavor.memory_mb
         and _matches_selector(node, node_selector)
-        and _has_workspace_image(node, required_image, required_sha256)
+        and _has_workspace_image(node, required_image, required_image_sha256)
     ]
     allocations = await _allocations(db)
     reserved = await _reserved_accelerator_slots(db)

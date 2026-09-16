@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     DEVCLOUD_BOOTSTRAP_WORKER_TOKEN_HASH: str = ""
     DEVCLOUD_REGISTRY_MODE: str = "preloaded"
     DEVCLOUD_REGISTRY_URL: str = ""
+    DEVCLOUD_REGISTRY_USERNAME: str = ""
+    DEVCLOUD_REGISTRY_PASSWORD: str = ""
+    MLFLOW_BIN: str = "mlflow"
+    MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS: int = 1800
     
     # Quotas assigned to newly registered users (admins can override each user).
     DEFAULT_USER_CPU_QUOTA: float = 1.0

@@ -2,4 +2,5 @@
   <a class="tab-btn {% if request.url.path == '/mlflow' %}active{% endif %}" href="/mlflow">Genel Bakış</a>
   <a class="tab-btn {% if request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}" href="/experiments">Deneyler ve Run'lar</a>
   <a class="tab-btn {% if request.url.path.startswith('/models') %}active{% endif %}" href="/models">Model Registry</a>
+  <a class="tab-btn {% if request.url.path.startswith('/deployments') %}active{% endif %}" href="/deployments">Deployment'lar</a>
 </nav>

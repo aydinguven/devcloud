@@ -1,0 +1,40 @@
+<div id="mlflow-deploy-modal" class="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mlflow-deploy-title" style="width:min(760px,94vw);max-height:92vh;overflow:auto;">
+    <div class="card-header" style="margin-bottom:1rem;">
+      <div><span class="page-kicker">MLflow Model Service</span><h2 id="mlflow-deploy-title" class="card-title">Modeli Dağıt</h2></div>
+      <button id="mlflow-deploy-close" type="button" aria-label="Kapat" style="background:none;border:0;font-size:1.5rem;cursor:pointer;">&times;</button>
+    </div>
+    <form id="mlflow-deploy-form">
+      <input id="mlflow-deploy-model-name" type="hidden">
+      <input id="mlflow-deploy-model-version" type="hidden">
+      <div class="card" style="margin-bottom:1rem;padding:.8rem;">
+        <strong id="mlflow-deploy-selection">—</strong>
+        <div id="mlflow-deploy-run" class="text-muted" style="margin-top:.25rem;"></div>
+      </div>
+      <div class="responsive-form-grid">
+        <label class="form-group"><span class="form-label">Deployment adı</span><input id="mlflow-deploy-name" class="form-input" required minlength="2" maxlength="60" pattern="[a-zA-Z0-9_\- ]+"></label>
+        <label class="form-group"><span class="form-label">Kaynak profili</span><select id="mlflow-deploy-flavor" class="form-input" required><option value="">Yükleniyor...</option></select></label>
+        <label class="form-group"><span class="form-label">Gunicorn worker</span><input id="mlflow-deploy-workers" class="form-input" type="number" min="1" max="16" value="1" required></label>
+        <label class="form-group"><span class="form-label">Maksimum çalışma süresi</span><select id="mlflow-deploy-auto-stop" class="form-input"><option value="0">Sürekli çalışsın</option><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option></select></label>
+      </div>
+      <div id="mlflow-deploy-error" class="text-destructive" role="alert" style="margin-bottom:.75rem;"></div>
+      <div id="mlflow-deploy-actions" style="display:flex;justify-content:flex-end;gap:.5rem;">
+        <button id="mlflow-deploy-cancel" class="btn btn-secondary" type="button">İptal</button>
+        <button id="mlflow-deploy-submit" class="btn btn-primary" type="submit">Model Servisini Oluştur</button>
+      </div>
+    </form>
+    <section id="mlflow-deploy-progress" hidden>
+      <div class="card-header"><h3 class="card-title">Deployment ilerlemesi</h3><span id="mlflow-deploy-status" class="badge badge-neutral">queued</span></div>
+      <div class="terminal-window" style="margin-top:.75rem;"><pre id="mlflow-deploy-events" style="min-height:190px;max-height:300px;overflow:auto;margin:0;white-space:pre-wrap;"></pre></div>
+      <div id="mlflow-deploy-result" class="card" style="margin-top:1rem;" hidden>
+        <p><strong>Inference endpoint</strong></p><code id="mlflow-deploy-endpoint" style="overflow-wrap:anywhere;"></code>
+        <div id="mlflow-deploy-token-wrap" style="margin-top:.8rem;">
+          <label class="form-label" for="mlflow-deploy-token">Erişim tokenı — yalnızca şimdi gösterilir</label>
+          <input id="mlflow-deploy-token" class="form-input" readonly>
+          <p class="form-help">Tokenı güvenli bir secret store'a kaydedin; sayfa yenilendiğinde tekrar gösterilmez.</p>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem;"><a class="btn btn-secondary" href="/deployments">Deployment'ları Gör</a></div>
+    </section>
+  </div>
+</div>
