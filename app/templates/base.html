@@ -7,9 +7,10 @@
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/style.css?v={{ static_version }}">
   <link rel="stylesheet" href="/static/css/kurumsal.css?v={{ static_version }}">
+  {% if user %}<link rel="stylesheet" href="/static/css/onboarding-tour.css?v={{ static_version }}">{% endif %}
   <link rel="icon" href="/static/favicon.svg?v={{ static_version }}" type="image/svg+xml">
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %}"{% if user %} data-onboarding-user="true" data-user-role="{{ user.role.value if user.role.value is defined else user.role }}"{% endif %}>
   <nav class="navbar" aria-label="Ana menü">
     <div class="navbar-brand-group">
       <a href="/" class="navbar-brand" aria-label="TCMB AI Factory ana sayfa">
@@ -24,12 +25,13 @@
     </div>
     <div class="nav-links">
       {% if user %}
-        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Çalışma Alanları</a>
-        <a href="/mlflow" class="nav-link {% if request.url.path.startswith('/mlflow') or request.url.path.startswith('/models') or request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}">MLflow</a>
+        <a href="/" data-tour="nav-workspaces" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Çalışma Alanları</a>
+        <a href="/mlflow" data-tour="nav-mlflow" class="nav-link {% if request.url.path.startswith('/mlflow') or request.url.path.startswith('/models') or request.url.path.startswith('/experiments') or request.url.path.startswith('/runs') %}active{% endif %}">MLflow</a>
         {% if user.role == "admin" %}
-          <a href="/admin" class="nav-link nav-link-admin {% if request.url.path.startswith('/admin') %}active{% endif %}">Yönetim</a>
+          <a href="/admin" data-tour="nav-admin" class="nav-link nav-link-admin {% if request.url.path.startswith('/admin') %}active{% endif %}">Yönetim</a>
         {% endif %}
-        <a href="/profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">{{ user.full_name or user.username }}</a>
+        <a href="/profile" data-tour="nav-profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">{{ user.full_name or user.username }}</a>
+        <button class="btn btn-secondary btn-sm" type="button" data-onboarding-restart hidden>Tur</button>
         <button id="btn-logout" class="btn btn-secondary btn-sm" style="margin-left: 0.5rem;">Çıkış Yap</button>
       {% else %}
         <a href="/login" class="nav-link {% if request.url.path == '/login' %}active{% endif %}">Giriş</a>
@@ -50,6 +52,7 @@
   </footer>
 
   <script src="/static/js/app.js?v={{ static_version }}"></script>
+  {% if user %}<script src="/static/js/onboarding-tour.js?v={{ static_version }}"></script>{% endif %}
   <script>
     const logoutBtn = document.getElementById("btn-logout");
     if (logoutBtn) {

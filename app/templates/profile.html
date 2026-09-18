@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="auth-shell" style="max-width: 720px;">
-  <section class="card auth-card">
+  <section class="card auth-card" data-tour="profile-card">
     <div class="card-header">
       <div>
         <span class="page-kicker">Kurumsal Profil</span>
@@ -21,6 +21,9 @@
       <dt class="text-muted">Müdürlük</dt><dd>{{ user.organization_unit or user.directorate or '—' }}</dd>
       {% if user.organization_unit %}<dt class="text-muted">Bağlı Olduğu Birim</dt><dd>{{ user.directorate or '—' }}</dd>{% endif %}
     </dl>
+    <div class="table-actions" style="margin-top:1.25rem;">
+      <button type="button" class="btn btn-secondary btn-sm" data-onboarding-restart data-tour="tour-restart-profile" hidden>Canlı Turu Yeniden Başlat</button>
+    </div>
   </section>
 </div>
 {% endblock %}

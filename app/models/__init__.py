@@ -1,6 +1,7 @@
 from app.database import Base
 from app.models.workspace_share import WorkspaceShare
 from app.models.session_settings import SessionSettings
+from app.models.onboarding import OnboardingProgress, OnboardingSettings
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
@@ -26,6 +27,8 @@ __all__ = [
     "Base",
     "WorkspaceShare",
     "SessionSettings",
+    "OnboardingSettings",
+    "OnboardingProgress",
     "User",
     "UserRole",
     "Workspace",

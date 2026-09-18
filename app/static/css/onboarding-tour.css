@@ -1,0 +1,98 @@
+/* Accessible, dependency-free live onboarding tour. */
+.onboarding-tour-scrim {
+  background: rgba(20, 28, 40, 0.67);
+  position: fixed;
+  z-index: 1000;
+}
+.onboarding-tour-target {
+  outline: 3px solid var(--primary) !important;
+  outline-offset: 5px;
+  pointer-events: none !important;
+}
+.onboarding-tour-dialog-backdrop {
+  align-items: center;
+  background: rgba(20, 28, 40, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1rem;
+  position: fixed;
+  z-index: 1010;
+}
+.onboarding-tour-dialog,
+.onboarding-tour-callout {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-top: 4px solid var(--primary);
+  box-shadow: 0 18px 48px rgba(20, 28, 40, 0.24);
+  color: var(--text-main);
+  max-width: 100%;
+  padding: 1.15rem;
+}
+.onboarding-tour-dialog {
+  width: min(480px, 100%);
+}
+.onboarding-tour-callout {
+  position: fixed;
+  width: min(380px, calc(100vw - 2rem));
+  z-index: 1020;
+}
+.onboarding-tour-eyebrow {
+  color: var(--primary);
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+}
+.onboarding-tour-dialog h2,
+.onboarding-tour-callout h2 {
+  color: var(--heading);
+  font-size: 1.15rem;
+  margin: 0 0 0.5rem;
+}
+.onboarding-tour-dialog p,
+.onboarding-tour-callout p {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  margin: 0;
+}
+.onboarding-tour-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+.onboarding-tour-actions .btn { white-space: nowrap; }
+.onboarding-tour-progress {
+  background: #eef2f7;
+  height: 4px;
+  margin-top: 0.85rem;
+  overflow: hidden;
+}
+.onboarding-tour-progress > span {
+  background: var(--primary);
+  display: block;
+  height: 100%;
+  transition: width 180ms ease;
+}
+.onboarding-tour-error {
+  color: var(--danger) !important;
+  margin-top: 0.65rem !important;
+}
+body.onboarding-tour-active { overflow: hidden; }
+
+@media (max-width: 520px) {
+  .onboarding-tour-dialog,
+  .onboarding-tour-callout { padding: 1rem; }
+  .onboarding-tour-actions { align-items: stretch; flex-direction: column; }
+  .onboarding-tour-actions .btn { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-tour-progress > span { transition: none; }
+}

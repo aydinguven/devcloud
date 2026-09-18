@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 21
+CURRENT_SCHEMA_VERSION = 22
 
 
 class MigrationError(RuntimeError):
@@ -768,6 +768,9 @@ async def upgrade() -> None:
         if 21 not in applied:
             await _add_directory_hierarchy_fields(conn)
             await _record_version(conn, 21, "LDAP organization hierarchy")
+        if 22 not in applied:
+            # init_db creates the portable onboarding settings and progress tables.
+            await _record_version(conn, 22, "versioned onboarding tour")
 
 
 async def current_version() -> int:

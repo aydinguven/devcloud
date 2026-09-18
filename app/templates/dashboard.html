@@ -10,13 +10,13 @@
     <h1>Çalışma Alanlarım</h1>
     <p>İzole container geliştirme ortamlarınızı yönetin ve IDE bağlantılarını başlatın.</p>
   </div>
-  <button id="btn-open-create-modal" class="btn btn-primary" style="padding: 0.7rem 1.25rem; font-weight: 600;" {% if not templates or not flavors %}disabled title="Etkin şablon ve kaynak profili gerekli"{% endif %}>
+  <button id="btn-open-create-modal" data-tour="workspace-create-button" class="btn btn-primary" style="padding: 0.7rem 1.25rem; font-weight: 600;" {% if not templates or not flavors %}disabled title="Etkin şablon ve kaynak profili gerekli"{% endif %}>
     <span>+</span>
     <span>Yeni Çalışma Alanı</span>
   </button>
 </div>
 
-<section class="usage-grid" aria-label="Kaynak kullanımı ve kota bilgileri">
+<section class="usage-grid" data-tour="quota-summary" aria-label="Kaynak kullanımı ve kota bilgileri">
   <article class="usage-card">
     <div class="usage-card-heading">
       <div>
@@ -76,7 +76,7 @@
   <div class="grid grid-cols-2">
     {% for ws in workspaces %}
       {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
-      <div class="card workspace-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
+      <div class="card workspace-card" data-tour="workspace-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
         <div>
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: .75rem;">
             <div>
@@ -128,7 +128,7 @@
             {% elif ws_st == 'stopped' or ws_st == 'error' or ws_st == 'creating' %}
               <button class="btn btn-primary btn-sm" data-action="start" data-workspace-id="{{ ws.id }}">▶ Başlat</button>
             {% endif %}
-            <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Ayrıntılar & Dosyalar</a>
+            <a href="/workspaces/{{ ws.id }}" data-tour="workspace-detail-link" class="btn btn-secondary btn-sm">Ayrıntılar & Dosyalar</a>
             <a href="/api/workspaces/{{ ws.id }}/backup/download" class="btn btn-secondary btn-sm" title="Yedek İndir (.zip)">💾 Yedek</a>
           </div>
 
@@ -148,7 +148,7 @@
   </div>
 {% endif %}
 
-<div id="create-modal" class="modal-backdrop">
+<div id="create-modal" class="modal-backdrop" data-tour="workspace-create-dialog">
   <div class="modal workspace-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
     <div class="card-header" style="margin-bottom: 1.5rem;">
       <h2 id="create-modal-title" class="card-title">Bulut Çalışma Alanı Oluştur</h2>
@@ -161,7 +161,7 @@
 
       <div class="form-group">
         <label class="form-label" for="input-workspace-name">Çalışma Alanı Adı</label>
-        <input type="text" id="input-workspace-name" class="form-input" placeholder="örn. veri-analizi veya fastapi-uygulamam" required minlength="2">
+        <input type="text" id="input-workspace-name" data-tour="workspace-name" class="form-input" placeholder="örn. veri-analizi veya fastapi-uygulamam" required minlength="2">
       </div>
 
       <div class="form-group">
@@ -186,7 +186,7 @@
 
       <div class="form-group">
         <label class="form-label">Geliştirme Ortamı Şablonu</label>
-        <div class="grid grid-cols-2" style="gap: 0.75rem;">
+        <div class="grid grid-cols-2" data-tour="template-picker" style="gap: 0.75rem;">
           {% for tpl in templates %}
             <div class="selectable-card template-card {% if loop.first %}selected{% endif %}" data-template-id="{{ tpl.id }}">
               <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
@@ -206,7 +206,7 @@
         </div>
       </div>
 
-      <div class="form-group flavor-picker" id="flavor-picker">
+      <div class="form-group flavor-picker" id="flavor-picker" data-tour="flavor-picker">
         <div class="flavor-picker-heading">
           <div>
             <span class="form-label">Kaynak Profili</span>
@@ -300,7 +300,7 @@
       <div id="modal-footer-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
         <div id="selected-flavor-summary" class="selected-flavor-summary" role="status" aria-live="polite"></div>
         <button type="button" id="btn-cancel-deploy" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">İptal</button>
-        <button type="submit" id="btn-submit-deploy" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Çalışma Alanını Kur</button>
+        <button type="submit" id="btn-submit-deploy" data-tour="workspace-create-submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Çalışma Alanını Kur</button>
       </div>
     </form>
     {% else %}

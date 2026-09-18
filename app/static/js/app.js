@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initMlflowSettings();
   initDownloadSettings();
   initSessionSettings();
+  initOnboardingSettings();
   initHttpsSettings();
   initDownloadUpdater();
   initLiveMetricsPolling();
@@ -1784,6 +1785,47 @@ function initSessionSettings() {
       }
       form.elements.timeout_minutes.value = data.timeout_minutes;
       status.textContent = "Oturum süresi kaydedildi. Yeni girişlerde geçerli olacak.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function initOnboardingSettings() {
+  const form = document.getElementById("onboarding-settings-form");
+  if (!form) return;
+  const button = form.querySelector('button[type="submit"]');
+  const status = document.getElementById("onboarding-settings-status");
+  const badge = document.getElementById("onboarding-status-badge");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = "Tur ayarları kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/onboarding-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          enabled: form.elements.enabled.checked,
+          current_version: Number(form.elements.current_version.value),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : `Tur ayarları kaydedilemedi (${response.status}).`);
+      }
+      form.elements.enabled.checked = data.enabled;
+      form.elements.current_version.value = data.current_version;
+      badge.className = `badge ${data.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = data.enabled ? "Etkin" : "Devre Dışı";
+      status.textContent = data.enabled
+        ? "Canlı tur etkinleştirildi. Yeni kullanıcılar giriş yaptığında tur teklifi görecek."
+        : "Canlı tur devre dışı bırakıldı; kullanıcı ilerlemeleri korundu.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;

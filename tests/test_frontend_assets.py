@@ -405,3 +405,58 @@ def test_institutional_brand_mark_replaces_text_placeholder():
     assert '<ellipse' in favicon_svg
     assert '#d50032' in favicon_svg
     assert '#263244' in favicon_svg
+
+
+def test_optional_onboarding_tour_has_persistent_accessible_topic_gates():
+    base = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
+    dashboard = (PROJECT_ROOT / "app/templates/dashboard.html").read_text(encoding="utf-8")
+    workspace = (PROJECT_ROOT / "app/templates/workspace_detail.html").read_text(encoding="utf-8")
+    profile = (PROJECT_ROOT / "app/templates/profile.html").read_text(encoding="utf-8")
+    models = (PROJECT_ROOT / "app/templates/models.html").read_text(encoding="utf-8")
+    admin = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+    javascript = (PROJECT_ROOT / "app/static/js/onboarding-tour.js").read_text(
+        encoding="utf-8"
+    )
+    css = (PROJECT_ROOT / "app/static/css/onboarding-tour.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert "onboarding-tour.css" in base
+    assert "onboarding-tour.js" in base
+    assert 'data-onboarding-restart' in base
+    assert 'data-tour="nav-workspaces"' in base
+    assert 'data-tour="workspace-create-button"' in dashboard
+    assert 'data-tour="quota-summary"' in dashboard
+    assert 'data-tour="workspace-tabs"' in workspace
+    assert 'data-tour="profile-card"' in profile
+    assert 'data-tour="mlflow-personal-settings"' in models
+    assert 'id="onboarding-settings-form"' in admin
+
+    for topic in (
+        "workspace-create",
+        "resource-usage",
+        "workspace-detail",
+        "mlflow",
+        "profile",
+        "admin",
+    ):
+        assert f'id: "{topic}"' in javascript
+    assert 'label: "Göster"' in javascript
+    assert 'label: "Atla"' in javascript
+    assert "showTopicChoice" in javascript
+    assert "topic_choice" in javascript
+    assert 'current_step: "highlight"' in javascript
+    assert 'window.location.assign(route)' in javascript
+    assert 'event.key === "Escape"' in javascript
+    assert "trapFocus" in javascript
+    assert "makeBackgroundInert" in javascript
+    assert 'callout.setAttribute("aria-labelledby"' in javascript
+    assert 'target.focus({preventScroll: true})' in javascript
+    assert "ResizeObserver" in javascript
+    assert "/api/onboarding/state" in javascript
+    assert "/api/onboarding/restart" in javascript
+    assert "prefers-reduced-motion" in css
+    assert ".onboarding-tour-scrim" in css
+    assert "pointer-events: none !important" in css
+    assert "http://" not in javascript
+    assert "https://" not in javascript
