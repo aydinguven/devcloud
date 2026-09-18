@@ -46,6 +46,9 @@ class DirectorySettings(Base):
     directorate_attribute: Mapped[str] = mapped_column(
         String(128), default="division", server_default="division", nullable=False
     )
+    organization_unit_attribute: Mapped[str] = mapped_column(
+        String(128), default="", server_default="", nullable=False
+    )
     group_membership_attribute: Mapped[str] = mapped_column(
         String(128), default="memberOf", nullable=False
     )

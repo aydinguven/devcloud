@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 21
 
 
 class MigrationError(RuntimeError):
@@ -361,6 +361,37 @@ async def _add_directory_profile_fields(conn) -> None:
             text(
                 "ALTER TABLE directory_settings ADD COLUMN directorate_attribute "
                 "VARCHAR(128) NOT NULL DEFAULT 'division'"
+            )
+        )
+
+
+async def _add_directory_hierarchy_fields(conn) -> None:
+    """Add an optional intermediate LDAP organization level idempotently."""
+    user_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("users")
+        }
+    )
+    if "organization_unit" not in user_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN organization_unit "
+                "VARCHAR(255) NOT NULL DEFAULT ''"
+            )
+        )
+
+    directory_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("directory_settings")
+        }
+    )
+    if "organization_unit_attribute" not in directory_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE directory_settings "
+                "ADD COLUMN organization_unit_attribute "
+                "VARCHAR(128) NOT NULL DEFAULT ''"
             )
         )
 
@@ -734,6 +765,9 @@ async def upgrade() -> None:
         if 20 not in applied:
             # init_db creates the portable encrypted registry singleton table.
             await _record_version(conn, 20, "admin-managed model container registry")
+        if 21 not in applied:
+            await _add_directory_hierarchy_fields(conn)
+            await _record_version(conn, 21, "LDAP organization hierarchy")
 
 
 async def current_version() -> int:

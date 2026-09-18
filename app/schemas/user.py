@@ -22,6 +22,7 @@ class UserOut(BaseModel):
     full_name: str
     team: str
     directorate: str
+    organization_unit: str = ""
     role: UserRole
     auth_source: str
     is_active: bool

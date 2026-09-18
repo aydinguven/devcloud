@@ -254,8 +254,25 @@
     ]).catch(fail);
   }
 
-  function dataTable(values) {
-    return `<table class="table"><tbody>${Object.entries(values || {}).map(([key, value]) => `<tr><th>${esc(key)}</th><td><code>${esc(value)}</code></td></tr>`).join("") || '<tr><td class="text-muted">Veri yok</td></tr>'}</tbody></table>`;
+  function renderRunValues(values, { kind = "parameter", metadata = new Map() } = {}) {
+    const entries = Object.entries(values || {}).sort(([left], [right]) => left.localeCompare(right, "tr-TR"));
+    if (!entries.length) return '<div class="mlflow-value-empty"><dt class="sr-only">Durum</dt><dd class="text-muted">Veri yok</dd></div>';
+    return entries.map(([key, value]) => {
+      const rawValue = String(value ?? "");
+      const numericValue = Number(value);
+      const displayValue = kind === "metric" && Number.isFinite(numericValue)
+        ? numericValue.toLocaleString("tr-TR", { maximumSignificantDigits: 9 })
+        : rawValue || "Boş değer";
+      const metric = metadata.get(key) || {};
+      const details = [];
+      const metricStep = Number(metric.step);
+      if (kind === "metric" && metric.step !== undefined && metric.step !== null && Number.isFinite(metricStep)) details.push(`Adım ${metricStep.toLocaleString("tr-TR")}`);
+      if (kind === "metric" && metric.timestamp) details.push(formatDate(metric.timestamp));
+      return `<div class="mlflow-value-item mlflow-value-item--${kind}">
+        <dt title="${esc(key)}">${esc(key)}</dt>
+        <dd><code title="${esc(rawValue)}">${esc(displayValue)}</code>${details.length ? `<small>${esc(details.join(" · "))}</small>` : ""}</dd>
+      </div>`;
+    }).join("");
   }
 
   function initRunDetail() {
@@ -325,9 +342,21 @@
       document.getElementById("run-state").textContent = data.status || "UNKNOWN";
       document.getElementById("run-start").textContent = formatDate(data.start_time);
       document.getElementById("run-end").textContent = formatDate(data.end_time);
-      document.getElementById("run-params").innerHTML = dataTable(data.params_map);
-      document.getElementById("run-metrics").innerHTML = dataTable(data.metrics_map);
-      document.getElementById("run-lineage").innerHTML = (data.registered_model_versions || []).map(version => `<div class="admin-user-card"><div><a class="admin-user-name" href="/models/${encodeURIComponent(version.name)}">${esc(version.name)}</a> <span class="badge badge-neutral">v${esc(version.version)}</span></div><div style="display:flex;gap:.5rem;align-items:center;"><button type="button" class="btn btn-primary btn-sm" data-deploy-model data-model-name="${esc(version.name)}" data-model-version="${esc(version.version)}" data-run-id="${esc(version.run_id || data.run_id)}">Dağıt</button><a href="${esc(version.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div></div>`).join("") || '<p class="text-muted">Bu run ile ilişkili kayıtlı model sürümü bulunamadı.</p>';
+      const params = data.params_map || {};
+      const metrics = data.metrics_map || {};
+      const metricMetadata = new Map((data.data?.metrics || []).map(metric => [String(metric.key || ""), metric]));
+      const modelVersions = data.registered_model_versions || [];
+      document.getElementById("run-params").innerHTML = renderRunValues(params);
+      document.getElementById("run-metrics").innerHTML = renderRunValues(metrics, { kind: "metric", metadata: metricMetadata });
+      document.getElementById("run-param-count").textContent = `${Object.keys(params).length.toLocaleString("tr-TR")} parametre`;
+      document.getElementById("run-metric-count").textContent = `${Object.keys(metrics).length.toLocaleString("tr-TR")} metrik`;
+      document.getElementById("run-lineage-count").textContent = `${modelVersions.length.toLocaleString("tr-TR")} model sürümü`;
+      document.getElementById("run-lineage").innerHTML = modelVersions.map(version => `<article class="mlflow-lineage-item">
+        <div class="mlflow-lineage-node mlflow-lineage-node--run"><span>Kaynak run</span><strong>${esc(data.run_name || data.run_id)}</strong><code>${esc(data.run_id)}</code></div>
+        <span class="mlflow-lineage-arrow" aria-hidden="true">→</span>
+        <div class="mlflow-lineage-node mlflow-lineage-node--model"><span>Kayıtlı model</span><div><a class="admin-user-name" href="/models/${encodeURIComponent(version.name)}">${esc(version.name)}</a> <span class="badge badge-neutral">v${esc(version.version)}</span></div></div>
+        <div class="mlflow-lineage-actions"><button type="button" class="btn btn-primary btn-sm" data-deploy-model data-model-name="${esc(version.name)}" data-model-version="${esc(version.version)}" data-run-id="${esc(version.run_id || data.run_id)}">Dağıt</button><a class="btn btn-secondary btn-sm" href="${esc(version.mlflow_url)}" target="_blank" rel="noopener noreferrer">MLflow'da aç ↗</a></div>
+      </article>`).join("") || '<div class="mlflow-lineage-empty"><strong>Henüz kayıtlı model yok</strong><p class="text-muted">Bu run ile ilişkili bir model sürümü kaydedildiğinde burada görünecek.</p></div>';
       if ((data.warnings || []).length) {
         status.textContent = data.warnings.join(" ");
         status.className = "text-muted";

@@ -27,7 +27,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - Internal Database Auth (Argon2 / Bcrypt + JWT + HTTP-only cookies).
   - Runtime-configured LDAPS / Active Directory authentication with encrypted bind credentials.
   - Allowed-user and administrator group mapping, including nested AD groups.
-  - Read-only user profiles synchronized from AD: username, full name, email, team, and directorate.
+  - Read-only user profiles synchronized from AD: username, full name, email, team, directorate, and parent organization.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user CPU/RAM/disk/GPU allocations, and remaining quota on the workspace dashboard.
@@ -124,8 +124,10 @@ before enabling directory login.
 - Profile fields are synchronized on successful directory login and are
   read-only in DevCloud. The default AD mappings are `sAMAccountName` for the
   username, `displayName` for full name, `mail` for email, `department` for
-  team, and `division` for directorate; administrators can change these
-  attribute names in the directory settings form.
+  team, and `division` for the parent organization. The optional directorate
+  mapping is empty by default; set it to the AD attribute that carries the
+  intermediate directorate value. Administrators can change all attribute
+  names in the directory settings form.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 
