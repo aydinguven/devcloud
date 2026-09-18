@@ -96,3 +96,74 @@ body.onboarding-tour-active { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .onboarding-tour-progress > span { transition: none; }
 }
+
+.onboarding-demo-workspace {
+  border-top: 3px solid var(--gold);
+  margin-top: 1rem;
+}
+.onboarding-demo-workspace-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.onboarding-demo-workspace-heading h2 {
+  color: var(--heading);
+  font-size: 1.15rem;
+  margin: 0 0 0.25rem;
+}
+.onboarding-demo-workspace-heading p {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0;
+}
+.onboarding-demo-workspace-heading > .badge {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.onboarding-demo-metrics {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+.onboarding-demo-metrics > span {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem;
+}
+.onboarding-demo-metrics small {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+.onboarding-demo-metrics strong { color: var(--heading); }
+.onboarding-demo-tabs {
+  border: 1px solid var(--border-color);
+  margin-top: 1rem;
+}
+.onboarding-demo-tabs .tab-btn {
+  cursor: default;
+  pointer-events: none;
+}
+.onboarding-demo-panel {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-top: 0;
+  padding: 0.85rem;
+}
+.onboarding-demo-panel strong { color: var(--heading); }
+.onboarding-demo-panel p {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin: 0.25rem 0 0;
+}
+
+@media (max-width: 620px) {
+  .onboarding-demo-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .onboarding-demo-tabs { overflow-x: auto; }
+}

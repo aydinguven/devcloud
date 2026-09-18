@@ -135,6 +135,7 @@ async def dashboard_page(
         select(Workspace)
         .where(
             Workspace.user_id == current_user.id,
+            Workspace.status != WorkspaceStatus.DELETED,
             Workspace.template_id != "mlflow-serving",
         )
         .order_by(Workspace.created_at.desc())

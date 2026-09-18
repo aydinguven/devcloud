@@ -751,30 +751,116 @@ function initWorkspaceCreationModal() {
 
   if (!modalBackdrop) return;
 
-  if (openBtn) {
-    openBtn.addEventListener("click", () => {
-      if (terminalBox) terminalBox.style.display = "none";
-      if (terminal) terminal.innerHTML = "";
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.style.display = "inline-flex";
-        submitBtn.innerHTML = "Çalışma Alanını Kur";
-      }
-      if (cancelBtn) cancelBtn.style.display = "inline-flex";
-      modalBackdrop.classList.add("open");
-    });
+  const dialog = modalBackdrop.querySelector('[role="dialog"]');
+  let previousFocus = null;
+  let inertEntries = [];
+
+  function setBackgroundInert() {
+    if (inertEntries.length) return;
+    const main = modalBackdrop.parentElement;
+    const candidates = [
+      ...[...document.body.children].filter(
+        (element) => element !== main && element.tagName !== "SCRIPT"
+      ),
+      ...[...(main?.children || [])].filter(
+        (element) => element !== modalBackdrop && element.tagName !== "SCRIPT"
+      ),
+    ];
+    inertEntries = candidates.map((element) => [element, element.inert]);
+    inertEntries.forEach(([element]) => { element.inert = true; });
   }
 
-  if (closeBtn) {
-    closeBtn.addEventListener("click", () => {
-      modalBackdrop.classList.remove("open");
-    });
+  function restoreBackground() {
+    inertEntries.forEach(([element, inert]) => { element.inert = inert; });
+    inertEntries = [];
   }
 
-  modalBackdrop.addEventListener("click", (e) => {
-    if (e.target === modalBackdrop && (!submitBtn || !submitBtn.disabled)) {
-      modalBackdrop.classList.remove("open");
+  function focusableElements() {
+    if (!dialog) return [];
+    return [...dialog.querySelectorAll(
+      'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )].filter((element) => !element.hidden && element.getClientRects().length);
+  }
+
+  function resetDeploymentUi() {
+    if (terminalBox) terminalBox.style.display = "none";
+    if (terminal) terminal.innerHTML = "";
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.style.display = "inline-flex";
+      submitBtn.innerHTML = "Çalışma Alanını Kur";
     }
+    if (cancelBtn) cancelBtn.style.display = "inline-flex";
+  }
+
+  function openModal({resetDeploymentUI = true} = {}) {
+    const wasOpen = modalBackdrop.classList.contains("open");
+    if (resetDeploymentUI) resetDeploymentUi();
+    if (!wasOpen) {
+      previousFocus = document.activeElement;
+      setBackgroundInert();
+      modalBackdrop.classList.add("open");
+      modalBackdrop.setAttribute("aria-hidden", "false");
+      if (dialog && !dialog.hasAttribute("tabindex")) dialog.setAttribute("tabindex", "-1");
+      window.requestAnimationFrame(() => (closeBtn || dialog)?.focus());
+      modalBackdrop.dispatchEvent(new CustomEvent("devcloud:workspace-modal-opened"));
+    }
+    return true;
+  }
+
+  function closeModal({force = false} = {}) {
+    if (!force && submitBtn?.disabled) return false;
+    if (!modalBackdrop.classList.contains("open")) return true;
+    modalBackdrop.classList.remove("open");
+    modalBackdrop.setAttribute("aria-hidden", "true");
+    restoreBackground();
+    modalBackdrop.dispatchEvent(new CustomEvent("devcloud:workspace-modal-closed"));
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+      previousFocus.focus();
+    }
+    previousFocus = null;
+    return true;
+  }
+
+  function handleModalKeydown(event) {
+    if (!modalBackdrop.classList.contains("open")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = focusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  modalBackdrop.setAttribute("aria-hidden", "true");
+  document.addEventListener("keydown", handleModalKeydown);
+
+  window.DevCloudWorkspaceCreateModal = {
+    open: openModal,
+    close: closeModal,
+    isOpen: () => modalBackdrop.classList.contains("open"),
+  };
+
+  openBtn?.addEventListener("click", () => openModal());
+  closeBtn?.addEventListener("click", () => closeModal());
+  cancelBtn?.addEventListener("click", () => closeModal());
+  modalBackdrop.addEventListener("click", (event) => {
+    if (event.target === modalBackdrop) closeModal();
   });
 
   // Template Selection

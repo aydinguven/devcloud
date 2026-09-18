@@ -407,13 +407,19 @@ def test_institutional_brand_mark_replaces_text_placeholder():
     assert '#263244' in favicon_svg
 
 
-def test_optional_onboarding_tour_has_persistent_accessible_topic_gates():
+def test_linear_onboarding_tour_has_multiple_persistent_steps():
     base = (PROJECT_ROOT / "app/templates/base.html").read_text(encoding="utf-8")
     dashboard = (PROJECT_ROOT / "app/templates/dashboard.html").read_text(encoding="utf-8")
     workspace = (PROJECT_ROOT / "app/templates/workspace_detail.html").read_text(encoding="utf-8")
     profile = (PROJECT_ROOT / "app/templates/profile.html").read_text(encoding="utf-8")
     models = (PROJECT_ROOT / "app/templates/models.html").read_text(encoding="utf-8")
+    mlflow_nav = (
+        PROJECT_ROOT / "app/templates/partials/mlflow_nav.html"
+    ).read_text(encoding="utf-8")
     admin = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+    app_javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
     javascript = (PROJECT_ROOT / "app/static/js/onboarding-tour.js").read_text(
         encoding="utf-8"
     )
@@ -423,40 +429,89 @@ def test_optional_onboarding_tour_has_persistent_accessible_topic_gates():
 
     assert "onboarding-tour.css" in base
     assert "onboarding-tour.js" in base
-    assert 'data-onboarding-restart' in base
-    assert 'data-tour="nav-workspaces"' in base
-    assert 'data-tour="workspace-create-button"' in dashboard
-    assert 'data-tour="quota-summary"' in dashboard
-    assert 'data-tour="workspace-tabs"' in workspace
-    assert 'data-tour="profile-card"' in profile
-    assert 'data-tour="mlflow-personal-settings"' in models
-    assert 'id="onboarding-settings-form"' in admin
-
-    for topic in (
-        "workspace-create",
-        "resource-usage",
-        "workspace-detail",
-        "mlflow",
-        "profile",
-        "admin",
+    assert "data-onboarding-restart" in base
+    for target in (
+        "workspace-create-button",
+        "workspace-name",
+        "template-picker",
+        "flavor-picker",
+        "workspace-create-submit",
+        "quota-summary",
+        "workspace-demo-overview",
+        "workspace-demo-metrics",
+        "workspace-demo-logs",
+        "workspace-demo-files",
+        "workspace-demo-ports",
     ):
-        assert f'id: "{topic}"' in javascript
-    assert 'label: "Göster"' in javascript
-    assert 'label: "Atla"' in javascript
-    assert "showTopicChoice" in javascript
-    assert "topic_choice" in javascript
-    assert 'current_step: "highlight"' in javascript
+        assert f'data-tour="{target}"' in dashboard
+    for target in (
+        "workspace-actions",
+        "workspace-metrics",
+        "workspace-tab-logs",
+        "workspace-tab-files",
+        "workspace-tab-ports",
+    ):
+        assert f'data-tour="{target}"' in workspace
+    assert 'data-tour="profile-details"' in profile
+    assert 'data-tour="tour-restart-profile"' in profile
+    assert 'data-tour="mlflow-personal-settings"' in models
+    assert 'data-tour="mlflow-nav"' in mlflow_nav
+    assert 'data-tour="admin-summary"' in admin
+    assert 'data-tour="admin-overview"' in admin
+
+    stable_steps = (
+        "ws-create-open",
+        "ws-create-dialog",
+        "ws-create-name",
+        "ws-create-template",
+        "ws-create-flavor",
+        "ws-create-submit",
+        "dashboard-quota",
+        "ws-detail-overview",
+        "ws-detail-metrics",
+        "ws-detail-logs",
+        "ws-detail-files",
+        "ws-detail-ports",
+        "mlflow-nav",
+        "mlflow-connection",
+        "profile-details",
+        "profile-tour-control",
+        "admin-summary",
+        "admin-sections",
+    )
+    for step in stable_steps:
+        assert f'id: "{step}"' in javascript
+
+    assert 'next.textContent = adjacentStep(step, 1) ? "Devam"' in javascript
+    assert "Bölümünü Atla" in javascript
+    assert "showTopicChoice" not in javascript
+    assert 'label: "Göster"' not in javascript
+    assert 'label: "Atla"' not in javascript
+    assert "showWelcome" not in javascript
+    assert 'current_step: step.id' in javascript
+    assert 'state.status === "not_started" && state.auto_offer' in javascript
+    assert "await startTour()" in javascript
     assert 'window.location.assign(route)' in javascript
+    assert "DevCloudWorkspaceCreateModal" in javascript
+    assert "DevCloudWorkspaceCreateModal" in app_javascript
+    assert 'close({force: true})' in javascript
+    assert "handleModalKeydown" in app_javascript
+    assert 'event.key === "Escape"' in app_javascript
+    assert "setBackgroundInert" in app_javascript
+    assert "restoreBackground" in app_javascript
+    assert "previousFocus" in app_javascript
+    assert "LEGACY_STEP" in javascript
+    assert "onboardingConflict" in javascript
     assert 'event.key === "Escape"' in javascript
     assert "trapFocus" in javascript
     assert "makeBackgroundInert" in javascript
     assert 'callout.setAttribute("aria-labelledby"' in javascript
-    assert 'target.focus({preventScroll: true})' in javascript
     assert "ResizeObserver" in javascript
     assert "/api/onboarding/state" in javascript
     assert "/api/onboarding/restart" in javascript
     assert "prefers-reduced-motion" in css
     assert ".onboarding-tour-scrim" in css
+    assert ".onboarding-demo-workspace" in css
     assert "pointer-events: none !important" in css
     assert "http://" not in javascript
     assert "https://" not in javascript
