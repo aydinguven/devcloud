@@ -26,7 +26,7 @@
   {% else %}
   <p class="text-destructive">Platform yöneticisi henüz MLflow sunucusunu etkinleştirmedi.</p>
   {% endif %}
-  <form id="mlflow-settings-form" autocomplete="off">
+  <form id="mlflow-settings-form" data-tour="mlflow-personal-settings" autocomplete="off">
     <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
       <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="enabled" {% if not mlflow_settings or mlflow_settings.enabled %}checked{% endif %}><span>Bu bağlantıyı kullan</span></label>
     </div>

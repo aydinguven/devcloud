@@ -4,6 +4,7 @@ from app.routes.admin_routes import admin_router
 from app.routes.download_routes import download_router
 from app.routes.view_routes import view_router
 from app.routes.worker_bootstrap_routes import bootstrap_router
+from app.routes.onboarding_routes import onboarding_router
 
 __all__ = [
     "auth_router",
@@ -11,5 +12,6 @@ __all__ = [
     "admin_router",
     "download_router",
     "bootstrap_router",
+    "onboarding_router",
     "view_router",
 ]

@@ -21,6 +21,7 @@ from app.routes.worker_bootstrap_routes import bootstrap_router
 from app.routes.view_routes import view_router
 from app.routes.workspace_routes import workspace_router
 from app.routes.mlflow_routes import mlflow_router
+from app.routes.onboarding_routes import onboarding_router
 
 # Setup logging
 logging.basicConfig(
@@ -176,6 +177,7 @@ app.include_router(file_router)
 app.include_router(admin_router)
 app.include_router(agent_router)
 app.include_router(mlflow_router)
+app.include_router(onboarding_router)
 app.include_router(share_router)
 app.include_router(model_endpoint_router)
 app.include_router(proxy_router)

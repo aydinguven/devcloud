@@ -17,6 +17,7 @@ from app.models.directory_settings import DirectorySettings
 from app.session_settings import session_timeout_minutes
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.models.onboarding import OnboardingSettings
 from app.models.model_container_registry_settings import (
     ModelContainerRegistrySettings,
 )
@@ -625,6 +626,7 @@ async def admin_page(
             context["model_container_registry_error"] = str(exc)
     elif section == "system":
         context["session_timeout_minutes"] = await session_timeout_minutes(db)
+        context["onboarding_settings"] = await db.get(OnboardingSettings, 1)
         download_settings = await db.get(DownloadSettings, 1)
         context.update(
             {

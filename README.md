@@ -28,6 +28,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - Runtime-configured LDAPS / Active Directory authentication with encrypted bind credentials.
   - Allowed-user and administrator group mapping, including nested AD groups.
   - Read-only user profiles synchronized from AD: username, full name, email, team, directorate, and parent organization.
+  - Admin-controlled, versioned live onboarding with per-topic `Göster` / `Atla` choices and per-user progress.
 - **Built-in Reverse Proxy & WebSocket Tunneling**: Access all running workspaces without opening separate firewall ports for every container.
 - **Modern Responsive Web UI**: Dashboard with dark theme, real-time container log viewer, and administrative oversight.
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user CPU/RAM/disk/GPU allocations, and remaining quota on the workspace dashboard.

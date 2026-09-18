@@ -38,7 +38,7 @@
   </div>
 </div>
 
-<section class="admin-overview-grid" aria-label="Yönetim alanları">
+<section class="admin-overview-grid" data-tour="admin-overview" aria-label="Yönetim alanları">
   {% for key, item in admin_sections.items() if key != 'overview' %}
     <a class="admin-overview-card" href="/admin/{{ key }}">
       <span class="admin-overview-index">0{{ loop.index }}</span>
@@ -211,6 +211,28 @@
     <p id="session-timeout-help" class="admin-section-description">1–10080 dakika (en fazla 7 gün). Süre dolunca yeniden giriş gerekir.</p>
     <button class="btn btn-primary" type="submit">Kaydet</button>
     <div id="session-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
+  </form>
+</div>
+<div class="card" data-tour="onboarding-settings" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Yeni Kullanıcı Canlı Turu</h2>
+      <p class="admin-section-description">Yeni kullanıcılara ürün alanlarını isteğe bağlı olarak tanıtır. Her konu başlamadan önce kullanıcı Göster veya Atla seçer; seçimler hesap bazında saklanır.</p>
+    </div>
+    <span id="onboarding-status-badge" class="badge {% if onboarding_settings and onboarding_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if onboarding_settings and onboarding_settings.enabled else 'Devre Dışı' }}</span>
+  </div>
+  <form id="onboarding-settings-form">
+    <label class="form-group" style="display:flex;align-items:center;gap:.6rem;">
+      <input name="enabled" type="checkbox" {% if onboarding_settings and onboarding_settings.enabled %}checked{% endif %}>
+      <span>Yeni kullanıcı turunu etkinleştir</span>
+    </label>
+    <label class="form-group" for="onboarding-current-version">
+      <span class="form-label">Tur sürümü</span>
+      <input class="form-input" id="onboarding-current-version" name="current_version" type="number" min="1" max="10000" step="1" value="{{ onboarding_settings.current_version if onboarding_settings else 1 }}" required aria-describedby="onboarding-version-help">
+    </label>
+    <p id="onboarding-version-help" class="admin-section-description">Tur sürümünü artırmak, daha önce tura katılan kullanıcılara güncel turu yeniden sunar. Sürüm azaltılamaz. Tur etkinleştirildikten sonra oluşturulan yeni hesaplara otomatik teklif edilir; mevcut kullanıcılar Profil veya üst menüden başlatabilir.</p>
+    <button class="btn btn-primary" type="submit">Tur Ayarlarını Kaydet</button>
+    <div id="onboarding-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
   </form>
 </div>
 <div class="card download-update-card" id="offline-packages" style="margin-bottom: 2rem;">
