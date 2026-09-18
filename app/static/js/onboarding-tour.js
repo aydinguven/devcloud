@@ -3,62 +3,284 @@
 
   if (document.body.dataset.onboardingUser !== "true") return;
 
-  const TOPICS = [
+  const TOPIC_TITLES = {
+    "workspace-create": "Çalışma alanı oluşturma",
+    "resource-usage": "Kaynak ve kota görünümü",
+    "workspace-detail": "Çalışma alanı ayrıntıları",
+    mlflow: "MLflow",
+    profile: "Kurumsal profil",
+    admin: "Yönetim paneli",
+  };
+
+  const dashboardRoute = () => "/";
+  const detailRoute = currentState => currentState.context.first_workspace_url || "/";
+  const detailSelector = (currentState, realSelector, demoSelector) => (
+    currentState.context.first_workspace_url ? realSelector : demoSelector
+  );
+
+  const STEPS = [
     {
-      id: "workspace-create",
-      title: "Çalışma alanı oluşturma",
-      prompt: "Yeni bir geliştirme ortamını nereden başlatacağınızı gösterir.",
-      detail: "Yeni Çalışma Alanı düğmesi; şablon, kaynak profili ve çalışma süresi seçimlerini açar. Tur sizin adınıza çalışma alanı oluşturmaz.",
-      route: () => "/",
+      id: "ws-create-open",
+      topic: "workspace-create",
+      title: "Yeni çalışma alanı",
+      detail: "Yeni bir geliştirme ortamı oluşturma akışı bu düğmeyle başlar.",
+      route: dashboardRoute,
       selector: '[data-tour="workspace-create-button"]',
     },
     {
-      id: "resource-usage",
-      title: "Kaynak ve kota görünümü",
-      prompt: "CPU, RAM, disk ve GPU kullanımınızı nereden izleyeceğinizi gösterir.",
-      detail: "Bu kartlar sistem kapasitesini, hesabınıza ayrılan kullanımı ve yeni çalışma alanları için kalan kotayı birlikte gösterir.",
-      route: () => "/",
+      id: "ws-create-dialog",
+      topic: "workspace-create",
+      group: "workspace-create-modal",
+      title: "Oluşturma formu",
+      detail: "Bu form çalışma alanının adını, çalışma süresini, şablonunu ve kaynak profilini bir arada toplar. Tur formu göndermez.",
+      route: dashboardRoute,
+      selector: '[data-tour="workspace-create-dialog"]',
+      prepare: prepareCreateModal,
+      cleanup: cleanupCreateModal,
+    },
+    {
+      id: "ws-create-name",
+      topic: "workspace-create",
+      group: "workspace-create-modal",
+      title: "Ad ve açıklama",
+      detail: "Çalışma alanınıza ayırt edilebilir bir ad verin; açıklama ekip içinde amacını hatırlatır.",
+      route: dashboardRoute,
+      selector: '[data-tour="workspace-name"]',
+      prepare: prepareCreateModal,
+      cleanup: cleanupCreateModal,
+    },
+    {
+      id: "ws-create-template",
+      topic: "workspace-create",
+      group: "workspace-create-modal",
+      title: "Geliştirme şablonu",
+      detail: "Kullanacağınız IDE ve runtime paketini buradan seçersiniz.",
+      route: dashboardRoute,
+      selector: '[data-tour="template-picker"]',
+      prepare: prepareCreateModal,
+      cleanup: cleanupCreateModal,
+    },
+    {
+      id: "ws-create-flavor",
+      topic: "workspace-create",
+      group: "workspace-create-modal",
+      title: "Kaynak profili",
+      detail: "CPU, RAM veya uygun olduğunda GPU kapasitesini ihtiyacınıza göre seçin.",
+      route: dashboardRoute,
+      selector: '[data-tour="flavor-picker"]',
+      prepare: prepareCreateModal,
+      cleanup: cleanupCreateModal,
+    },
+    {
+      id: "ws-create-submit",
+      topic: "workspace-create",
+      group: "workspace-create-modal",
+      title: "Kurulumu başlatma",
+      detail: "Seçimler tamamlandığında bu düğme kurulumu başlatır. Tur bu düğmeye basmaz ve kaynak oluşturmaz.",
+      route: dashboardRoute,
+      selector: '[data-tour="workspace-create-submit"]',
+      prepare: prepareCreateModal,
+      cleanup: cleanupCreateModal,
+    },
+    {
+      id: "dashboard-quota",
+      topic: "resource-usage",
+      title: "Kaynaklar ve kotalar",
+      detail: "Sistem kapasitesini, hesabınıza ayrılan kullanımı ve yeni çalışma alanları için kalan kotayı birlikte izleyin.",
+      route: dashboardRoute,
       selector: '[data-tour="quota-summary"]',
     },
     {
-      id: "workspace-detail",
-      title: "Çalışma alanı ayrıntıları",
-      prompt: "Log, dosya yöneticisi ve port önizleme araçlarını tanıtır.",
-      detail: "Çalışma alanı ayrıntılarında canlı metriklere, container loglarına, kalıcı dosyalara ve web uygulaması portlarına erişebilirsiniz.",
-      route: state => state.context.first_workspace_url,
-      selector: '[data-tour="workspace-tabs"]',
+      id: "ws-detail-overview",
+      topic: "workspace-detail",
+      group: "workspace-detail",
+      title: "Workspace genel görünümü",
+      detail: currentState => currentState.context.first_workspace_url
+        ? "Workspace yaşam döngüsü ve IDE işlemleri bu alanda bulunur."
+        : "Bu açıkça işaretlenmiş demo gerçek bir workspace oluşturmaz; gerçek ayrıntı ekranının yapısını örnekler.",
+      route: detailRoute,
+      selector: currentState => detailSelector(
+        currentState,
+        '[data-tour="workspace-actions"]',
+        '[data-tour="workspace-demo-overview"]',
+      ),
+      prepare: prepareWorkspaceDetail,
+      cleanup: cleanupWorkspaceDetail,
     },
     {
-      id: "mlflow",
-      title: "MLflow",
-      prompt: "Deney, metrik, artifact ve model kayıt alanlarını tanıtır.",
-      detail: "MLflow kullanıyorsanız kişisel bağlantınızı burada yapılandırabilir, deneyleri ve kayıtlı model sürümlerini inceleyebilirsiniz.",
+      id: "ws-detail-metrics",
+      topic: "workspace-detail",
+      group: "workspace-detail",
+      title: "Canlı metrikler",
+      detail: currentState => currentState.context.first_workspace_url
+        ? "CPU, RAM, disk ve çalışma süresi değerleri burada güncellenir."
+        : "Demo metrikleri yalnızca görünümü anlatır; worker veya kota kullanmaz.",
+      route: detailRoute,
+      selector: currentState => detailSelector(
+        currentState,
+        '[data-tour="workspace-metrics"]',
+        '[data-tour="workspace-demo-metrics"]',
+      ),
+      prepare: prepareWorkspaceDetail,
+      cleanup: cleanupWorkspaceDetail,
+    },
+    {
+      id: "ws-detail-logs",
+      topic: "workspace-detail",
+      group: "workspace-detail",
+      title: "Container logları",
+      detail: "Container çıktısını ve çalışma zamanı hatalarını bu sekmeden izleyebilirsiniz.",
+      route: detailRoute,
+      selector: currentState => detailSelector(
+        currentState,
+        '[data-tour="workspace-tab-logs"]',
+        '[data-tour="workspace-demo-logs"]',
+      ),
+      prepare: prepareWorkspaceDetail,
+      cleanup: cleanupWorkspaceDetail,
+    },
+    {
+      id: "ws-detail-files",
+      topic: "workspace-detail",
+      group: "workspace-detail",
+      title: "Dosya yöneticisi",
+      detail: "Kalıcı workspace dosyalarına tarayıcıdan erişmek için bu sekmeyi kullanın.",
+      route: detailRoute,
+      selector: currentState => detailSelector(
+        currentState,
+        '[data-tour="workspace-tab-files"]',
+        '[data-tour="workspace-demo-files"]',
+      ),
+      prepare: prepareWorkspaceDetail,
+      cleanup: cleanupWorkspaceDetail,
+    },
+    {
+      id: "ws-detail-ports",
+      topic: "workspace-detail",
+      group: "workspace-detail",
+      title: "Port önizleme",
+      detail: "Workspace içinde çalıştırdığınız web uygulamalarını seçilen port üzerinden burada açabilirsiniz.",
+      route: detailRoute,
+      selector: currentState => detailSelector(
+        currentState,
+        '[data-tour="workspace-tab-ports"]',
+        '[data-tour="workspace-demo-ports"]',
+      ),
+      prepare: prepareWorkspaceDetail,
+      cleanup: cleanupWorkspaceDetail,
+    },
+    {
+      id: "mlflow-nav",
+      topic: "mlflow",
+      optionalSection: true,
+      title: "MLflow bölümleri",
+      detail: "Deneyler, run'lar, model registry ve deployment alanları bu sekmelerde gruplanır.",
+      route: () => "/models",
+      selector: '[data-tour="mlflow-nav"]',
+    },
+    {
+      id: "mlflow-connection",
+      topic: "mlflow",
+      title: "Kişisel MLflow bağlantısı",
+      detail: "Yönetici sunucuyu etkinleştirdikten sonra kendi kimlik bilgilerinizi bu alanda kaydedebilirsiniz.",
       route: () => "/models",
       selector: '[data-tour="mlflow-personal-settings"]',
     },
     {
-      id: "profile",
-      title: "Kurumsal profil",
-      prompt: "Dizinden eşitlenen profil bilgilerinizi ve turu yeniden başlatma seçeneğini gösterir.",
-      detail: "Profil alanı kimlik ve organizasyon bilgilerinizi gösterir. Canlı turu daha sonra buradan tekrar başlatabilirsiniz.",
+      id: "profile-details",
+      topic: "profile",
+      title: "Kurumsal profil bilgileri",
+      detail: "Kimlik ve organizasyon bilgileriniz burada gösterilir; LDAP kullanıcılarında başarılı girişlerde güncellenir.",
       route: () => "/profile",
-      selector: '[data-tour="profile-card"]',
+      selector: '[data-tour="profile-details"]',
     },
     {
-      id: "admin",
-      title: "Yönetim paneli",
-      prompt: "Yöneticiyseniz kullanıcı, worker, image ve sistem ayarlarının giriş noktasını gösterir.",
-      detail: "Yönetim paneli operasyon alanlarını ayrı kategorilerde toplar. Bu konu yalnızca yönetici hesaplarına sunulur.",
+      id: "profile-tour-control",
+      topic: "profile",
+      title: "Turu yeniden başlatma",
+      detail: "Canlı turu daha sonra yeniden başlatmak veya duraklatılan yerden devam etmek için bu düğmeyi kullanın.",
+      route: () => "/profile",
+      selector: '[data-tour="tour-restart-profile"]',
+    },
+    {
+      id: "admin-summary",
+      topic: "admin",
+      title: "Sistem özeti",
+      detail: "Yönetici hesapları kullanıcı, workspace, container ve worker sayılarını burada hızlıca görür.",
+      route: () => "/admin",
+      selector: '[data-tour="admin-summary"]',
+    },
+    {
+      id: "admin-sections",
+      topic: "admin",
+      title: "Yönetim alanları",
+      detail: "Kullanıcılar, workspace katalogları, worker'lar, entegrasyonlar ve sistem ayarları ayrı kategorilerde bulunur.",
       route: () => "/admin",
       selector: '[data-tour="admin-overview"]',
     },
   ];
 
+  const LEGACY_STEP = {choice: true, highlight: true, "": true};
   let state = null;
   let closeDialog = null;
   let closeHighlight = null;
+  let originalWorkspaceTab = null;
   const restartButtons = [...document.querySelectorAll("[data-onboarding-restart]")];
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function prepareCreateModal() {
+    window.DevCloudWorkspaceCreateModal?.open({resetDeploymentUI: false});
+  }
+
+  function cleanupCreateModal(_currentState, nextStep) {
+    if (nextStep?.group === "workspace-create-modal") return;
+    window.DevCloudWorkspaceCreateModal?.close({force: true});
+  }
+
+  function prepareWorkspaceDetail(currentState, step) {
+    if (!currentState.context.first_workspace_url) {
+      const demo = document.querySelector("[data-onboarding-demo-workspace]");
+      demo?.removeAttribute("hidden");
+      const demoTab = {
+        "ws-detail-logs": "workspace-demo-logs",
+        "ws-detail-files": "workspace-demo-files",
+        "ws-detail-ports": "workspace-demo-ports",
+      }[step.id];
+      if (demoTab) {
+        demo?.querySelectorAll(".onboarding-demo-tabs [data-tour^='workspace-demo-']").forEach(element => {
+          element.classList.toggle("active", element.dataset.tour === demoTab);
+        });
+      }
+      return;
+    }
+    const tabTarget = {
+      "ws-detail-logs": "workspace-tab-logs",
+      "ws-detail-files": "workspace-tab-files",
+      "ws-detail-ports": "workspace-tab-ports",
+    }[step.id];
+    if (!tabTarget) return;
+    if (!originalWorkspaceTab) {
+      originalWorkspaceTab = document.querySelector(".workspace-tabs-nav .tab-btn.active")?.dataset.tab || "tab-logs";
+    }
+    const button = document.querySelector(`[data-tour="${tabTarget}"]`);
+    if (button && !button.classList.contains("active")) button.click();
+  }
+
+  function cleanupWorkspaceDetail(currentState, nextStep) {
+    if (nextStep?.group === "workspace-detail") return;
+    if (!currentState.context.first_workspace_url) {
+      const demo = document.querySelector("[data-onboarding-demo-workspace]");
+      demo?.setAttribute("hidden", "");
+      demo?.querySelectorAll(".onboarding-demo-tabs .tab-btn").forEach((element, index) => {
+        element.classList.toggle("active", index === 0);
+      });
+      return;
+    }
+    if (originalWorkspaceTab) {
+      document.querySelector(`.workspace-tabs-nav .tab-btn[data-tab="${originalWorkspaceTab}"]`)?.click();
+      originalWorkspaceTab = null;
+    }
+  }
 
   const fetchJson = async (url, options = {}) => {
     const response = await fetch(url, {
@@ -97,17 +319,42 @@
       syncRestartButtons();
       return state;
     } catch (error) {
-      if (error.status === 409) await refreshState().catch(() => {});
+      if (error.status === 409) {
+        error.onboardingConflict = true;
+        await refreshState().catch(() => {});
+      }
       throw error;
     }
   };
 
-  const availableTopics = () => TOPICS.filter(topic => state.features[topic.id] !== false);
-  const topicById = topicId => TOPICS.find(topic => topic.id === topicId);
-  const firstTopic = () => availableTopics()[0] || null;
-  const nextTopic = topicId => {
-    const start = TOPICS.findIndex(topic => topic.id === topicId);
-    return TOPICS.slice(start + 1).find(topic => state.features[topic.id] !== false) || null;
+  const topicAvailable = topic => (
+    state.features[topic] !== false && state.topic_choices[topic] !== "skip"
+  );
+  const availableSteps = () => STEPS.filter(step => topicAvailable(step.topic));
+  const firstAvailableStep = () => availableSteps()[0] || null;
+  const firstStepForTopic = topic => availableSteps().find(step => step.topic === topic) || null;
+  const adjacentStep = (step, direction) => {
+    const steps = availableSteps();
+    const index = steps.findIndex(item => item.id === step.id);
+    return index < 0 ? null : steps[index + direction] || null;
+  };
+  const nextStepAfterTopic = topic => {
+    const topicEnd = STEPS.reduce((last, step, index) => step.topic === topic ? index : last, -1);
+    return STEPS.slice(topicEnd + 1).find(step => topicAvailable(step.topic)) || null;
+  };
+
+  const resolvePersistedStep = () => {
+    const exact = availableSteps().find(step => step.id === state.current_step);
+    if (exact) return exact;
+    if (state.current_topic) {
+      const topicStep = firstStepForTopic(state.current_topic);
+      if (topicStep && (LEGACY_STEP[state.current_step] || !state.current_step)) return topicStep;
+      if (state.topic_choices[state.current_topic] === "skip" || state.features[state.current_topic] === false) {
+        return nextStepAfterTopic(state.current_topic);
+      }
+      if (topicStep) return topicStep;
+    }
+    return firstAvailableStep();
   };
 
   const syncRestartButtons = () => {
@@ -125,8 +372,8 @@
     });
   };
 
-  const closeSurfaces = () => {
-    closeHighlight?.();
+  const closeSurfaces = nextStep => {
+    closeHighlight?.(nextStep);
     closeHighlight = null;
     closeDialog?.();
     closeDialog = null;
@@ -139,7 +386,7 @@
     )].filter(element => !element.hidden);
     if (!focusable.length) return;
     const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+    const last = focusable.at(-1);
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
@@ -160,8 +407,8 @@
     return () => changed.forEach(([element, previous]) => { element.inert = previous; });
   };
 
-  const openDialog = ({eyebrow, title, body, buttons, onEscape}) => {
-    closeSurfaces();
+  const openDialog = ({eyebrow, title, body, buttons}) => {
+    closeSurfaces(null);
     const previousFocus = document.activeElement;
     let restoreBackground = () => {};
     const backdrop = document.createElement("div");
@@ -192,6 +439,7 @@
     actions.className = "onboarding-tour-actions";
 
     let closed = false;
+    const keyHandler = event => trapFocus(dialog, event);
     const close = () => {
       if (closed) return;
       closed = true;
@@ -222,17 +470,6 @@
       button.addEventListener("click", () => run(config.action));
       actions.appendChild(button);
     });
-    const keyHandler = event => {
-      if (event.key === "Escape" && onEscape) {
-        event.preventDefault();
-        run(async closeCurrent => {
-          await onEscape();
-          closeCurrent();
-        });
-        return;
-      }
-      trapFocus(dialog, event);
-    };
 
     dialog.append(eyebrowElement, heading, paragraph, error, actions);
     backdrop.appendChild(dialog);
@@ -242,133 +479,6 @@
     document.addEventListener("keydown", keyHandler, true);
     closeDialog = close;
     (actions.querySelector("[data-primary]") || actions.querySelector("button"))?.focus();
-    return close;
-  };
-
-  const pauseTour = async () => {
-    if (state.enabled && state.status !== "completed") {
-      await patchState({status: "paused"});
-    }
-    closeSurfaces();
-  };
-
-  const startTour = async () => {
-    const topic = firstTopic();
-    if (!topic) return finishTour();
-    await patchState({
-      status: "in_progress",
-      current_topic: topic.id,
-      current_step: "choice",
-    });
-    showTopicChoice(topic);
-  };
-
-  const showWelcome = () => {
-    openDialog({
-      eyebrow: "Canlı ürün turu",
-      title: "DevCloud'u kendi ihtiyacınıza göre keşfedin",
-      body: "Her konu başlamadan önce Göster veya Atla seçebilirsiniz. MLflow gibi kullanmadığınız alanları atlamak turun geri kalanını etkilemez.",
-      onEscape: async () => {
-        const topic = firstTopic();
-        await patchState({
-          status: "paused",
-          current_topic: topic?.id || "",
-          current_step: topic ? "choice" : "",
-        });
-      },
-      buttons: [
-        {
-          label: "Şimdi Değil",
-          className: "btn btn-secondary",
-          action: async close => {
-            const topic = firstTopic();
-            await patchState({
-              status: "paused",
-              current_topic: topic?.id || "",
-              current_step: topic ? "choice" : "",
-            });
-            close();
-          },
-        },
-        {
-          label: "Tura Başla",
-          className: "btn btn-primary",
-          primary: true,
-          action: async close => {
-            close();
-            await startTour();
-          },
-        },
-      ],
-    });
-  };
-
-  const showTopicChoice = topic => {
-    if (!topic || state.features[topic.id] === false) return advanceFrom(topic?.id || "");
-    const topics = availableTopics();
-    const topicNumber = topics.findIndex(item => item.id === topic.id) + 1;
-    openDialog({
-      eyebrow: `Konu ${topicNumber} / ${topics.length}`,
-      title: topic.title,
-      body: `${topic.prompt} Bu konuyu görmek ister misiniz?`,
-      onEscape: pauseTour,
-      buttons: [
-        {
-          label: "Atla",
-          className: "btn btn-secondary",
-          action: async close => {
-            await patchState({
-              status: "in_progress",
-              current_topic: topic.id,
-              current_step: "choice",
-              topic_choice: {topic_id: topic.id, choice: "skip"},
-            });
-            close();
-            await advanceFrom(topic.id);
-          },
-        },
-        {
-          label: "Göster",
-          className: "btn btn-primary",
-          primary: true,
-          action: async close => {
-            await patchState({
-              status: "in_progress",
-              current_topic: topic.id,
-              current_step: "highlight",
-              topic_choice: {topic_id: topic.id, choice: "show"},
-            });
-            close();
-            await showHighlight(topic);
-          },
-        },
-      ],
-    });
-  };
-
-  const finishTour = async () => {
-    await patchState({
-      status: "completed",
-      current_topic: "",
-      current_step: "",
-    });
-    openDialog({
-      eyebrow: "Tur tamamlandı",
-      title: "Hazırsınız",
-      body: "Seçtiğiniz DevCloud alanlarını tamamladınız. Turu üst menüden veya Profil sayfasından istediğiniz zaman yeniden başlatabilirsiniz.",
-      buttons: [{label: "Kapat", className: "btn btn-primary", primary: true, action: async close => close()}],
-    });
-  };
-
-  const advanceFrom = async topicId => {
-    const following = nextTopic(topicId);
-    if (!following) return finishTour();
-    await patchState({
-      status: "in_progress",
-      current_topic: following.id,
-      current_step: "choice",
-    });
-    showTopicChoice(following);
   };
 
   const waitForTarget = async (selector, timeout = 3500) => {
@@ -381,37 +491,58 @@
     return null;
   };
 
-  const showMissingTarget = topic => {
+  const pauseTour = async () => {
+    if (state.enabled && state.status !== "completed") await patchState({status: "paused"});
+    closeSurfaces(null);
+  };
+
+  const finishTour = async () => {
+    closeSurfaces(null);
+    await patchState({status: "completed", current_topic: "", current_step: ""});
     openDialog({
-      eyebrow: "Hedef bulunamadı",
-      title: topic.title,
-      body: "Bu alan şu anda sayfada kullanılamıyor. Yeniden deneyebilir veya yalnızca bu konuyu atlayabilirsiniz.",
-      onEscape: pauseTour,
-      buttons: [
-        {
-          label: "Konuyu Atla",
-          className: "btn btn-secondary",
-          action: async close => {
-            await patchState({topic_choice: {topic_id: topic.id, choice: "skip"}});
-            close();
-            await advanceFrom(topic.id);
-          },
-        },
-        {
-          label: "Tekrar Dene",
-          className: "btn btn-primary",
-          primary: true,
-          action: async close => {
-            close();
-            await showHighlight(topic);
-          },
-        },
-      ],
+      eyebrow: "Tur tamamlandı",
+      title: "Hazırsınız",
+      body: "DevCloud'un temel alanlarını tamamladınız. Turu üst menüden veya Profil sayfasından istediğiniz zaman yeniden başlatabilirsiniz.",
+      buttons: [{label: "Kapat", className: "btn btn-primary", primary: true, action: async close => close()}],
     });
   };
 
-  const createHighlight = (target, topic) => {
-    closeSurfaces();
+  const persistAndRender = async (step, extra = {}) => {
+    if (!step) return finishTour();
+    await patchState({
+      status: "in_progress",
+      current_topic: step.topic,
+      current_step: step.id,
+      ...extra,
+    });
+    await renderStep(step);
+  };
+
+  const moveFrom = async (step, direction) => {
+    const destination = adjacentStep(step, direction);
+    if (!destination && direction > 0) return finishTour();
+    if (!destination) return;
+    const topicChoice = step.optionalSection && !state.topic_choices[step.topic]
+      ? {topic_id: step.topic, choice: "show"}
+      : undefined;
+    closeSurfaces(destination);
+    await persistAndRender(destination, topicChoice ? {topic_choice: topicChoice} : {});
+  };
+
+  const skipOptionalSection = async step => {
+    const destination = nextStepAfterTopic(step.topic);
+    closeSurfaces(destination);
+    if (!destination) {
+      await patchState({topic_choice: {topic_id: step.topic, choice: "skip"}});
+      return finishTour();
+    }
+    await persistAndRender(destination, {
+      topic_choice: {topic_id: step.topic, choice: "skip"},
+    });
+  };
+
+  const createHighlight = (target, step) => {
+    closeSurfaces(step);
     const previousFocus = document.activeElement;
     const previousDescription = target.getAttribute("aria-describedby");
     const previousTabIndex = target.getAttribute("tabindex");
@@ -432,37 +563,61 @@
     callout.className = "onboarding-tour-callout";
     callout.setAttribute("role", "dialog");
     callout.setAttribute("aria-modal", "true");
-    const calloutTitleId = `onboarding-callout-title-${Date.now()}`;
-    callout.setAttribute("aria-labelledby", calloutTitleId);
+    const titleId = `onboarding-callout-title-${Date.now()}`;
+    callout.setAttribute("aria-labelledby", titleId);
     callout.setAttribute("aria-describedby", descriptionId);
-    const topics = availableTopics();
-    const topicNumber = topics.findIndex(item => item.id === topic.id) + 1;
+    const steps = availableSteps();
+    const stepNumber = steps.findIndex(item => item.id === step.id) + 1;
     const eyebrow = document.createElement("span");
     eyebrow.className = "onboarding-tour-eyebrow";
-    eyebrow.textContent = `Gösteriliyor · ${topicNumber} / ${topics.length}`;
+    eyebrow.textContent = `Adım ${stepNumber} / ${steps.length} · ${TOPIC_TITLES[step.topic]}`;
     const heading = document.createElement("h2");
-    heading.id = calloutTitleId;
-    heading.textContent = topic.title;
+    heading.id = titleId;
+    heading.textContent = step.title;
     const body = document.createElement("p");
     body.id = descriptionId;
-    body.textContent = topic.detail;
+    body.textContent = typeof step.detail === "function" ? step.detail(state) : step.detail;
     const progress = document.createElement("div");
     progress.className = "onboarding-tour-progress";
     progress.setAttribute("aria-hidden", "true");
     const progressValue = document.createElement("span");
-    progressValue.style.width = `${Math.max(0, (topicNumber / topics.length) * 100)}%`;
+    progressValue.style.width = `${Math.max(0, (stepNumber / steps.length) * 100)}%`;
     progress.appendChild(progressValue);
     const actions = document.createElement("div");
     actions.className = "onboarding-tour-actions";
+
     const pause = document.createElement("button");
     pause.type = "button";
     pause.className = "btn btn-secondary";
     pause.textContent = "Daha Sonra";
+    pause.addEventListener("click", () => pauseTour().catch(showFatalError));
+    actions.appendChild(pause);
+
+    if (step.optionalSection && !state.topic_choices[step.topic]) {
+      const skip = document.createElement("button");
+      skip.type = "button";
+      skip.className = "btn btn-secondary";
+      skip.textContent = `${TOPIC_TITLES[step.topic]} Bölümünü Atla`;
+      skip.addEventListener("click", () => skipOptionalSection(step).catch(showFatalError));
+      actions.appendChild(skip);
+    }
+
+    const previous = adjacentStep(step, -1);
+    if (previous) {
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "btn btn-secondary";
+      back.textContent = "Geri";
+      back.addEventListener("click", () => moveFrom(step, -1).catch(showFatalError));
+      actions.appendChild(back);
+    }
+
     const next = document.createElement("button");
     next.type = "button";
     next.className = "btn btn-primary";
-    next.textContent = nextTopic(topic.id) ? "Devam" : "Turu Tamamla";
-    actions.append(pause, next);
+    next.textContent = adjacentStep(step, 1) ? "Devam" : "Turu Tamamla";
+    next.addEventListener("click", () => moveFrom(step, 1).catch(showFatalError));
+    actions.appendChild(next);
     callout.append(eyebrow, heading, body, progress, actions);
     document.body.appendChild(callout);
     restoreBackground = makeBackgroundInert([...scrims, callout]);
@@ -472,7 +627,7 @@
     const update = () => {
       if (closed) return;
       if (!target.isConnected) {
-        close();
+        close(null);
         return;
       }
       const padding = 7;
@@ -494,7 +649,15 @@
       callout.style.left = `${calloutLeft}px`;
       callout.style.top = `${calloutTop}px`;
     };
-    const close = () => {
+    const keyHandler = event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        pauseTour().catch(showFatalError);
+        return;
+      }
+      trapFocus(callout, event);
+    };
+    const close = nextStep => {
       if (closed) return;
       closed = true;
       scrims.forEach(element => element.remove());
@@ -509,7 +672,9 @@
       window.removeEventListener("pagehide", close);
       document.removeEventListener("keydown", keyHandler, true);
       observer?.disconnect();
-      if (target.isConnected) target.focus({preventScroll: true});
+      step.cleanup?.(state, nextStep);
+      const focusTarget = target.isConnected && target.getClientRects().length;
+      if (focusTarget) target.focus({preventScroll: true});
       else if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
       if (!targetWasFocusable) {
         if (previousTabIndex === null) target.removeAttribute("tabindex");
@@ -517,25 +682,6 @@
       }
       if (closeHighlight === close) closeHighlight = null;
     };
-    const keyHandler = event => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        pauseTour().catch(showFatalError);
-        return;
-      }
-      trapFocus(callout, event);
-    };
-    pause.addEventListener("click", () => pauseTour().catch(showFatalError));
-    next.addEventListener("click", async () => {
-      next.disabled = true;
-      pause.disabled = true;
-      close();
-      try {
-        await advanceFrom(topic.id);
-      } catch (error) {
-        showFatalError(error);
-      }
-    });
     const observer = window.ResizeObserver ? new ResizeObserver(update) : null;
     observer?.observe(target);
     window.addEventListener("resize", update);
@@ -547,39 +693,77 @@
     next.focus();
   };
 
-  const showHighlight = async topic => {
-    const route = topic.route(state);
-    if (!route) return showMissingTarget(topic);
+  const showMissingStep = step => {
+    openDialog({
+      eyebrow: "Adım kullanılamıyor",
+      title: step.title,
+      body: "Bu öğe şu anda sayfada bulunamadı. Yeniden deneyebilir veya sonraki adıma geçebilirsiniz.",
+      buttons: [
+        {
+          label: "Sonraki Adım",
+          className: "btn btn-secondary",
+          action: async close => {
+            close();
+            await moveFrom(step, 1);
+          },
+        },
+        {
+          label: "Tekrar Dene",
+          className: "btn btn-primary",
+          primary: true,
+          action: async close => {
+            close();
+            await renderStep(step);
+          },
+        },
+      ],
+    });
+  };
+
+  const renderStep = async step => {
+    const route = step.route(state);
     if (window.location.pathname !== route) {
       window.location.assign(route);
       return;
     }
-    const target = await waitForTarget(topic.selector);
-    if (!target) return showMissingTarget(topic);
+    step.prepare?.(state, step);
+    const selector = typeof step.selector === "function" ? step.selector(state) : step.selector;
+    const target = await waitForTarget(selector);
+    if (!target) {
+      step.cleanup?.(state, null);
+      return showMissingStep(step);
+    }
     target.scrollIntoView({behavior: reducedMotion ? "auto" : "smooth", block: "center", inline: "nearest"});
-    window.setTimeout(() => createHighlight(target, topic), reducedMotion ? 0 : 220);
+    window.setTimeout(() => createHighlight(target, step), reducedMotion ? 0 : 220);
+  };
+
+  const startTour = async () => {
+    const first = firstAvailableStep();
+    if (!first) return finishTour();
+    await persistAndRender(first);
   };
 
   const resumeTour = async () => {
-    let topic = topicById(state.current_topic);
-    if (!topic || state.features[topic.id] === false) {
-      topic = topic ? nextTopic(topic.id) : firstTopic();
-      if (!topic) return finishTour();
-      await patchState({current_topic: topic.id, current_step: "choice", status: "in_progress"});
+    const step = resolvePersistedStep();
+    if (!step) return finishTour();
+    if (state.current_step !== step.id || state.current_topic !== step.topic || state.status !== "in_progress") {
+      await patchState({status: "in_progress", current_topic: step.topic, current_step: step.id});
     }
-    if (state.current_step === "highlight") await showHighlight(topic);
-    else showTopicChoice(topic);
+    await renderStep(step);
   };
 
   const showFatalError = async error => {
-    try {
-      if (state?.enabled && state.status === "in_progress") {
-        await patchState({status: "paused"});
-      }
-    } catch (_pauseError) {
-      // The original error remains the most useful message for the user.
+    if (error?.onboardingConflict) {
+      closeSurfaces(null);
+      if (state?.status === "in_progress") await resumeTour();
+      return;
     }
-    closeSurfaces();
+    try {
+      if (state?.enabled && state.status === "in_progress") await patchState({status: "paused"});
+    } catch (_pauseError) {
+      // Preserve the original error message.
+    }
+    closeSurfaces(null);
     openDialog({
       eyebrow: state?.status === "paused" ? "Tur duraklatıldı" : "Tur hatası",
       title: "Tur devam ettirilemedi",
@@ -589,14 +773,9 @@
   };
 
   const handleRestart = async () => {
-    closeSurfaces();
+    closeSurfaces(null);
     try {
-      if (state.status === "paused") {
-        await patchState({status: "in_progress"});
-        await resumeTour();
-        return;
-      }
-      if (state.status === "in_progress") {
+      if (state.status === "paused" || state.status === "in_progress") {
         await resumeTour();
         return;
       }
@@ -608,10 +787,9 @@
         }),
       });
       syncRestartButtons();
-      if (!state.enabled) return;
-      await startTour();
+      if (state.enabled) await startTour();
     } catch (error) {
-      showFatalError(error);
+      await showFatalError(error);
     }
   };
 
@@ -622,7 +800,7 @@
       await refreshState();
       if (!state.enabled) return;
       if (state.status === "in_progress") await resumeTour();
-      else if (state.status === "not_started" && state.auto_offer) showWelcome();
+      else if (state.status === "not_started" && state.auto_offer) await startTour();
     } catch (error) {
       console.warn("Onboarding tour could not initialize", error);
     }

@@ -146,10 +146,36 @@
     </p>
     <button onclick="document.getElementById('btn-open-create-modal').click();" class="btn btn-primary">Çalışma Alanı Oluştur</button>
   </div>
+
+  <article class="card onboarding-demo-workspace" data-onboarding-demo-workspace hidden role="note" aria-label="Demo çalışma alanı önizlemesi">
+    <div class="onboarding-demo-workspace-heading" data-tour="workspace-demo-overview">
+      <div>
+        <span class="onboarding-tour-eyebrow">Demo · Gerçek kaynak oluşturmaz</span>
+        <h2>örnek-python-projesi</h2>
+        <p>İlk çalışma alanınızı oluşturduğunuzda ayrıntılar, metrikler ve araçlar bu yapıda görünür.</p>
+      </div>
+      <span class="badge badge-running">Çalışıyor</span>
+    </div>
+    <div class="onboarding-demo-metrics" data-tour="workspace-demo-metrics" aria-label="Örnek çalışma alanı metrikleri">
+      <span><small>CPU</small><strong>%18</strong></span>
+      <span><small>RAM</small><strong>640 MB</strong></span>
+      <span><small>Disk</small><strong>1.2 GB</strong></span>
+      <span><small>Süre</small><strong>12 dk</strong></span>
+    </div>
+    <div class="workspace-tabs-nav onboarding-demo-tabs" aria-label="Örnek çalışma alanı araçları">
+      <span class="tab-btn active" data-tour="workspace-demo-logs">Container Logları</span>
+      <span class="tab-btn" data-tour="workspace-demo-files">Dosya Yöneticisi</span>
+      <span class="tab-btn" data-tour="workspace-demo-ports">Port Önizleme</span>
+    </div>
+    <div class="onboarding-demo-panel">
+      <strong>Örnek araç görünümü</strong>
+      <p>Gerçek bir workspace oluşturulmadı. Tur yalnızca log, dosya ve port araçlarının nerede bulunacağını gösterir.</p>
+    </div>
+  </article>
 {% endif %}
 
-<div id="create-modal" class="modal-backdrop" data-tour="workspace-create-dialog">
-  <div class="modal workspace-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+<div id="create-modal" class="modal-backdrop">
+  <div class="modal workspace-create-modal" data-tour="workspace-create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
     <div class="card-header" style="margin-bottom: 1.5rem;">
       <h2 id="create-modal-title" class="card-title">Bulut Çalışma Alanı Oluştur</h2>
       <button id="btn-close-create-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
@@ -299,7 +325,7 @@
 
       <div id="modal-footer-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
         <div id="selected-flavor-summary" class="selected-flavor-summary" role="status" aria-live="polite"></div>
-        <button type="button" id="btn-cancel-deploy" class="btn btn-secondary" onclick="document.getElementById('create-modal').classList.remove('open');">İptal</button>
+        <button type="button" id="btn-cancel-deploy" class="btn btn-secondary">İptal</button>
         <button type="submit" id="btn-submit-deploy" data-tour="workspace-create-submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 600;">Çalışma Alanını Kur</button>
       </div>
     </form>

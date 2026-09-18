@@ -17,7 +17,7 @@
   <section class="admin-section-content" id="admin-section-content" aria-labelledby="admin-section-title">
 
 {% if admin_section == 'overview' %}
-<div class="admin-stat-grid">
+<div class="admin-stat-grid" data-tour="admin-summary">
   <div class="card" style="border-top: 3px solid var(--secondary);">
     <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Kullanıcı</div>
     <div style="font-size: 1.75rem; font-weight: 700; color: var(--heading); margin-top: 0.25rem;">{{ admin_stats.users }}</div>
@@ -217,7 +217,7 @@
   <div class="card-header">
     <div>
       <h2 class="card-title">Yeni Kullanıcı Canlı Turu</h2>
-      <p class="admin-section-description">Yeni kullanıcılara ürün alanlarını isteğe bağlı olarak tanıtır. Her konu başlamadan önce kullanıcı Göster veya Atla seçer; seçimler hesap bazında saklanır.</p>
+      <p class="admin-section-description">Yeni kullanıcıların ilk girişinde otomatik başlayan doğrusal ürün turunu yönetir. Kullanıcı Devam ile sayfadaki öğeler arasında ilerler; MLflow gibi isteğe bağlı bir bölümü tek seferde atlayabilir.</p>
     </div>
     <span id="onboarding-status-badge" class="badge {% if onboarding_settings and onboarding_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if onboarding_settings and onboarding_settings.enabled else 'Devre Dışı' }}</span>
   </div>

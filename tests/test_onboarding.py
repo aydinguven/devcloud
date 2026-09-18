@@ -75,9 +75,9 @@ async def test_admin_controls_versioned_optional_tour(client, db_session):
     assert fresh["status"] == "not_started"
     assert fresh["topic_choices"] == {}
     assert fresh["features"]["mlflow"] is False
-    assert fresh["features"]["workspace-detail"] is False
+    assert fresh["features"]["workspace-detail"] is True
 
-    shown = await client.patch(
+    started = await client.patch(
         "/api/onboarding/state",
         headers=user_headers,
         json={
@@ -85,14 +85,14 @@ async def test_admin_controls_versioned_optional_tour(client, db_session):
             "expected_revision": 0,
             "status": "in_progress",
             "current_topic": "workspace-create",
-            "current_step": "highlight",
-            "topic_choice": {"topic_id": "workspace-create", "choice": "show"},
+            "current_step": "ws-create-open",
         },
     )
-    assert shown.status_code == 200, shown.text
-    shown_state = shown.json()
-    assert shown_state["topic_choices"] == {"workspace-create": "show"}
-    assert shown_state["revision"] == 1
+    assert started.status_code == 200, started.text
+    started_state = started.json()
+    assert started_state["current_step"] == "ws-create-open"
+    assert started_state["topic_choices"] == {}
+    assert started_state["revision"] == 1
 
     stale = await client.patch(
         "/api/onboarding/state",
@@ -213,8 +213,16 @@ async def test_tour_capabilities_follow_user_context(client, db_session):
     user_headers = bearer(user["access_token"])
     initial = (await client.get("/api/onboarding/state", headers=user_headers)).json()
     assert initial["features"]["mlflow"] is False
-    assert initial["features"]["workspace-detail"] is False
+    assert initial["features"]["workspace-detail"] is True
     assert initial["context"]["first_workspace_url"] is None
+    dashboard = await client.get("/", headers=user_headers)
+    assert dashboard.status_code == 200
+    assert 'data-tour="workspace-demo-overview"' in dashboard.text
+    assert 'data-tour="workspace-demo-metrics"' in dashboard.text
+    assert 'data-tour="workspace-demo-logs"' in dashboard.text
+    assert 'data-tour="workspace-demo-files"' in dashboard.text
+    assert 'data-tour="workspace-demo-ports"' in dashboard.text
+    assert "Demo · Gerçek kaynak oluşturmaz" in dashboard.text
 
     db_session.add(
         MlflowServerSettings(
@@ -246,8 +254,27 @@ async def test_tour_capabilities_follow_user_context(client, db_session):
     # Admins and users only receive capabilities for their own account context.
     admin_state = (await client.get("/api/onboarding/state", headers=admin_headers)).json()
     assert admin_state["features"]["admin"] is True
-    assert admin_state["features"]["workspace-detail"] is False
+    assert admin_state["features"]["workspace-detail"] is True
 
+    deleted_workspace = Workspace(
+        name="Deleted tour workspace",
+        user_id=admin["user"]["id"],
+        node_id=TEST_WORKER_ID,
+        template_id="vscode-python",
+        flavor_id="t1.micro",
+        container_name="deleted-tour-workspace",
+        host_port=19223,
+        storage_path="/tmp/deleted-tour-workspace",
+        status=WorkspaceStatus.DELETED,
+    )
+    db_session.add(deleted_workspace)
+    await db_session.commit()
+    deleted_only_state = (
+        await client.get("/api/onboarding/state", headers=admin_headers)
+    ).json()
+    assert deleted_only_state["context"]["first_workspace_url"] is None
+    deleted_dashboard = await client.get("/", headers=admin_headers)
+    assert 'data-tour="workspace-demo-overview"' in deleted_dashboard.text
 
 
 @pytest.mark.asyncio
@@ -264,3 +291,96 @@ async def test_onboarding_tables_are_registered_with_user_cascade(db_session):
     )
     assert user_fk["referred_table"] == "users"
     assert user_fk["options"].get("ondelete") == "CASCADE"
+
+
+
+@pytest.mark.asyncio
+async def test_onboarding_step_ids_validate_and_legacy_state_remains_compatible(
+    client, db_session
+):
+    db_session.add(
+        OnboardingSettings(
+            id=1,
+            enabled=True,
+            current_version=1,
+            enabled_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+    user = await register(client, "tour_step_user")
+    headers = bearer(user["access_token"])
+
+    unknown = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": 0,
+            "status": "in_progress",
+            "current_topic": "workspace-create",
+            "current_step": "not-a-tour-step",
+        },
+    )
+    assert unknown.status_code == 422
+
+    mismatch = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": 0,
+            "status": "in_progress",
+            "current_topic": "profile",
+            "current_step": "ws-create-open",
+        },
+    )
+    assert mismatch.status_code == 422
+
+    legacy = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": 0,
+            "status": "in_progress",
+            "current_topic": "workspace-create",
+            "current_step": "highlight",
+        },
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["current_step"] == "highlight"
+
+    stable = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": legacy.json()["revision"],
+            "current_topic": "workspace-create",
+            "current_step": "ws-create-open",
+        },
+    )
+    assert stable.status_code == 200
+    assert stable.json()["current_step"] == "ws-create-open"
+
+    partial_topic = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": stable.json()["revision"],
+            "current_topic": "profile",
+        },
+    )
+    assert partial_topic.status_code == 422
+
+    partial_step = await client.patch(
+        "/api/onboarding/state",
+        headers=headers,
+        json={
+            "tour_version": 1,
+            "expected_revision": stable.json()["revision"],
+            "current_step": "profile-details",
+        },
+    )
+    assert partial_step.status_code == 422

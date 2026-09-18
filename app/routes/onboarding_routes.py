@@ -33,6 +33,27 @@ TOUR_TOPICS = {
     "admin",
 }
 TOUR_STATUSES = {"not_started", "in_progress", "paused", "completed"}
+TOUR_STEP_TOPICS = {
+    "ws-create-open": "workspace-create",
+    "ws-create-dialog": "workspace-create",
+    "ws-create-name": "workspace-create",
+    "ws-create-template": "workspace-create",
+    "ws-create-flavor": "workspace-create",
+    "ws-create-submit": "workspace-create",
+    "dashboard-quota": "resource-usage",
+    "ws-detail-overview": "workspace-detail",
+    "ws-detail-metrics": "workspace-detail",
+    "ws-detail-logs": "workspace-detail",
+    "ws-detail-files": "workspace-detail",
+    "ws-detail-ports": "workspace-detail",
+    "mlflow-nav": "mlflow",
+    "mlflow-connection": "mlflow",
+    "profile-details": "profile",
+    "profile-tour-control": "profile",
+    "admin-summary": "admin",
+    "admin-sections": "admin",
+}
+LEGACY_TOUR_STEPS = {"", "choice", "highlight"}
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -83,7 +104,7 @@ async def _capabilities(
     features = {
         "workspace-create": can_create_workspace,
         "resource-usage": True,
-        "workspace-detail": workspace_id is not None,
+        "workspace-detail": True,
         "mlflow": bool(mlflow and mlflow.enabled),
         "profile": True,
         "admin": user.role == UserRole.ADMIN,
@@ -244,7 +265,30 @@ async def update_onboarding_state(
             raise HTTPException(status_code=422, detail="Bilinmeyen tur konusu.")
         next_topic = payload.current_topic
     if payload.current_step is not None:
+        if (
+            payload.current_step not in LEGACY_TOUR_STEPS
+            and payload.current_step not in TOUR_STEP_TOPICS
+        ):
+            raise HTTPException(status_code=422, detail="Bilinmeyen tur adımı.")
+        expected_topic = TOUR_STEP_TOPICS.get(payload.current_step)
+        effective_topic = (
+            payload.current_topic
+            if payload.current_topic is not None
+            else next_topic
+        )
+        if expected_topic and expected_topic != effective_topic:
+            raise HTTPException(
+                status_code=422,
+                detail="Tur adımı seçilen konuyla eşleşmiyor.",
+            )
         next_step = payload.current_step
+
+    persisted_step_topic = TOUR_STEP_TOPICS.get(next_step)
+    if persisted_step_topic and persisted_step_topic != next_topic:
+        raise HTTPException(
+            status_code=422,
+            detail="Tur konusu ve adımı birlikte güncellenmelidir.",
+        )
     if payload.status is not None:
         next_status = payload.status
         completed_at = (

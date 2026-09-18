@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 TourStatus = Literal["not_started", "in_progress", "paused", "completed"]
 TourChoice = Literal["show", "skip"]
-TourStep = Literal["", "choice", "highlight"]
 
 
 class OnboardingSettingsUpdate(BaseModel):
@@ -29,7 +28,7 @@ class OnboardingStateUpdate(BaseModel):
     expected_revision: int = Field(strict=True, ge=0)
     status: TourStatus | None = None
     current_topic: str | None = Field(default=None, max_length=64)
-    current_step: TourStep | None = None
+    current_step: str | None = Field(default=None, max_length=32)
     topic_choice: OnboardingTopicChoice | None = None
 
 
