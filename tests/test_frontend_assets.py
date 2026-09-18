@@ -515,3 +515,42 @@ def test_linear_onboarding_tour_has_multiple_persistent_steps():
     assert "pointer-events: none !important" in css
     assert "http://" not in javascript
     assert "https://" not in javascript
+
+
+
+def test_admin_catalog_fields_use_inline_edit_and_image_cards_align():
+    admin = (PROJECT_ROOT / "app/templates/admin.html").read_text(encoding="utf-8")
+    images = (
+        PROJECT_ROOT / "app/templates/partials/admin_images.html"
+    ).read_text(encoding="utf-8")
+    javascript = (PROJECT_ROOT / "app/static/js/app.js").read_text(
+        encoding="utf-8"
+    )
+    css = (PROJECT_ROOT / "app/static/css/kurumsal.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="jupyter-ai-model-list" data-inline-edit-catalog' in admin
+    assert 'id="admin-custom-template-table"' in admin
+    assert 'data-inline-edit-catalog' in admin
+    assert 'data-inline-edit-input' in admin
+    assert 'data-inline-edit-label' in admin
+    assert "initInlineEditControls()" in javascript
+    assert 'input.readOnly = true' in javascript
+    assert 'toggle.textContent = editing ? "Bitti" : "Düzenle"' in javascript
+    assert "closeInlineEditControls(modelList)" in javascript
+    assert "closeInlineEditControls(row)" in javascript
+    assert ".inline-edit-control" in css
+    assert ".inline-edit-toggle" in css
+
+    assert "grid grid-cols-2 image-import-grid" in images
+    assert images.count("card image-import-card") == 2
+    assert images.count("image-import-form") == 2
+    assert images.count("image-import-actions") == 2
+    assert 'role="status" aria-live="polite"' in images
+    assert ".image-import-grid" in css
+    assert ".image-import-card" in css
+    assert ".image-import-form" in css
+    assert ".image-import-actions" in css
+    assert "align-items: stretch" in css
+    assert "margin-top: auto" in css
