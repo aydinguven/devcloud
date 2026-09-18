@@ -12,15 +12,15 @@
   <div id="workspace-image-global-status" class="quota-form-status" role="status" aria-live="polite"></div>
 </section>
 
-<div class="grid grid-cols-2" style="gap:1rem;margin-bottom:1.25rem;align-items:start;">
-  <section class="card">
+<div class="grid grid-cols-2 image-import-grid">
+  <section class="card image-import-card">
     <div class="card-header">
       <div>
         <h2 class="card-title">Registry'den İçe Aktar</h2>
         <p class="admin-section-description">Quay.io veya şirket içi OCI registry referansını controller arşivine kopyalar.</p>
       </div>
     </div>
-    <form id="workspace-image-registry-form" autocomplete="off">
+    <form id="workspace-image-registry-form" class="image-import-form" autocomplete="off">
       <label class="form-group">
         <span class="form-label">Workspace Şablonu</span>
         <select class="form-input" id="workspace-image-template-select" name="template_id" required>
@@ -81,19 +81,21 @@
           <input class="form-input" type="password" name="password" autocomplete="current-password">
         </label>
       </div>
-      <button class="btn btn-primary" type="submit">Registry'den İçe Aktar</button>
-      <span class="quota-form-status" data-image-form-status></span>
+      <div class="image-import-actions">
+        <button class="btn btn-primary" type="submit">Registry'den İçe Aktar</button>
+        <span class="quota-form-status" data-image-form-status role="status" aria-live="polite"></span>
+      </div>
     </form>
   </section>
 
-  <section class="card">
+  <section class="card image-import-card">
     <div class="card-header">
       <div>
         <h2 class="card-title">OCI / Docker Tar Yükle</h2>
         <p class="admin-section-description">Air-gap ortamında <code>podman save</code> veya image pack içindeki tar arşivini yükleyin.</p>
       </div>
     </div>
-    <form id="workspace-image-upload-form" enctype="multipart/form-data">
+    <form id="workspace-image-upload-form" class="image-import-form" enctype="multipart/form-data">
       <label class="form-group">
         <span class="form-label">Workspace Şablonu</span>
         <select class="form-input" name="template_id" required>
@@ -110,8 +112,10 @@
         <label class="form-label" for="workspace-image-archive">Image Arşivi</label>
         <input id="workspace-image-archive" class="form-input" type="file" name="archive" accept=".tar,application/x-tar" required data-file-picker-label="Tar Arşivi Seç">
       </div>
-      <button class="btn btn-primary" type="submit">Tar Arşivini Yükle</button>
-      <span class="quota-form-status" data-image-form-status></span>
+      <div class="image-import-actions">
+        <button class="btn btn-primary" type="submit">Tar Arşivini Yükle</button>
+        <span class="quota-form-status" data-image-form-status role="status" aria-live="polite"></span>
+      </div>
     </form>
   </section>
 </div>

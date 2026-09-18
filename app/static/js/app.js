@@ -3,6 +3,7 @@
 // ==============================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
+  initInlineEditControls();
   initFilePickers();
   initWorkspaceCreationModal();
   initActionButtons();
@@ -29,6 +30,50 @@ document.addEventListener("DOMContentLoaded", () => {
   initWorkspaceImageManager();
   initAdminFlavorSettings();
 });
+
+function initInlineEditControls(scope = document) {
+  scope.querySelectorAll("[data-inline-edit-input]").forEach((input) => {
+    if (input.dataset.inlineEditEnhanced === "true" || input.disabled) return;
+    input.dataset.inlineEditEnhanced = "true";
+    input.readOnly = true;
+    input.setAttribute("aria-readonly", "true");
+    if (!input.id) input.id = `inline-edit-${Math.random().toString(36).slice(2)}`;
+    const wrapper = document.createElement("div");
+    wrapper.className = "inline-edit-control";
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "inline-edit-toggle";
+    toggle.dataset.inlineEditToggle = "";
+    toggle.setAttribute("aria-controls", input.id);
+    const label = input.dataset.inlineEditLabel || "Alanı";
+    const setEditing = (editing, focus = true) => {
+      input.readOnly = !editing;
+      input.setAttribute("aria-readonly", String(!editing));
+      wrapper.classList.toggle("is-editing", editing);
+      toggle.setAttribute("aria-pressed", String(editing));
+      toggle.textContent = editing ? "Bitti" : "Düzenle";
+      toggle.setAttribute("aria-label", `${label} ${editing ? "düzenlemeyi bitir" : "düzenle"}`);
+      if (focus) (editing ? input : toggle).focus();
+      if (editing && input.type !== "number") input.select();
+    };
+    toggle.addEventListener("click", () => setEditing(input.readOnly));
+    input.addEventListener("keydown", (event) => {
+      if ((event.key === "Enter" || event.key === "Escape") && !input.readOnly) {
+        event.preventDefault();
+        setEditing(false);
+      }
+    });
+    input._setInlineEditing = setEditing;
+    wrapper.appendChild(toggle);
+    setEditing(false, false);
+  });
+}
+
+function closeInlineEditControls(scope) {
+  scope.querySelectorAll("[data-inline-edit-input]").forEach((input) => input._setInlineEditing?.(false, false));
+}
 
 function initFilePickers() {
   let pickerIndex = 0;
@@ -255,6 +300,7 @@ function initAdminFlavorSettings() {
         const payload = {};
         row.querySelectorAll("[data-template-field]:not(:disabled)").forEach(input => { payload[input.dataset.templateField] = input.type === "number" ? Number(input.value) : input.value.trim(); });
         await request(`/api/admin/templates/${encodeURIComponent(templateId)}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+        closeInlineEditControls(row);
         templateStatus.textContent = `${templateId} kaydedildi.`;
       }
       templateStatus.className = "quota-form-status quota-status-success";
@@ -409,21 +455,30 @@ function initJupyterAiSettings() {
     }
   }
 
+  let modelRowIndex = modelList.querySelectorAll("[data-jupyter-ai-model-row]").length;
+
   function addModelRow(model = {}) {
     const row = document.createElement("div");
+    const rowKey = `jupyter-model-new-${modelRowIndex++}`;
     row.className = "grid grid-cols-3 jupyter-ai-model-row";
     row.dataset.jupyterAiModelRow = "";
     row.style.cssText = "gap:0.5rem;margin-bottom:0.5rem;align-items:end;";
     row.innerHTML = `
-      <label class="form-group" style="margin:0"><span class="form-label">Model ID</span><input class="form-input" data-model-field="model_id" placeholder="claude-model-alias"></label>
-      <label class="form-group" style="margin:0"><span class="form-label">Görünen Ad</span><input class="form-input" data-model-field="name" placeholder="Model adı"></label>
-      <div style="display:flex;gap:0.5rem;align-items:end"><label class="form-group" style="margin:0;flex:1"><span class="form-label">Açıklama</span><input class="form-input" data-model-field="description" placeholder="On-Prem / Online"></label><button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model>Sil</button></div>`;
+      <div class="form-group" style="margin:0"><label class="form-label" for="${rowKey}-id">Model ID</label><input id="${rowKey}-id" class="form-input" data-model-field="model_id" data-inline-edit-input placeholder="claude-model-alias"></div>
+      <div class="form-group" style="margin:0"><label class="form-label" for="${rowKey}-name">Görünen Ad</label><input id="${rowKey}-name" class="form-input" data-model-field="name" data-inline-edit-input placeholder="Model adı"></div>
+      <div style="display:flex;gap:0.5rem;align-items:end"><div class="form-group" style="margin:0;flex:1"><label class="form-label" for="${rowKey}-description">Açıklama</label><input id="${rowKey}-description" class="form-input" data-model-field="description" data-inline-edit-input placeholder="On-Prem / Online"></div><button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model>Sil</button></div>`;
     Object.entries(model).forEach(([key, value]) => {
       const input = row.querySelector(`[data-model-field="${key}"]`);
       if (input) input.value = value;
     });
+    const displayName = String(model.name || "Yeni model");
+    row.querySelector('[data-model-field="model_id"]').dataset.inlineEditLabel = `${displayName} model kimliğini`;
+    row.querySelector('[data-model-field="name"]').dataset.inlineEditLabel = `${displayName} görünen adını`;
+    row.querySelector('[data-model-field="description"]').dataset.inlineEditLabel = `${displayName} açıklamasını`;
+    row.querySelector("[data-remove-jupyter-ai-model]").setAttribute("aria-label", `${displayName} modelini sil`);
     modelList.appendChild(row);
-    row.querySelector('[data-model-field="model_id"]').focus();
+    initInlineEditControls(row);
+    row.querySelector('[data-model-field="model_id"]')._setInlineEditing?.(true);
   }
 
   modelList.addEventListener("input", syncDefaultModels);
@@ -513,6 +568,7 @@ function initJupyterAiSettings() {
       badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
       status.textContent = "Workspace AI ayarları kaydedildi; worker'lar en geç 30 saniye içinde alacak.";
       status.className = "quota-form-status quota-status-success";
+      closeInlineEditControls(modelList);
     } catch (error) {
       status.textContent = error.message;
       status.className = "quota-form-status quota-status-error";

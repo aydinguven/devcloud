@@ -583,23 +583,23 @@ cd devcloud
         </div>
         <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
       </div>
-      <div id="jupyter-ai-model-list">
+      <div id="jupyter-ai-model-list" data-inline-edit-catalog>
         {% for model in jupyter_ai_models %}
         <div class="grid grid-cols-3 jupyter-ai-model-row" data-jupyter-ai-model-row style="gap: 0.5rem; margin-bottom: 0.5rem; align-items: end;">
-          <label class="form-group" style="margin: 0;">
-            <span class="form-label">Model ID</span>
-            <input class="form-input" data-model-field="model_id" value="{{ model.model_id }}" placeholder="openrouter/provider/model">
-          </label>
-          <label class="form-group" style="margin: 0;">
-            <span class="form-label">Görünen Ad</span>
-            <input class="form-input" data-model-field="name" value="{{ model.name }}" placeholder="Model adı">
-          </label>
-          <div style="display: flex; gap: 0.5rem; align-items: end;">
-            <label class="form-group" style="margin: 0; flex: 1;">
-              <span class="form-label">Açıklama</span>
-              <input class="form-input" data-model-field="description" value="{{ model.description }}" placeholder="On-Prem / Online">
-            </label>
-            <button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model>Sil</button>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="jupyter-model-{{ loop.index0 }}-id">Model ID</label>
+            <input id="jupyter-model-{{ loop.index0 }}-id" class="form-input" data-model-field="model_id" data-inline-edit-input data-inline-edit-label="{{ model.name }} model kimliğini" value="{{ model.model_id }}" placeholder="openrouter/provider/model">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="jupyter-model-{{ loop.index0 }}-name">Görünen Ad</label>
+            <input id="jupyter-model-{{ loop.index0 }}-name" class="form-input" data-model-field="name" data-inline-edit-input data-inline-edit-label="{{ model.name }} görünen adını" value="{{ model.name }}" placeholder="Model adı">
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:end">
+            <div class="form-group" style="margin:0;flex:1">
+              <label class="form-label" for="jupyter-model-{{ loop.index0 }}-description">Açıklama</label>
+              <input id="jupyter-model-{{ loop.index0 }}-description" class="form-input" data-model-field="description" data-inline-edit-input data-inline-edit-label="{{ model.name }} açıklamasını" value="{{ model.description }}" placeholder="On-Prem / Online">
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" data-remove-jupyter-ai-model aria-label="{{ model.name }} modelini sil">Sil</button>
           </div>
         </div>
         {% endfor %}
@@ -969,9 +969,31 @@ cd devcloud
 
 <section class="card" style="margin-bottom:2rem">
   <div class="card-header"><div><h2 class="card-title">Workspace Tipleri</h2><p class="admin-section-description">Yerleşik ve özel şablonların görünen adını ve açıklamasını düzenleyin. Özel şablonlarda port da değiştirilebilir; kullanımda olanlar silinemez.</p></div></div>
-  <div class="data-table-shell responsive-card-table-shell"><table id="admin-custom-template-table" class="table responsive-card-table"><thead><tr><th>Şablon</th><th>Ad</th><th>Açıklama</th><th>Port</th><th>İşlemler</th></tr></thead><tbody>
-  {% for template in admin_templates %}<tr data-template-id="{{ template.id }}"><td data-label="Şablon"><code>{{ template.id }}</code></td><td data-label="Ad"><input class="form-input" data-template-field="name" value="{{ template.name }}"></td><td data-label="Açıklama"><input class="form-input" data-template-field="description" value="{{ template.description }}"></td><td data-label="Port"><input class="form-input" type="number" min="1" max="65535" data-template-field="default_port" value="{{ template.default_port }}" {% if template.id in builtin_template_ids %}disabled title="Yerleşik runtime portu değiştirilemez"{% endif %}></td><td data-label="İşlemler"><div class="table-actions"><button class="btn btn-secondary btn-sm" type="button" data-template-save>Kaydet</button>{% if template.id not in builtin_template_ids %}<button class="btn btn-danger btn-sm" type="button" data-template-delete>Sil</button>{% endif %}</div></td></tr>{% endfor %}
-  </tbody></table></div>
+  <div class="data-table-shell responsive-card-table-shell">
+    <table id="admin-custom-template-table" class="table responsive-card-table" data-inline-edit-catalog>
+      <thead><tr><th scope="col">Şablon</th><th scope="col">Ad</th><th scope="col">Açıklama</th><th scope="col">Port</th><th scope="col">İşlemler</th></tr></thead>
+      <tbody>
+      {% for template in admin_templates %}
+        <tr data-template-id="{{ template.id }}">
+          <td data-label="Şablon"><code>{{ template.id }}</code></td>
+          <td data-label="Ad">
+            <label class="sr-only" for="template-{{ loop.index0 }}-name">{{ template.id }} görünen adı</label>
+            <input id="template-{{ loop.index0 }}-name" class="form-input" data-template-field="name" data-inline-edit-input data-inline-edit-label="{{ template.id }} görünen adını" value="{{ template.name }}">
+          </td>
+          <td data-label="Açıklama">
+            <label class="sr-only" for="template-{{ loop.index0 }}-description">{{ template.id }} açıklaması</label>
+            <input id="template-{{ loop.index0 }}-description" class="form-input" data-template-field="description" data-inline-edit-input data-inline-edit-label="{{ template.id }} açıklamasını" value="{{ template.description }}">
+          </td>
+          <td data-label="Port">
+            <label class="sr-only" for="template-{{ loop.index0 }}-port">{{ template.id }} varsayılan portu</label>
+            <input id="template-{{ loop.index0 }}-port" class="form-input" type="number" min="1" max="65535" data-template-field="default_port" value="{{ template.default_port }}" {% if template.id in builtin_template_ids %}disabled title="Yerleşik runtime portu değiştirilemez"{% else %}data-inline-edit-input data-inline-edit-label="{{ template.id }} varsayılan portunu"{% endif %}>
+          </td>
+          <td data-label="İşlemler"><div class="table-actions"><button class="btn btn-secondary btn-sm" type="button" data-template-save aria-label="{{ template.id }} workspace tipini kaydet">Kaydet</button>{% if template.id not in builtin_template_ids %}<button class="btn btn-danger btn-sm" type="button" data-template-delete aria-label="{{ template.id }} workspace tipini sil">Sil</button>{% endif %}</div></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
   <div id="admin-template-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
 </section>
 
