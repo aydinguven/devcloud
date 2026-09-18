@@ -18,7 +18,8 @@
       <dt class="text-muted">Ad Soyad</dt><dd>{{ user.full_name or '—' }}</dd>
       <dt class="text-muted">E-posta</dt><dd>{{ user.email or '—' }}</dd>
       <dt class="text-muted">Takım</dt><dd>{{ user.team or '—' }}</dd>
-      <dt class="text-muted">Müdürlük</dt><dd>{{ user.directorate or '—' }}</dd>
+      <dt class="text-muted">Müdürlük</dt><dd>{{ user.organization_unit or user.directorate or '—' }}</dd>
+      {% if user.organization_unit %}<dt class="text-muted">Bağlı Olduğu Birim</dt><dd>{{ user.directorate or '—' }}</dd>{% endif %}
     </dl>
   </section>
 </div>

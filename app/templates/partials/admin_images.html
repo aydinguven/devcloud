@@ -106,10 +106,10 @@
         <span class="form-label">Görünen Ad</span>
         <input class="form-input" name="display_name" placeholder="Python Air-gap 2026.08">
       </label>
-      <label class="form-group">
-        <span class="form-label">Image Arşivi</span>
-        <input class="form-input" type="file" name="archive" accept=".tar,application/x-tar" required>
-      </label>
+      <div class="form-group">
+        <label class="form-label" for="workspace-image-archive">Image Arşivi</label>
+        <input id="workspace-image-archive" class="form-input" type="file" name="archive" accept=".tar,application/x-tar" required data-file-picker-label="Tar Arşivi Seç">
+      </div>
       <button class="btn btn-primary" type="submit">Tar Arşivini Yükle</button>
       <span class="quota-form-status" data-image-form-status></span>
     </form>
@@ -120,21 +120,21 @@
   <div class="card-header">
     <div>
       <h2 class="card-title">Image Kataloğu ve Worker Durumu</h2>
-      <p class="admin-section-description">Her şablon için yalnızca bir sürüm etkin olabilir. Yönetilen bir şablonun tüm sürümleri pasif olduğunda kullanıcıların yeni çalışma alanı menüsünden kaldırılır; yeniden etkinleştirildiğinde geri gelir. Mevcut çalışma alanları etkilenmez.</p>
+      <p class="admin-section-description">Her şablon için yalnızca bir sürüm etkin olabilir. Yönetilen bir şablonun tüm sürümleri devre dışı olduğunda kullanıcıların yeni çalışma alanı menüsünden kaldırılır; yeniden etkinleştirildiğinde geri gelir. Mevcut çalışma alanları etkilenmez.</p>
     </div>
     <button id="btn-refresh-workspace-images" class="btn btn-secondary btn-sm" type="button">Yenile</button>
   </div>
   <div class="data-table-shell responsive-card-table-shell image-catalog-shell">
-    <table class="table responsive-card-table" id="workspace-image-table">
+    <table class="table responsive-card-table admin-data-table" id="workspace-image-table">
       <thead>
         <tr>
-          <th>Şablon / Sürüm</th>
-          <th>Kaynak</th>
-          <th>Digest / SHA-256</th>
-          <th>Boyut</th>
-          <th>Worker</th>
-          <th>Durum</th>
-          <th>İşlemler</th>
+          <th scope="col">Şablon / Sürüm</th>
+          <th scope="col">Kaynak</th>
+          <th scope="col">Digest / SHA-256</th>
+          <th scope="col">Boyut</th>
+          <th scope="col">Worker</th>
+          <th scope="col">Durum</th>
+          <th scope="col">İşlemler</th>
         </tr>
       </thead>
       <tbody><tr><td class="table-empty" colspan="7">Image kataloğu yükleniyor...</td></tr></tbody>

@@ -509,7 +509,8 @@ class WorkerAgent:
         if message.get("type") == "stream_data":
             window = self.stream_windows.get(message.get("stream_id"))
             if window:
-                await asyncio.wait_for(window.acquire(), timeout=120)
+                async with asyncio.timeout(120):
+                    await window.acquire()
         async with self.send_lock:
             await self.websocket.send(json.dumps(message, ensure_ascii=False))
 

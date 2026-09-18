@@ -98,22 +98,26 @@ async def test_slow_stream_has_bounded_window_and_does_not_block_commands(db_ses
     agent = WorkerAgent()
     connection = InProcessWorkerConnection(agent, db_session)
     cancelled = asyncio.Event()
+    window_full = asyncio.Event()
     async def produce(request_id, payload):
         try:
             await agent.result(request_id, {"status_code": 200})
-            for _ in range(20):
+            for index in range(20):
                 await agent.send({"type": "stream_data", "stream_id": payload["stream_id"], "encoding": "base64", "data": base64.b64encode(b"x" * CHUNK_BYTES).decode()})
+                if index + 1 == STREAM_WINDOW:
+                    window_full.set()
             await agent.send({"type": "stream_end", "stream_id": payload["stream_id"]})
         finally:
             cancelled.set()
     agent.handle_http_open = produce
     try:
         _, stream = await connection.open_stream("proxy.http.open", {})
-        # A control roundtrip is a deterministic scheduling point while the
-        # producer waits for credits from its slow consumer.
+        await asyncio.wait_for(window_full.wait(), 2)
+        assert stream.queue.qsize() == STREAM_WINDOW
+        # The producer is now blocked on credits from its slow consumer, so a
+        # successful control roundtrip proves it does not block other commands.
         result = await asyncio.wait_for(connection.request("transfer.close", {"transfer_id": "absent"}), 2)
         assert result["closed"]
-        assert stream.queue.qsize() == STREAM_WINDOW
         assert not cancelled.is_set()
         assert (await connection.receive_stream(stream)).data == b"x" * CHUNK_BYTES
         await connection.close_stream(stream.id)

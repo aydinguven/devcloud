@@ -3,6 +3,7 @@
 // ==============================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
+  initFilePickers();
   initWorkspaceCreationModal();
   initActionButtons();
   initLogPolling();
@@ -28,6 +29,65 @@ document.addEventListener("DOMContentLoaded", () => {
   initAdminFlavorSettings();
 });
 
+function initFilePickers() {
+  let pickerIndex = 0;
+  document.querySelectorAll('input[type="file"][data-file-picker-label]').forEach((input) => {
+    if (input.dataset.filePickerEnhanced === "true") return;
+    input.dataset.filePickerEnhanced = "true";
+    pickerIndex += 1;
+
+    if (!input.id) input.id = `file-picker-input-${pickerIndex}`;
+    const picker = document.createElement("div");
+    picker.className = "file-picker";
+    input.parentNode.insertBefore(picker, input);
+    picker.appendChild(input);
+    input.classList.add("file-picker-input");
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "btn btn-secondary file-picker-trigger";
+    trigger.textContent = input.dataset.filePickerLabel || "Dosya Seç";
+    trigger.setAttribute("aria-controls", input.id);
+
+    const selection = document.createElement("span");
+    selection.id = `${input.id}-selection`;
+    selection.className = "file-picker-selection";
+    selection.setAttribute("role", "status");
+    selection.setAttribute("aria-live", "polite");
+    selection.setAttribute("dir", "auto");
+    trigger.setAttribute("aria-describedby", selection.id);
+    input.setAttribute(
+      "aria-describedby",
+      [input.getAttribute("aria-describedby"), selection.id].filter(Boolean).join(" "),
+    );
+
+    const sync = () => {
+      const files = [...(input.files || [])];
+      const filenames = files.map((file) => file.name);
+      selection.textContent = files.length === 0
+        ? "Dosya seçilmedi"
+        : files.length === 1
+          ? filenames[0]
+          : `${files.length.toLocaleString("tr-TR")} dosya seçildi`;
+      selection.title = filenames.join(", ");
+      picker.classList.toggle("has-selection", files.length > 0);
+      trigger.disabled = input.disabled;
+    };
+
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      input.click();
+    });
+    input.addEventListener("change", sync);
+    input.form?.addEventListener("reset", () => window.setTimeout(sync, 0));
+
+    picker.append(trigger, selection);
+    picker.classList.add("is-enhanced");
+    sync();
+  });
+}
+
 function initAdminFlavorSettings() {
   const table = document.getElementById("admin-flavor-settings-table");
   if (!table) return;
@@ -43,44 +103,116 @@ function initAdminFlavorSettings() {
     status.textContent = message;
     status.className = `quota-form-status ${error ? "quota-status-error" : "quota-status-success"}`;
   };
+  const inputsFor = (row) => [...row.querySelectorAll("[data-flavor-field]")];
+  const updateSaveState = (row) => {
+    const inputs = inputsFor(row);
+    const changed = inputs.some((input) => input.value !== input.dataset.originalValue);
+    const valid = inputs.every((input) => input.checkValidity());
+    const save = row.querySelector("[data-flavor-save]");
+    if (save) save.disabled = !changed || !valid;
+  };
+  const closeEditor = (row, { restore = false, focus = true } = {}) => {
+    inputsFor(row).forEach((input) => {
+      if (restore) input.value = input.dataset.originalValue;
+      input.disabled = true;
+    });
+    row.querySelectorAll("[data-flavor-view-region], [data-flavor-view-actions]").forEach((element) => { element.hidden = false; });
+    row.querySelectorAll("[data-flavor-edit-region], [data-flavor-edit-actions]").forEach((element) => { element.hidden = true; });
+    row.classList.remove("is-editing");
+    const edit = row.querySelector("[data-flavor-edit]");
+    edit?.setAttribute("aria-expanded", "false");
+    if (focus) edit?.focus();
+  };
+  const openEditor = (row) => {
+    const openRow = table.querySelector("tr.is-editing");
+    if (openRow && openRow !== row) closeEditor(openRow, { restore: true, focus: false });
+    inputsFor(row).forEach((input) => { input.disabled = false; });
+    row.querySelectorAll("[data-flavor-view-region], [data-flavor-view-actions]").forEach((element) => { element.hidden = true; });
+    row.querySelectorAll("[data-flavor-edit-region], [data-flavor-edit-actions]").forEach((element) => { element.hidden = false; });
+    row.classList.add("is-editing");
+    row.querySelector("[data-flavor-edit]")?.setAttribute("aria-expanded", "true");
+    updateSaveState(row);
+    row.querySelector('[data-flavor-field="display_name"]')?.focus();
+  };
 
+  table.addEventListener("input", (event) => {
+    const row = event.target.closest("tr.is-editing");
+    if (row && event.target.matches("[data-flavor-field]")) updateSaveState(row);
+  });
+  table.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const row = event.target.closest("tr.is-editing");
+    if (row) closeEditor(row, { restore: true });
+  });
   table.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-flavor-toggle]");
+    const edit = event.target.closest("[data-flavor-edit]");
+    const cancel = event.target.closest("[data-flavor-cancel]");
+    if (edit) {
+      openEditor(edit.closest("tr"));
+      return;
+    }
+    if (cancel) {
+      closeEditor(cancel.closest("tr"), { restore: true });
+      return;
+    }
+
+    const toggle = event.target.closest("[data-flavor-toggle]");
     const save = event.target.closest("[data-flavor-save]");
     const remove = event.target.closest("[data-flavor-delete]");
-    if (!button && !save && !remove) return;
-    const action = button || save || remove;
+    if (!toggle && !save && !remove) return;
+    const action = toggle || save || remove;
     const flavorId = action.dataset.flavorToggle || action.dataset.flavorSave || action.dataset.flavorDelete;
+    if (remove && !window.confirm(`${flavorId} kaynak profili silinsin mi?`)) return;
+    const row = action.closest("tr");
     action.disabled = true;
+    row.setAttribute("aria-busy", "true");
     status.textContent = `${flavorId} güncelleniyor...`;
     try {
       if (remove) {
-        if (!window.confirm(`${flavorId} kaynak profili silinsin mi?`)) return;
         await request(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {method:"DELETE"});
-        action.closest("tr").remove();
+        row.remove();
         show(`${flavorId} silindi. Worker'lara Güncelle düğmesiyle kataloğu dağıtın.`);
         return;
       }
-      const row = action.closest("tr");
-      const payload = button
-        ? {enabled: button.dataset.enabled !== "true"}
+      const payload = toggle
+        ? {enabled: toggle.dataset.enabled !== "true"}
         : {
             display_name: row.querySelector('[data-flavor-field="display_name"]').value.trim(),
             cpus: Number(row.querySelector('[data-flavor-field="cpus"]').value),
             memory_mb: Number(row.querySelector('[data-flavor-field="memory_mb"]').value),
           };
       const result = await request(`/api/admin/flavors/${encodeURIComponent(flavorId)}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-      const toggle = row.querySelector("[data-flavor-toggle]");
+      const toggleButton = row.querySelector("[data-flavor-toggle]");
       const badge = row.querySelector("[data-flavor-status]");
-      toggle.dataset.enabled = String(result.enabled);
-      toggle.textContent = result.enabled ? "Devre Dışı Bırak" : "Etkinleştir";
+      toggleButton.dataset.enabled = String(result.enabled);
+      toggleButton.textContent = result.enabled ? "Devre Dışı Bırak" : "Etkinleştir";
+      toggleButton.setAttribute("aria-label", `${result.display_name} profilini ${result.enabled ? "devre dışı bırak" : "etkinleştir"}`);
       badge.className = `badge ${result.enabled ? "badge-running" : "badge-neutral"}`;
       badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      if (save) {
+        const values = {
+          display_name: result.display_name,
+          cpus: String(result.cpus),
+          memory_mb: String(result.memory_mb),
+        };
+        Object.entries(values).forEach(([field, value]) => {
+          const input = row.querySelector(`[data-flavor-field="${field}"]`);
+          const output = row.querySelector(`[data-flavor-value="${field}"]`);
+          input.value = value;
+          input.dataset.originalValue = value;
+          output.textContent = value;
+        });
+        row.querySelector("[data-flavor-edit]").setAttribute("aria-label", `${result.display_name} profilini düzenle`);
+        row.querySelector("[data-flavor-delete]")?.setAttribute("aria-label", `${result.display_name} profilini sil`);
+        closeEditor(row);
+      }
       show(`${flavorId} kaydedildi. Worker'lara Güncelle düğmesiyle kataloğu dağıtın.`);
     } catch (error) {
       show(error.message, true);
     } finally {
       action.disabled = false;
+      row.removeAttribute("aria-busy");
+      if (save && row.classList.contains("is-editing")) updateSaveState(row);
     }
   });
 
@@ -440,31 +572,59 @@ function initWorkspaceImageManager() {
       const error = worker.error ? `<small class="worker-sync-error quota-status-error" title="${escapeHtml(worker.error)}">${escapeHtml(worker.error)}</small>` : "";
       return `<div class="worker-sync-item">
         <div class="worker-sync-heading"><small><strong>${escapeHtml(worker.node_name)}</strong> · ${escapeHtml(syncStateLabel[worker.state] || worker.state)}</small><small>${percent.toFixed(0)}%</small></div>
-        <div class="worker-sync-track"><div class="worker-sync-fill ${worker.state === "failed" ? "is-failed" : ""}" style="width:${percent}%;"></div></div>
+        <div class="worker-sync-track" role="progressbar" aria-label="${escapeHtml(worker.node_name)} image eşitleme" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent.toFixed(0)}"><div class="worker-sync-fill ${worker.state === "failed" ? "is-failed" : ""}" style="width:${percent}%;"></div></div>
         <small class="worker-sync-size">${humanSize(worker.downloaded_bytes)} / ${humanSize(worker.total_bytes)}</small>${error}
       </div>`;
     }).join("")}</div>`;
   };
 
-  async function loadImages() {
+  const copyToClipboard = async (value) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    if (!copied) throw new Error("Clipboard API unavailable");
+  };
+  const renderHashValue = (label, value, imageName) => {
+    const fullValue = String(value || "-");
+    const truncated = fullValue.length > 24 ? `${fullValue.slice(0, 24)}…` : fullValue;
+    const copyButton = fullValue === "-" ? "" : `<button type="button" class="copy-value-button" data-copy-value="${escapeHtml(fullValue)}" aria-label="${escapeHtml(imageName)} ${label} değerini kopyala">Kopyala</button>`;
+    return `<div class="image-hash-value"><code title="${escapeHtml(fullValue)}">${escapeHtml(truncated)}</code>${copyButton}</div>`;
+  };
+  let lastRenderedCatalog = null;
+
+  async function loadImages({ force = false } = {}) {
     try {
       const response = await fetch("/api/admin/workspace-images", { cache: "no-store" });
       const images = await response.json().catch(() => []);
       if (!response.ok) throw new Error(images.detail || `Katalog okunamadı (${response.status})`);
       count.textContent = `${images.length} sürüm`;
-      tbody.innerHTML = images.length ? images.map((image) => `
+      const catalogMarkup = images.length ? images.map((image) => `
         <tr>
           <td data-label="Şablon / Sürüm" class="image-cell-title"><strong>${escapeHtml(image.display_name)}</strong><code>${escapeHtml(image.template_id)}</code><small title="${escapeHtml(image.image_ref)}">${escapeHtml(image.image_ref)}</small></td>
           <td data-label="Kaynak" class="image-cell-source"><span class="badge badge-neutral">${escapeHtml(image.source_type)}</span><small title="${escapeHtml(image.source_ref)}">${escapeHtml(image.source_ref)}</small></td>
-          <td data-label="Digest / SHA-256" class="image-cell-hash"><code title="${escapeHtml(image.digest)}">${escapeHtml((image.digest || "-").slice(0, 24))}</code><code title="${escapeHtml(image.sha256)}">${escapeHtml(image.sha256.slice(0, 24))}…</code></td>
-          <td data-label="Boyut">${humanSize(image.size)}</td>
-          <td data-label="Worker"><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
-          <td data-label="Durum"><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Pasif"}</span></td>
-          <td data-label="İşlemler"><div class="table-actions">
-            <button class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}">${image.enabled ? "Devre Dışı" : "Etkinleştir"}</button>
-            <button class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}">Sil</button>
+          <td data-label="Digest / SHA-256" class="image-cell-hash">${renderHashValue("digest", image.digest, image.display_name)}${renderHashValue("SHA-256", image.sha256, image.display_name)}</td>
+          <td data-label="Boyut" class="image-cell-size">${humanSize(image.size)}</td>
+          <td data-label="Worker" class="image-cell-worker"><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
+          <td data-label="Durum" class="admin-table-status"><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Devre Dışı"}</span></td>
+          <td data-label="İşlemler"><div class="table-actions admin-table-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}" aria-label="${escapeHtml(image.display_name)} sürümünü ${image.enabled ? "devre dışı bırak" : "etkinleştir"}">${image.enabled ? "Devre Dışı Bırak" : "Etkinleştir"}</button>
+            <button type="button" class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}" aria-label="${escapeHtml(image.display_name)} sürümünü sil">Sil</button>
           </div></td>
         </tr>`).join("") : '<tr><td class="table-empty" colspan="7">Henüz workspace image eklenmedi.</td></tr>';
+      if ((force || !tbody.contains(document.activeElement)) && catalogMarkup !== lastRenderedCatalog) {
+        tbody.innerHTML = catalogMarkup;
+        lastRenderedCatalog = catalogMarkup;
+      }
     } catch (error) {
       setStatus(globalStatus, error.message, true);
     }
@@ -516,7 +676,7 @@ function initWorkspaceImageManager() {
         registryTemplateSelect.value = createdTemplate.id;
       }
       syncRegistryTemplateMode();
-      await loadImages();
+      await loadImages({ force: true });
     } catch (error) {
       setStatus(status, error.message, true);
     } finally {
@@ -532,13 +692,29 @@ function initWorkspaceImageManager() {
     event.preventDefault();
     submitForm(uploadForm, "/api/admin/workspace-images/upload");
   });
-  document.getElementById("btn-refresh-workspace-images").addEventListener("click", loadImages);
+  document.getElementById("btn-refresh-workspace-images").addEventListener("click", () => loadImages({ force: true }));
   tbody.addEventListener("click", async (event) => {
+    const copy = event.target.closest("[data-copy-value]");
+    if (copy) {
+      try {
+        await copyToClipboard(copy.dataset.copyValue);
+        const originalLabel = copy.textContent;
+        copy.textContent = "Kopyalandı";
+        window.setTimeout(() => { copy.textContent = originalLabel; }, 1500);
+      } catch (error) {
+        setStatus(globalStatus, "Değer panoya kopyalanamadı.", true);
+      }
+      return;
+    }
     const toggle = event.target.closest("[data-image-toggle]");
     const remove = event.target.closest("[data-image-delete]");
     if (!toggle && !remove) return;
-    const imageId = (toggle || remove).dataset.imageToggle || (toggle || remove).dataset.imageDelete;
+    const action = toggle || remove;
+    const row = action.closest("tr");
+    const imageId = action.dataset.imageToggle || action.dataset.imageDelete;
     if (remove && !window.confirm("Bu image arşivi controller'dan kalıcı olarak silinsin mi?")) return;
+    action.disabled = true;
+    row.setAttribute("aria-busy", "true");
     try {
       const response = await fetch(`/api/admin/workspace-images/${encodeURIComponent(imageId)}`, {
         method: remove ? "DELETE" : "PATCH",
@@ -547,13 +723,16 @@ function initWorkspaceImageManager() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
-      await loadImages();
+      await loadImages({ force: true });
     } catch (error) {
       setStatus(globalStatus, error.message, true);
+    } finally {
+      action.disabled = false;
+      row.removeAttribute("aria-busy");
     }
   });
-  loadImages();
-  window.setInterval(loadImages, 5000);
+  loadImages({ force: true });
+  window.setInterval(() => loadImages(), 5000);
 }
 
 // 1. Workspace Creation Modal with Live Real-Time Deployment Log Streamer
@@ -940,6 +1119,7 @@ function initDirectorySettings() {
       display_name_attribute: String(data.get("display_name_attribute") || "").trim(),
       team_attribute: String(data.get("team_attribute") || "").trim(),
       directorate_attribute: String(data.get("directorate_attribute") || "").trim(),
+      organization_unit_attribute: String(data.get("organization_unit_attribute") || "").trim(),
       group_membership_attribute: String(data.get("group_membership_attribute") || "").trim(),
       required_group_dn: String(data.get("required_group_dn") || "").trim(),
       admin_group_dn: String(data.get("admin_group_dn") || "").trim(),
@@ -1699,6 +1879,8 @@ function initHttpsSettings() {
       form.elements.http_fallback_enabled.checked = data.http_fallback_enabled;
       form.elements.certificate.value = "";
       form.elements.private_key.value = "";
+      form.elements.certificate.dispatchEvent(new Event("change"));
+      form.elements.private_key.dispatchEvent(new Event("change"));
       badge.className = `badge ${data.https_enabled ? "badge-running" : "badge-stopped"}`;
       badge.textContent = data.https_enabled ? "HTTPS Etkin" : "HTTP Etkin";
       if (data.certificate_uploaded) {

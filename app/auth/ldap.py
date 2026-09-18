@@ -49,6 +49,7 @@ class DirectoryConfig:
     required_group_dn: str
     admin_group_dn: str
     nested_group_search: bool
+    organization_unit_attribute: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class DirectoryIdentity:
     user_dn: str
     groups: tuple[str, ...]
     is_admin: bool
+    organization_unit: str = ""
 
 
 def encrypt_directory_secret(secret: str) -> str:
@@ -93,6 +95,7 @@ def config_from_record(record: DirectorySettings) -> DirectoryConfig:
         display_name_attribute=record.display_name_attribute,
         team_attribute=record.team_attribute,
         directorate_attribute=record.directorate_attribute,
+        organization_unit_attribute=record.organization_unit_attribute,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -123,6 +126,7 @@ def config_from_update(
         display_name_attribute=update.display_name_attribute,
         team_attribute=update.team_attribute,
         directorate_attribute=update.directorate_attribute,
+        organization_unit_attribute=update.organization_unit_attribute,
         group_membership_attribute=update.group_membership_attribute,
         required_group_dn=update.required_group_dn,
         admin_group_dn=update.admin_group_dn,
@@ -286,14 +290,17 @@ def authenticate_directory_user(
         )
         attributes = list(
             dict.fromkeys(
-                [
+                attribute
+                for attribute in [
                     config.username_attribute,
                     config.email_attribute,
                     config.display_name_attribute,
                     config.team_attribute,
                     config.directorate_attribute,
+                    config.organization_unit_attribute,
                     config.group_membership_attribute,
                 ]
+                if attribute
             )
         )
         service_connection.search(
@@ -313,6 +320,7 @@ def authenticate_directory_user(
         full_name = _entry_value(entry, config.display_name_attribute) or directory_username
         team = _entry_value(entry, config.team_attribute)
         directorate = _entry_value(entry, config.directorate_attribute)
+        organization_unit = _entry_value(entry, config.organization_unit_attribute)
         groups = _entry_values(entry, config.group_membership_attribute)
 
         if config.required_group_dn and not _is_group_member(
@@ -349,6 +357,7 @@ def authenticate_directory_user(
         full_name=full_name,
         team=team,
         directorate=directorate,
+        organization_unit=organization_unit,
         user_dn=user_dn,
         groups=tuple(groups),
         is_admin=is_admin,
@@ -416,6 +425,7 @@ class HybridAuthProvider(AuthProvider):
                     existing.email = directory_email
             existing.team = identity.team
             existing.directorate = identity.directorate
+            existing.organization_unit = identity.organization_unit
             existing.role = role
             existing.is_active = True
             user = existing
@@ -435,6 +445,7 @@ class HybridAuthProvider(AuthProvider):
                 full_name=identity.full_name,
                 team=identity.team,
                 directorate=identity.directorate,
+                organization_unit=identity.organization_unit,
                 role=role,
                 auth_source="active_directory",
                 is_active=True,

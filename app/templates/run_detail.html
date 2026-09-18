@@ -10,10 +10,29 @@
     <article class="card mlflow-stat-card"><span>Bitiş</span><strong id="run-end" style="font-size:1rem">—</strong></article>
     <article class="card mlflow-stat-card"><span>Run ID</span><strong style="font-size:0.8rem;overflow-wrap:anywhere">{{ run_id }}</strong></article>
   </section>
-  <section class="grid grid-cols-2" style="gap:1rem;margin-bottom:1rem"><article class="card"><h2 class="card-title">Parametreler</h2><div id="run-params" class="data-table-shell"></div></article><article class="card"><h2 class="card-title">Son metrik değerleri</h2><div id="run-metrics" class="data-table-shell"></div></article></section>
+  <section class="card mlflow-lineage-card">
+    <div class="mlflow-section-heading">
+      <div><h2 class="card-title">Model Soy Ağacı</h2><p class="text-muted">Bu run'dan kaydedilen model sürümleri ve dağıtım işlemleri.</p></div>
+      <span id="run-lineage-count" class="badge badge-neutral">0 model</span>
+    </div>
+    <div id="run-lineage" class="mlflow-lineage-list"></div>
+  </section>
+  <section class="card mlflow-run-data-card">
+    <div class="mlflow-section-heading">
+      <div><h2 class="card-title">Parametreler</h2><p class="text-muted">Run yapılandırmasında kaydedilen değerler.</p></div>
+      <span id="run-param-count" class="badge badge-neutral">0 parametre</span>
+    </div>
+    <dl id="run-params" class="mlflow-value-grid mlflow-parameter-grid"></dl>
+  </section>
+  <section class="card mlflow-run-data-card">
+    <div class="mlflow-section-heading">
+      <div><h2 class="card-title">Son metrik değerleri</h2><p class="text-muted">Her metrik için en son kaydedilen değer.</p></div>
+      <span id="run-metric-count" class="badge badge-neutral">0 metrik</span>
+    </div>
+    <dl id="run-metrics" class="mlflow-value-grid mlflow-metric-grid"></dl>
+  </section>
   <section class="card" style="margin-bottom:1rem"><div class="page-heading" style="margin-bottom:0.75rem"><div><h2 class="card-title">Metrik geçmişi</h2><p class="text-muted">Run boyunca kaydedilen değerleri adım veya zamana göre inceleyin.</p></div><label class="form-group" style="min-width:220px"><span class="form-label">Metrik</span><select id="run-metric-select" class="form-input"></select></label></div><div id="run-metric-chart" class="mlflow-chart-shell"><p class="text-muted">Metrikler yükleniyor...</p></div></section>
   <section class="card" style="margin-bottom:1rem"><h2 class="card-title">Artifact tarayıcısı</h2><p class="text-muted">Desteklenen metin ve görsel artifact'larını güvenli boyut sınırıyla önizleyin.</p><div class="mlflow-artifact-toolbar"><div><strong id="run-artifact-path">Kök dizin</strong><div id="run-artifact-status" class="text-muted" aria-live="polite"></div></div><button id="run-artifact-back" class="btn btn-secondary btn-sm" type="button" hidden>← Üst klasör</button></div><div id="run-artifact-list" class="mlflow-artifact-list"></div><div id="run-artifact-preview" class="mlflow-artifact-preview" hidden></div></section>
-  <section class="card"><h2 class="card-title">Model Soy Ağacı</h2><div id="run-lineage"></div></section>
 </div></div>
 {% include "partials/mlflow_deploy_modal.html" %}
 {% endblock %}

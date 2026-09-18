@@ -143,10 +143,10 @@
             <small>Air-gapped ağlar için platform release arşivi yükleyin</small>
           </div>
         </div>
-        <label class="form-group">
-          <span class="form-label">Release arşivi</span>
-          <input class="form-input" name="release" type="file" required accept=".tar,.tar.gz,.tgz,.zip">
-        </label>
+        <div class="form-group">
+          <label class="form-label" for="platform-release-bundle">Release arşivi</label>
+          <input id="platform-release-bundle" class="form-input" name="release" type="file" required accept=".tar,.tar.gz,.tgz,.zip" data-file-picker-label="Bundle Seç">
+        </div>
         <label class="unsigned-update-control">
           <input name="allow_unsigned" type="checkbox" value="true">
           <span>
@@ -259,14 +259,14 @@
         <span class="form-label">HTTPS hostname</span>
         <input class="form-input" name="https_hostname" value="{{ download_settings.https_hostname if download_settings else https_default_hostname }}" placeholder="aifactory.tcmb.gov.tr" required>
       </label>
-      <label class="form-group" style="margin:0;">
-        <span class="form-label">Sertifika zinciri (PEM)</span>
-        <input class="form-input" type="file" name="certificate" accept=".pem,.crt,.cer,application/x-pem-file">
-      </label>
-      <label class="form-group" style="margin:0;">
-        <span class="form-label">Private key (şifresiz PEM)</span>
-        <input class="form-input" type="file" name="private_key" accept=".pem,.key,application/x-pem-file">
-      </label>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label" for="https-certificate-file">Sertifika zinciri (PEM)</label>
+        <input id="https-certificate-file" class="form-input" type="file" name="certificate" accept=".pem,.crt,.cer,application/x-pem-file" data-file-picker-label="Sertifika Seç">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label" for="https-private-key-file">Private key (şifresiz PEM)</label>
+        <input id="https-private-key-file" class="form-input" type="file" name="private_key" accept=".pem,.key,application/x-pem-file" data-file-picker-label="Private Key Seç">
+      </div>
     </div>
     <small id="https-certificate-summary" style="display:block;color:var(--text-muted);margin-bottom:.75rem;">
       {% if download_settings and download_settings.certificate_sha256 %}
@@ -757,7 +757,13 @@ cd devcloud
         </label>
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Müdürlük özniteliği</span>
+          <input class="form-input" name="organization_unit_attribute" value="{{ directory_settings.organization_unit_attribute if directory_settings else '' }}" placeholder="Müdürlük değerini taşıyan AD özniteliği">
+          <small class="text-muted">İsteğe bağlıdır. Örn. “Yenilikçi Teknolojiler Müdürlüğü” değerini taşıyan öznitelik.</small>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Üst birim özniteliği</span>
           <input class="form-input" name="directorate_attribute" value="{{ directory_settings.directorate_attribute if directory_settings else 'division' }}" required>
+          <small class="text-muted">Müdürlüğün bağlı olduğu ana organizasyon. Örn. “Bilgi Teknolojileri”.</small>
         </label>
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Grup üyeliği özniteliği</span>
@@ -885,24 +891,52 @@ cd devcloud
     <button class="btn btn-secondary" type="submit">Yeni Flavor Ekle</button>
   </form>
   <div class="data-table-shell responsive-card-table-shell">
-    <table class="table responsive-card-table" id="admin-flavor-settings-table">
+    <table class="table responsive-card-table admin-data-table" id="admin-flavor-settings-table">
       <thead>
         <tr>
-          <th>Profil</th>
-          <th>Kaynaklar</th>
-          <th>Tür</th>
-          <th>Durum</th>
-          <th>İşlemler</th>
+          <th scope="col">Profil</th>
+          <th scope="col">Kaynaklar</th>
+          <th scope="col">Tür</th>
+          <th scope="col">Durum</th>
+          <th scope="col">İşlemler</th>
         </tr>
       </thead>
       <tbody>
       {% for flavor in admin_flavors %}
-        <tr>
-          <td data-label="Profil"><input class="form-input" data-flavor-field="display_name" value="{{ flavor.display_name }}" aria-label="{{ flavor.id }} görünen adı"><br><code>{{ flavor.id }}</code></td>
-          <td data-label="Kaynaklar"><div class="table-actions"><input class="form-input" style="width:90px" type="number" min="0.1" step="0.1" data-flavor-field="cpus" value="{{ flavor.cpus }}" aria-label="CPU"><input class="form-input" style="width:120px" type="number" min="128" step="128" data-flavor-field="memory_mb" value="{{ flavor.memory_mb }}" aria-label="RAM MB"></div></td>
-          <td data-label="Tür">{% if flavor.accelerator_count %}GPU{% else %}CPU{% endif %}</td>
+        <tr data-flavor-row="{{ flavor.id }}">
+          <td data-label="Profil" class="flavor-profile-cell">
+            <div data-flavor-view-region>
+              <strong data-flavor-value="display_name">{{ flavor.display_name }}</strong>
+              <code>{{ flavor.id }}</code>
+            </div>
+            <label class="form-group flavor-edit-field" data-flavor-edit-region hidden>
+              <span class="form-label">Görünen ad</span>
+              <input class="form-input" data-flavor-field="display_name" data-original-value="{{ flavor.display_name }}" value="{{ flavor.display_name }}" aria-label="{{ flavor.id }} görünen adı" disabled>
+            </label>
+          </td>
+          <td data-label="Kaynaklar">
+            <div class="flavor-resource-summary" data-flavor-view-region>
+              <span><strong data-flavor-value="cpus">{{ flavor.cpus }}</strong><small>CPU</small></span>
+              <span><strong data-flavor-value="memory_mb">{{ flavor.memory_mb }}</strong><small>MB RAM</small></span>
+            </div>
+            <div class="flavor-resource-edit" data-flavor-edit-region hidden>
+              <label class="form-group"><span class="form-label">CPU</span><input class="form-input" type="number" min="0.1" max="256" step="0.1" data-flavor-field="cpus" data-original-value="{{ flavor.cpus }}" value="{{ flavor.cpus }}" aria-label="{{ flavor.id }} CPU" disabled></label>
+              <label class="form-group"><span class="form-label">RAM (MB)</span><input class="form-input" type="number" min="128" max="1048576" step="128" data-flavor-field="memory_mb" data-original-value="{{ flavor.memory_mb }}" value="{{ flavor.memory_mb }}" aria-label="{{ flavor.id }} RAM MB" disabled></label>
+            </div>
+          </td>
+          <td data-label="Tür"><span class="flavor-type">{% if flavor.accelerator_count %}GPU{% else %}CPU{% endif %}</span></td>
           <td data-label="Durum"><span data-flavor-status class="badge {% if flavor.enabled %}badge-running{% else %}badge-neutral{% endif %}">{% if flavor.enabled %}Etkin{% else %}Devre Dışı{% endif %}</span></td>
-          <td data-label="İşlemler"><div class="table-actions"><button type="button" class="btn btn-secondary btn-sm" data-flavor-save="{{ flavor.id }}">Kaydet</button><button type="button" class="btn btn-secondary btn-sm" data-flavor-toggle="{{ flavor.id }}" data-enabled="{{ flavor.enabled|lower }}">{% if flavor.enabled %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}</button>{% if flavor.id not in ['t1.nano','t1.micro','t1.small','t1.mini','t1.medium','t1.large','t1.xlarge','g1.shared'] %}<button type="button" class="btn btn-danger btn-sm" data-flavor-delete="{{ flavor.id }}">Sil</button>{% endif %}</div></td>
+          <td data-label="İşlemler">
+            <div class="table-actions admin-table-actions" data-flavor-view-actions>
+              <button type="button" class="btn btn-secondary btn-sm" data-flavor-edit="{{ flavor.id }}" aria-expanded="false" aria-label="{{ flavor.display_name }} profilini düzenle">Düzenle</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-flavor-toggle="{{ flavor.id }}" data-enabled="{{ flavor.enabled|lower }}" aria-label="{{ flavor.display_name }} profilini {% if flavor.enabled %}devre dışı bırak{% else %}etkinleştir{% endif %}">{% if flavor.enabled %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}</button>
+              {% if flavor.id not in ['t1.nano','t1.micro','t1.small','t1.mini','t1.medium','t1.large','t1.xlarge','g1.shared'] %}<button type="button" class="btn btn-danger btn-sm" data-flavor-delete="{{ flavor.id }}" aria-label="{{ flavor.display_name }} profilini sil">Sil</button>{% endif %}
+            </div>
+            <div class="table-actions admin-table-actions" data-flavor-edit-actions hidden>
+              <button type="button" class="btn btn-primary btn-sm" data-flavor-save="{{ flavor.id }}" disabled>Kaydet</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-flavor-cancel="{{ flavor.id }}">İptal</button>
+            </div>
+          </td>
         </tr>
       {% endfor %}
       </tbody>

@@ -1153,6 +1153,7 @@ def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
         display_name_attribute=record.display_name_attribute,
         team_attribute=record.team_attribute,
         directorate_attribute=record.directorate_attribute,
+        organization_unit_attribute=record.organization_unit_attribute,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
