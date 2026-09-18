@@ -616,7 +616,7 @@ function initWorkspaceImageManager() {
           <td data-label="Boyut" class="image-cell-size">${humanSize(image.size)}</td>
           <td data-label="Worker" class="image-cell-worker"><strong>${image.synced_workers} / ${image.total_workers}</strong>${renderWorkerProgress(image.workers)}</td>
           <td data-label="Durum" class="admin-table-status"><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Devre Dışı"}</span></td>
-          <td data-label="İşlemler"><div class="table-actions admin-table-actions">
+          <td data-label="İşlemler" class="image-cell-actions"><div class="table-actions admin-table-actions">
             <button type="button" class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}" aria-label="${escapeHtml(image.display_name)} sürümünü ${image.enabled ? "devre dışı bırak" : "etkinleştir"}">${image.enabled ? "Devre Dışı Bırak" : "Etkinleştir"}</button>
             <button type="button" class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}" aria-label="${escapeHtml(image.display_name)} sürümünü sil">Sil</button>
           </div></td>
