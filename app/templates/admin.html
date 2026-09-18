@@ -3,7 +3,7 @@
 {% block title %}Yönetim Paneli - {{ app_name }}{% endblock %}
 
 {% block content %}
-{% set status_labels = {'running': 'Çalışıyor', 'stopped': 'Durduruldu', 'creating': 'Oluşturuluyor', 'starting': 'Başlatılıyor', 'error': 'Hata', 'deleted': 'Silindi'} %}
+{% set status_labels = {'running': 'Çalışıyor', 'stopped': 'Durduruldu', 'creating': 'Oluşturuluyor', 'starting': 'Başlatılıyor', 'stopping': 'Durduruluyor', 'error': 'Hata', 'deleted': 'Silindi'} %}
 <div class="page-heading admin-page-heading">
   <div>
     <span class="page-kicker">Sistem Yönetimi</span>
@@ -964,35 +964,35 @@ cd devcloud
       <input class="form-input" type="search" placeholder="Workspace ara..." data-admin-filter="#admin-workspace-table tbody tr">
     </label>
   </div>
-  <div class="data-table-shell responsive-card-table-shell">
-  <table class="table responsive-card-table" id="admin-workspace-table">
+  <div class="data-table-shell workspace-catalog-shell">
+  <table class="table admin-data-table" id="admin-workspace-table">
     <thead>
       <tr>
-        <th>Ad</th>
-        <th>Sahip ID</th>
-        <th>Şablon</th>
-        <th>Kaynak Profili</th>
-        <th>Worker</th>
-        <th>Host Portu</th>
-        <th>Durum</th>
-        <th>İşlemler</th>
+        <th scope="col">Ad</th>
+        <th scope="col">Durum</th>
+        <th scope="col">Sahip</th>
+        <th scope="col">Şablon</th>
+        <th scope="col">Kaynak Profili</th>
+        <th scope="col">Worker</th>
+        <th scope="col">Host Portu</th>
+        <th scope="col">İşlemler</th>
       </tr>
     </thead>
     <tbody>
       {% for ws in all_workspaces %}
         {% set ws_st = ws.status.value if ws.status.value is defined else ws.status %}
-        <tr>
-          <td data-label="Ad" style="font-weight: 600; color: #fff;">{{ ws.name }}</td>
-          <td data-label="Sahip">Kullanıcı #{{ ws.user_id }}</td>
-          <td data-label="Şablon">{{ ws.template_id }}</td>
-          <td data-label="Kaynak Profili"><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
-          <td data-label="Worker" class="data-value"><code>{{ ws.node_id or 'unassigned' }}</code></td>
-          <td data-label="Host Portu"><code>{{ ws.host_port }}</code></td>
-          <td data-label="Durum"><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
-          <td data-label="İşlemler">
-            <div class="table-actions">
-              <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm">Görüntüle</a>
-              <button class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}">Sil</button>
+        <tr class="workspace-catalog-row">
+          <td data-label="Ad" class="workspace-name-cell"><strong>{{ ws.name }}</strong></td>
+          <td data-label="Durum" class="workspace-status-cell"><span class="badge badge-{{ ws_st }}">{{ status_labels.get(ws_st, ws_st) }}</span></td>
+          <td data-label="Sahip" class="workspace-owner-cell"><span class="workspace-cell-label" aria-hidden="true">Sahip</span><span>Kullanıcı #{{ ws.user_id }}</span></td>
+          <td data-label="Şablon" class="workspace-template-cell"><span class="workspace-cell-label" aria-hidden="true">Şablon</span><code>{{ ws.template_id }}</code></td>
+          <td data-label="Kaynak Profili" class="workspace-flavor-cell"><span class="workspace-cell-label" aria-hidden="true">Kaynak Profili</span><span class="badge badge-flavor">{{ ws.flavor_id }}</span></td>
+          <td data-label="Worker" class="workspace-worker-cell"><span class="workspace-cell-label" aria-hidden="true">Worker</span><code title="{{ ws.node_id or 'unassigned' }}">{{ ws.node_id or 'unassigned' }}</code></td>
+          <td data-label="Host Portu" class="workspace-port-cell"><span class="workspace-cell-label" aria-hidden="true">Host Portu</span><code>{{ ws.host_port }}</code></td>
+          <td data-label="İşlemler" class="workspace-actions-cell">
+            <div class="table-actions admin-table-actions workspace-actions">
+              <a href="/workspaces/{{ ws.id }}" class="btn btn-secondary btn-sm" aria-label="{{ ws.name }} çalışma alanını görüntüle">Görüntüle</a>
+              <button type="button" class="btn btn-danger btn-sm" data-action="delete" data-workspace-id="{{ ws.id }}" aria-label="{{ ws.name }} çalışma alanını sil">Sil</button>
             </div>
           </td>
         </tr>

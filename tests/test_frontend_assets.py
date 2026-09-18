@@ -199,7 +199,9 @@ def test_dense_data_views_have_responsive_overflow_guards():
     assert "content: attr(data-label)" in corporate_css
     assert ".worker-sync-item" in corporate_css
     assert 'class="data-table-shell' in admin
-    assert 'class="table responsive-card-table" id="admin-workspace-table"' in admin
+    assert 'class="table admin-data-table" id="admin-workspace-table"' in admin
+    assert "container: workspace-catalog / inline-size" in corporate_css
+    assert "@container workspace-catalog (max-width: 900px)" in corporate_css
     assert 'data-label="Worker"' in admin
     assert "responsive-card-table-shell image-catalog-shell" in images
     assert 'data-label="Digest / SHA-256"' in javascript
