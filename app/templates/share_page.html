@@ -1,0 +1,36 @@
+{% extends "share_base.html" %}
+{% block title %}{{ title }} - TCMB AI Factory{% endblock %}
+{% block content %}
+<section class="public-share-card share-state-{{ state }}" aria-labelledby="share-title">
+  <div class="public-share-state-icon" aria-hidden="true">{{ icon }}</div>
+  <span class="page-kicker">TCMB AI Factory Paylaşımı</span>
+  <h1 id="share-title">{{ title }}</h1>
+  <p class="public-share-message">{{ message }}</p>
+
+  {% if sharer_label %}
+  <dl class="public-share-meta">
+    <div><dt>Projeyi paylaşan</dt><dd>{{ sharer_label }}</dd></div>
+    <div><dt>Link geçerlilik süresi</dt><dd>{{ remaining_text }}</dd></div>
+  </dl>
+  {% endif %}
+
+  {% if state == 'access' %}
+  <form method="post" class="public-share-form" autocomplete="off">
+    {% if password_required %}
+    <label class="form-group" for="share-password">
+      <span class="form-label">Paylaşım parolası</span>
+      <input class="form-input" id="share-password" type="password" name="password" required maxlength="256" autocomplete="current-password" autofocus>
+    </label>
+    {% endif %}
+    {% if error_message %}<p class="public-share-error" role="alert">{{ error_message }}</p>{% endif %}
+    <button class="btn btn-primary" type="submit">Uygulamayı aç</button>
+  </form>
+  {% elif retryable %}
+  <div class="public-share-actions"><a class="btn btn-secondary" href="{{ request.url.path }}">Yeniden dene</a></div>
+  {% endif %}
+
+  {% if state != 'access' %}
+  <p class="public-share-help">Bağlantıyı paylaşan kişiyle iletişime geçerek güncel durumu veya yeni bir paylaşım bağlantısını isteyebilirsiniz.</p>
+  {% endif %}
+</section>
+{% endblock %}

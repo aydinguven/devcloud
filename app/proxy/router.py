@@ -17,7 +17,13 @@ import websockets
 
 from app.auth.dependencies import get_current_user_optional
 from app.config import settings
-from app.shares import COOKIE_PREFIX, cookie_name, shared_workspace
+from app.shares import (
+    COOKIE_PREFIX,
+    ShareAccessError,
+    cookie_name,
+    shared_workspace,
+)
+from app.share_pages import render_share_error, render_share_page
 from app.database import get_db, release_read_only_connection
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
@@ -273,6 +279,7 @@ async def proxy_remote_http(
     request: Request,
     path: str,
     custom_port: int | None = None,
+    public_share: bool = False,
 ):
     """Stream an HTTP request through the worker-initiated tunnel."""
     if not workspace.node_id:
@@ -312,6 +319,17 @@ async def proxy_remote_http(
                 workspace.id,
                 exc,
             )
+            if public_share:
+                return render_share_page(
+                    request,
+                    state="unavailable",
+                    title="Paylaşılan uygulamaya şu anda erişilemiyor",
+                    message="Uygulama henüz hazır olmayabilir veya geçici olarak çevrim dışı olabilir.",
+                    icon="…",
+                    status_code=503,
+                    retryable=True,
+                    extra_headers={"Retry-After": "5"},
+                )
             return HTMLResponse(
                 content=render_starting_page(workspace),
                 status_code=200,
@@ -590,15 +608,34 @@ async def proxy_custom_port_http(
     """Proxy HTTP traffic to a custom secondary port running inside the container (e.g. 5173, 5000, 3000)."""
     if not 1 <= port <= 65535:
         raise HTTPException(422, "Geçersiz port.")
+    using_share = False
     try:
         workspace = await get_authorized_workspace(workspace_id, db, current_user)
     except HTTPException as exc:
-        if exc.status_code not in {401, 403} or not request.cookies.get(cookie_name(workspace_id, port)):
+        if exc.status_code not in {401, 403} or not request.cookies.get(
+            cookie_name(workspace_id, port)
+        ):
             raise
-        workspace = await shared_workspace(db, request.cookies, workspace_id, port)
+        try:
+            workspace = await shared_workspace(
+                db, request.cookies, workspace_id, port
+            )
+        except ShareAccessError as share_error:
+            if request.method == "GET" and "text/html" in request.headers.get(
+                "accept", ""
+            ):
+                return render_share_error(request, share_error)
+            raise
+        using_share = True
 
     subpath = f"/{path.lstrip('/')}"
-    response = await proxy_remote_http(workspace, request, subpath, custom_port=port)
+    response = await proxy_remote_http(
+        workspace,
+        request,
+        subpath,
+        custom_port=port,
+        public_share=using_share,
+    )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response

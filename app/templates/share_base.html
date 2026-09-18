@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#d50032">
+  <title>{% block title %}TCMB AI Factory Paylaşımı{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css?v={{ static_version }}">
+  <link rel="stylesheet" href="/static/css/kurumsal.css?v={{ static_version }}">
+  <link rel="stylesheet" href="/static/css/public-share.css?v={{ static_version }}">
+  <link rel="icon" href="/static/favicon.svg?v={{ static_version }}" type="image/svg+xml">
+</head>
+<body class="public-share-page">
+  <header class="public-share-header">
+    <a href="/" class="public-share-brand" aria-label="TCMB AI Factory ana sayfa">
+      <img src="/static/img/tcmb_ai_factory_logo.svg?v={{ static_version }}" alt="TCMB AI Factory · Yapay Zeka Geliştirme Platformu">
+    </a>
+  </header>
+  <main class="public-share-main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="public-share-footer">
+    <span><strong>TCMB AI Factory</strong> · Güvenli uygulama paylaşımı</span>
+    <span>DevCloud {{ app_version }}</span>
+  </footer>
+</body>
+</html>

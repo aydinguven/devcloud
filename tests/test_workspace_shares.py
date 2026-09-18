@@ -10,13 +10,15 @@ from starlette.requests import Request
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.workspace_share import WorkspaceShare
 from app.proxy import router as proxy
+from app.routes.share_routes import format_remaining
 from app.shares import COOKIE_PREFIX, cookie_name
 
 
 @pytest_asyncio.fixture
 async def shared_setup(client, db_session, monkeypatch):
     registration = await client.post('/api/auth/register', json={
-        'username': 'share_owner', 'email': 'share@example.com', 'password': 'Password123!',
+        'username': 'share_owner', 'email': 'share@example.com',
+        'password': 'Password123!', 'full_name': 'Paylaşım Sahibi',
     })
     headers = {'Authorization': f"Bearer {registration.json()['access_token']}"}
     result = await client.post('/api/workspaces', headers=headers, json={
@@ -28,7 +30,9 @@ async def shared_setup(client, db_session, monkeypatch):
     workspace.status = WorkspaceStatus.RUNNING
     await db_session.commit()
 
-    async def upstream(workspace, request, path, custom_port=None):
+    async def upstream(
+        workspace, request, path, custom_port=None, public_share=False
+    ):
         return JSONResponse({'path': path, 'port': custom_port})
 
     monkeypatch.setattr(proxy, 'proxy_remote_http', upstream)
@@ -50,10 +54,16 @@ async def test_share_scope_revocation_and_token_separation(client, db_session, s
     client.cookies.clear()
     assert (await client.post(api, json={'port': 3333})).status_code == 401
     opened = await client.get(share['url'])
-    assert opened.status_code == 303
-    assert opened.headers['location'] == f'/proxy/{workspace_id}/port/3333/'
-    assert 'HttpOnly' in opened.headers['set-cookie']
-    assert (await client.get(opened.headers['location'] + 'nested/page')).json() == {'path': '/nested/page', 'port': 3333}
+    assert opened.status_code == 200
+    assert 'TCMB AI Factory' in opened.text
+    assert 'share_owner (Paylaşım Sahibi)' in opened.text
+    assert 'Süresiz' in opened.text
+    assert not client.cookies
+    granted = await client.post(share['url'])
+    assert granted.status_code == 303
+    assert granted.headers['location'] == f'/proxy/{workspace_id}/port/3333/'
+    assert 'HttpOnly' in granted.headers['set-cookie']
+    assert (await client.get(granted.headers['location'] + 'nested/page')).json() == {'path': '/nested/page', 'port': 3333}
     for path in [f'/proxy/{workspace_id}/', f'/proxy/{workspace_id}/_devcloud/status',
                  f'/proxy/{workspace_id}/port/3334/', api, '/api/auth/me']:
         assert (await client.get(path)).status_code in (401, 403)
@@ -66,8 +76,10 @@ async def test_share_scope_revocation_and_token_separation(client, db_session, s
     assert (await client.get('/share/' + grant)).status_code == 404
     assert (await client.get(share['url'] + 'tampered')).status_code == 404
     assert (await client.delete(api + '/' + share['id'], headers=owner)).status_code == 204
-    assert (await client.get(opened.headers['location'])).status_code == 404
-    assert (await client.get(share['url'])).status_code == 404
+    assert (await client.get(granted.headers['location'])).status_code == 404
+    revoked = await client.get(share['url'])
+    assert revoked.status_code == 404
+    assert 'artık kullanılamıyor' in revoked.text
 
 
 @pytest.mark.asyncio
@@ -83,7 +95,14 @@ async def test_password_expiry_and_management_permissions(client, db_session, sh
     record = await db_session.get(WorkspaceShare, share['id'])
     assert record.password_hash != 'secret!'
     client.cookies.clear()
-    assert (await client.get(share['url'])).status_code == 200
+    gate = await client.get(share['url'])
+    assert gate.status_code == 200
+    assert 'TCMB AI Factory' in gate.text
+    assert 'share_owner (Paylaşım Sahibi)' in gate.text
+    assert 'saat' in gate.text and 'dk kaldı' in gate.text
+    assert gate.headers['cache-control'] == 'no-store'
+    assert gate.headers['referrer-policy'] == 'no-referrer'
+    assert "style-src 'self'" in gate.headers['content-security-policy']
     assert not client.cookies
     # A signed link itself is not an unlocked grant.
     token = share['url'].split('/')[-1]
@@ -101,7 +120,9 @@ async def test_password_expiry_and_management_permissions(client, db_session, sh
     record.expires_at = int(time.time()) - 1
     await db_session.commit()
     assert (await client.get(unlocked.headers['location'])).status_code == 404
-    assert (await client.get(share['url'])).status_code == 404
+    expired = await client.get(share['url'])
+    assert expired.status_code == 404
+    assert 'Paylaşımın süresi doldu' in expired.text
     await client.post('/api/auth/register', json={
         'username': 'outsider', 'email': 'outsider@example.com', 'password': 'Password123!',
     })
@@ -118,6 +139,7 @@ async def test_shared_websocket_revocation(client, db_session, shared_setup, mon
     share = (await client.post(api, headers=owner, json={'port': 3333})).json()
     client.cookies.clear()
     await client.get(share['url'])
+    await client.post(share['url'])
     connected = asyncio.Event()
     closed = []
 
@@ -157,3 +179,48 @@ def test_grant_cookie_is_never_forwarded():
     ]})
     headers = proxy._forward_headers(request, SimpleNamespace(template_id='vscode-empty'), 3333)
     assert headers['Cookie'] == 'app_cookie=ok'
+
+
+
+def test_remaining_validity_rounds_up_to_the_next_minute():
+    assert format_remaining(None, now=100) == 'Süresiz'
+    assert format_remaining(101, now=100) == '0 saat 1 dk kaldı'
+    assert format_remaining(3701, now=100) == '1 saat 1 dk kaldı'
+
+
+@pytest.mark.asyncio
+async def test_branded_invalid_deleted_and_unavailable_pages(
+    client, db_session, shared_setup
+):
+    workspace_id, owner = shared_setup
+    invalid = await client.get('/share/not-a-valid-token')
+    assert invalid.status_code == 404
+    assert 'Paylaşım bağlantısı geçersiz' in invalid.text
+    assert 'tcmb_ai_factory_logo.svg' in invalid.text
+    assert invalid.headers['x-content-type-options'] == 'nosniff'
+
+    api = f'/api/workspaces/{workspace_id}/shares'
+    share = (await client.post(api, headers=owner, json={'port': 3333})).json()
+    record = await db_session.get(WorkspaceShare, share['id'])
+    await db_session.delete(record)
+    await db_session.commit()
+    deleted = await client.get(share['url'])
+    assert deleted.status_code == 404
+    assert 'Paylaşılan çalışma alanı silinmiş' in deleted.text
+
+    share = (await client.post(api, headers=owner, json={'port': 3333})).json()
+    client.cookies.clear()
+    assert (await client.get(share['url'])).status_code == 200
+    granted = await client.post(share['url'])
+    assert granted.status_code == 303
+    workspace = await db_session.get(Workspace, workspace_id)
+    workspace.status = WorkspaceStatus.STOPPED
+    await db_session.commit()
+
+    unavailable = await client.get(
+        granted.headers['location'], headers={'Accept': 'text/html'}
+    )
+    assert unavailable.status_code == 503
+    assert 'Paylaşılan uygulamaya şu anda erişilemiyor' in unavailable.text
+    assert unavailable.headers['retry-after'] == '5'
+    assert unavailable.headers['cache-control'] == 'no-store'

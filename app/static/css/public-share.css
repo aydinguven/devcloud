@@ -1,0 +1,193 @@
+/* Standalone TCMB AI Factory shell for public workspace shares. */
+.public-share-page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.public-share-header {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 3px 14px rgba(38, 50, 68, 0.08);
+  display: flex;
+  min-height: 78px;
+  padding: 0.8rem clamp(1rem, 4vw, 3rem);
+}
+
+.public-share-brand {
+  display: inline-flex;
+  max-width: min(390px, 76vw);
+}
+
+.public-share-brand img {
+  display: block;
+  height: auto;
+  max-height: 52px;
+  max-width: 100%;
+  width: auto;
+}
+
+.public-share-main {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  padding: clamp(2rem, 7vw, 5rem) 1rem;
+}
+
+.public-share-card {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-top: 4px solid var(--primary);
+  border-radius: 3px;
+  box-shadow: 0 16px 42px rgba(38, 50, 68, 0.12);
+  max-width: 610px;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  width: 100%;
+}
+
+.public-share-card.share-state-expired,
+.public-share-card.share-state-deleted,
+.public-share-card.share-state-revoked,
+.public-share-card.share-state-invalid {
+  border-top-color: var(--danger);
+}
+
+.public-share-card.share-state-unavailable {
+  border-top-color: var(--gold);
+}
+
+.public-share-state-icon {
+  align-items: center;
+  background: var(--primary-soft);
+  border: 1px solid #efb2c0;
+  border-radius: 50%;
+  color: var(--primary);
+  display: flex;
+  font-size: 1.45rem;
+  font-weight: 800;
+  height: 48px;
+  justify-content: center;
+  margin-bottom: 1.15rem;
+  width: 48px;
+}
+
+.share-state-unavailable .public-share-state-icon {
+  background: var(--warning-bg);
+  border-color: #ddd39a;
+  color: var(--warning);
+}
+
+.public-share-card h1 {
+  color: var(--heading);
+  font-size: clamp(1.55rem, 5vw, 2rem);
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.public-share-message {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.public-share-meta {
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  display: grid;
+  gap: 0;
+  margin: 1.5rem 0;
+}
+
+.public-share-meta > div {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+}
+
+.public-share-meta > div + div {
+  border-top: 1px solid var(--border-color);
+}
+
+.public-share-meta dt {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-share-meta dd {
+  color: var(--heading);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.public-share-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.public-share-form .form-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.public-share-form .btn,
+.public-share-actions .btn {
+  justify-content: center;
+  min-height: 44px;
+}
+
+.public-share-error {
+  background: var(--danger-bg);
+  border: 1px solid #e9aeba;
+  border-radius: 2px;
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 650;
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+}
+
+.public-share-actions {
+  display: flex;
+  margin-top: 1.5rem;
+}
+
+.public-share-help {
+  border-top: 1px solid var(--pale-blue);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 1.5rem 0 0;
+  padding-top: 1rem;
+}
+
+.public-share-footer {
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.72rem;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+}
+
+.public-share-footer strong {
+  color: var(--heading);
+}
+
+@media (max-width: 560px) {
+  .public-share-header { min-height: 68px; }
+  .public-share-main { align-items: flex-start; padding-top: 2rem; }
+  .public-share-footer { align-items: flex-start; flex-direction: column; gap: 0.35rem; }
+}
