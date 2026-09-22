@@ -180,6 +180,7 @@ python deploy/package_offline.py \
 
 python - "${ASSET_DIR}/${PLATFORM_FILENAME}" "${signing_key}" <<'PY'
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -197,9 +198,34 @@ with prepare_release(
     require_signature=bool(signing_key),
 ) as prepared:
     release = load_platform_release(prepared.root)
+    wheels_dir = prepared.root / "offline" / "wheels"
+    wheels = list(wheels_dir.glob("*.whl"))
     assert release.version == os.environ["DEVCLOUD_VERSION"]
     assert release.source_commit == os.environ["GITHUB_SHA"]
+    assert wheels, "Platform update is missing native-worker Python wheels"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--dry-run",
+            "--ignore-installed",
+            "--no-index",
+            "--find-links",
+            str(wheels_dir),
+            "-r",
+            str(prepared.root / "requirements.txt"),
+        ],
+        check=True,
+    )
 PY
+
+platform_size="$(stat --format=%s "${ASSET_DIR}/${PLATFORM_FILENAME}")"
+if (( platform_size >= 2147483648 )); then
+  echo "Platform update exceeds GitHub's 2 GiB release-asset limit." >&2
+  exit 1
+fi
 
 for role in server worker; do
   if [[ "${role}" == "server" ]]; then

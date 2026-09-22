@@ -272,10 +272,11 @@ present on a worker.
 
 For a disconnected in-place update, copy the signed
 `devcloud-platform-update-v*.tar.gz` bundle to the controller. It already
-contains the prebuilt controller and worker OCI archives and contains no
-workspace images. The updater creates a verified pre-update backup, stages the
-release, loads the OCI images, runs migrations, restarts the Quadlet services,
-and publishes the same bundle for enrolled workers.
+contains the prebuilt controller and worker OCI archives plus native-worker
+Python wheels, contains no workspace images, and requires no external
+package-index access from workers. The updater creates a verified pre-update
+backup, stages the release, loads the OCI images, runs migrations, restarts the
+Quadlet services, and publishes the same bundle for enrolled workers.
 
 Apply the signed bundle:
 
