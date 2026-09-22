@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -325,10 +326,10 @@ class InstallerEngine:
                     "controller-images",
                     "Verify or reload runtime container images",
                     lambda: (
-                        self._prepare_controller_images(config)
+                        self._prepare_controller_images(config, refresh=True)
                         if config.containerized_controller
                         else None,
-                        self._prepare_worker_image(config)
+                        self._prepare_worker_image(config, refresh=True)
                         if config.containerized_worker
                         else None,
                     ),
@@ -401,10 +402,10 @@ class InstallerEngine:
                     "controller-images",
                     "Load the new verified runtime images",
                     lambda: (
-                        self._prepare_controller_images(config)
+                        self._prepare_controller_images(config, refresh=True)
                         if config.containerized_controller
                         else None,
-                        self._prepare_worker_image(config)
+                        self._prepare_worker_image(config, refresh=True)
                         if config.containerized_worker
                         else None,
                     ),
@@ -961,7 +962,33 @@ class InstallerEngine:
                         value,
                     ]
                 )
-            self.runner.run(["install", "-d", "-m", "0750", "/etc/devcloud"])
+            self.runner.run(
+                [
+                    "install",
+                    "-d",
+                    "-o",
+                    "root",
+                    "-g",
+                    config.service_user,
+                    "-m",
+                    "0750",
+                    "/etc/devcloud",
+                ]
+            )
+            if config.installs_worker:
+                self.runner.run(
+                    [
+                        "install",
+                        "-d",
+                        "-o",
+                        "root",
+                        "-g",
+                        config.service_user,
+                        "-m",
+                        "0750",
+                        "/etc/devcloud/pki",
+                    ]
+                )
             return
         for value in owned:
             path = self.host_path(value)
@@ -973,7 +1000,17 @@ class InstallerEngine:
         etc_dir = self.host_path("/etc/devcloud")
         etc_dir.mkdir(parents=True, exist_ok=True)
         if not self.runner.dry_run:
+            self.runner.run(
+                ["chown", f"root:{config.service_user}", str(etc_dir)]
+            )
             os.chmod(etc_dir, 0o750)
+        if config.installs_worker:
+            pki_dir = etc_dir / "pki"
+            pki_dir.mkdir(parents=True, exist_ok=True)
+            self.runner.run(
+                ["chown", f"root:{config.service_user}", str(pki_dir)]
+            )
+            os.chmod(pki_dir, 0o750)
         if config.containerized_controller:
             controller_owned = [
                 "/var/lib/devcloud/database",
@@ -1170,6 +1207,35 @@ class InstallerEngine:
         )
         self._atomic_write(path, payload.encode("utf-8"), 0o600)
 
+    def _reconcile_worker_fallback_host(
+        self,
+        controller_url: str,
+        fallback_ipv4: str,
+    ) -> None:
+        """Rotate or remove a bootstrap-managed hosts entry without forcing fallback."""
+        hosts_path = self.host_path("/etc/hosts")
+        if not hosts_path.is_file() or self.runner.dry_run:
+            return
+        marker = "# devcloud-controller-fallback"
+        original = hosts_path.read_text(encoding="utf-8")
+        lines = original.splitlines()
+        had_managed_entry = any(marker in line for line in lines)
+        if not had_managed_entry:
+            return
+        retained = [line for line in lines if marker not in line]
+        hostname = urlsplit(controller_url).hostname or ""
+        if fallback_ipv4 and hostname:
+            retained.append(
+                f"{fallback_ipv4}\t{hostname}\t{marker} {hostname}"
+            )
+        payload = "\n".join(retained) + "\n"
+        if payload != original:
+            self._atomic_write(
+                hosts_path,
+                payload.encode("utf-8"),
+                stat.S_IMODE(hosts_path.stat().st_mode),
+            )
+
     def _write_configuration(self, config: InstallConfig) -> None:
         if self.runner.dry_run:
             self.runner.run(
@@ -1305,20 +1371,155 @@ class InstallerEngine:
                     config.worker_id
                     or existing_worker.get("DEVCLOUD_NODE_ID", "")
                 )
-                controller_url = (
-                    config.controller_url
-                    or existing_worker.get("DEVCLOUD_CONTROLLER_URL", "")
-                    or existing_worker.get("DEVCLOUD_MASTER_URL", "")
-                )
+                if token_path is not None:
+                    controller_url = (
+                        config.controller_url
+                        or existing_worker.get("DEVCLOUD_CONTROLLER_URL", "")
+                        or existing_worker.get("DEVCLOUD_MASTER_URL", "")
+                    )
+                else:
+                    # Repair/update must preserve the enrolled worker's live
+                    # endpoint instead of reverting to an older state default.
+                    controller_url = (
+                        existing_worker.get("DEVCLOUD_CONTROLLER_URL", "")
+                        or existing_worker.get("DEVCLOUD_MASTER_URL", "")
+                        or config.controller_url
+                    )
+                if token_path is not None:
+                    controller_fallback_ipv4 = (
+                        config.controller_fallback_ipv4
+                        or existing_worker.get("DEVCLOUD_CONTROLLER_FALLBACK_IPV4", "")
+                    )
+                    agent_ca_file = (
+                        config.agent_ca_file
+                        or existing_worker.get("DEVCLOUD_AGENT_CA_FILE", "")
+                    )
+                else:
+                    controller_fallback_ipv4 = (
+                        existing_worker.get("DEVCLOUD_CONTROLLER_FALLBACK_IPV4", "")
+                        or config.controller_fallback_ipv4
+                    )
+                    agent_ca_file = (
+                        existing_worker.get("DEVCLOUD_AGENT_CA_FILE", "")
+                        or config.agent_ca_file
+                    )
             else:
                 token = local_worker_token
                 worker_id = local_worker_id
                 controller_url = "http://127.0.0.1:8000"
+                controller_fallback_ipv4 = ""
+                agent_ca_file = ""
             if not token or any(character.isspace() for character in token):
                 raise InstallerError("Enrollment token is empty or contains whitespace")
+
+            if config.role == DeploymentRole.WORKER:
+                parsed_controller = urlsplit(controller_url)
+                if (
+                    parsed_controller.scheme != "https"
+                    or not parsed_controller.hostname
+                    or parsed_controller.username
+                    or parsed_controller.password
+                    or parsed_controller.path not in {"", "/"}
+                    or parsed_controller.query
+                    or parsed_controller.fragment
+                ):
+                    raise InstallerError(
+                        "Remote workers require a canonical https:// Controller FQDN"
+                    )
+                try:
+                    ipaddress.ip_address(parsed_controller.hostname)
+                except ValueError:
+                    pass
+                else:
+                    raise InstallerError(
+                        "Remote worker Controller URL must use the certificate FQDN, not an IP"
+                    )
+
+            if controller_fallback_ipv4:
+                try:
+                    fallback_address = ipaddress.ip_address(controller_fallback_ipv4)
+                except ValueError as exc:
+                    raise InstallerError(
+                        "Worker controller fallback must be a valid IPv4 address"
+                    ) from exc
+                if (
+                    fallback_address.version != 4
+                    or fallback_address.is_unspecified
+                    or fallback_address.is_multicast
+                    or fallback_address.is_loopback
+                ):
+                    raise InstallerError(
+                        "Worker controller fallback must be a usable IPv4 address"
+                    )
+                controller_fallback_ipv4 = str(fallback_address)
+
+            tls_paths = {
+                "DEVCLOUD_AGENT_CA_FILE": agent_ca_file,
+                "DEVCLOUD_AGENT_CERT_FILE": existing_worker.get(
+                    "DEVCLOUD_AGENT_CERT_FILE", ""
+                ),
+                "DEVCLOUD_AGENT_KEY_FILE": existing_worker.get(
+                    "DEVCLOUD_AGENT_KEY_FILE", ""
+                ),
+            }
+            if bool(tls_paths["DEVCLOUD_AGENT_CERT_FILE"]) != bool(
+                tls_paths["DEVCLOUD_AGENT_KEY_FILE"]
+            ):
+                raise InstallerError(
+                    "Worker client certificate and key must be configured together"
+                )
+            for key, path_value in tls_paths.items():
+                if not path_value:
+                    continue
+                path = PurePosixPath(path_value)
+                if not path.is_absolute():
+                    raise InstallerError(f"{key} must contain an absolute path")
+                if config.containerized_worker and not path.is_relative_to(
+                    PurePosixPath("/etc/devcloud")
+                ):
+                    raise InstallerError(
+                        f"{key} must be under /etc/devcloud for the container worker"
+                    )
+                host_tls_path = self.host_path(path_value)
+                if not self.runner.dry_run and not host_tls_path.is_file():
+                    raise InstallerError(f"{key} file does not exist: {path_value}")
+                if self.runner.dry_run:
+                    continue
+                managed_tls_path = path.is_relative_to(PurePosixPath("/etc/devcloud"))
+                if managed_tls_path:
+                    self.runner.run(
+                        [
+                            "chown",
+                            f"root:{config.service_user}",
+                            str(host_tls_path),
+                        ]
+                    )
+                    os.chmod(host_tls_path, 0o640)
+                elif not config.containerized_worker:
+                    readable = self.runner.run(
+                        [
+                            "runuser",
+                            "-u",
+                            config.service_user,
+                            "--",
+                            "test",
+                            "-r",
+                            str(host_tls_path),
+                        ],
+                        check=False,
+                    )
+                    if readable.returncode != 0:
+                        raise InstallerError(
+                            f"{key} is not readable by {config.service_user}: {path_value}"
+                        )
+
             worker_values = {
                 "DEVCLOUD_CONTROLLER_URL": controller_url,
                 "DEVCLOUD_MASTER_URL": controller_url,
+                "DEVCLOUD_CONTROLLER_FALLBACK_IPV4": controller_fallback_ipv4,
+                "DEVCLOUD_AGENT_CA_FILE": agent_ca_file,
+                "DEVCLOUD_AGENT_CERT_FILE": tls_paths["DEVCLOUD_AGENT_CERT_FILE"],
+                "DEVCLOUD_AGENT_KEY_FILE": tls_paths["DEVCLOUD_AGENT_KEY_FILE"],
                 "DEVCLOUD_NODE_ID": worker_id,
                 "DEVCLOUD_NODE_TOKEN": token,
                 "DEVCLOUD_WORKER_NAME": config.worker_name,
@@ -1340,6 +1541,14 @@ class InstallerEngine:
                 worker_values,
                 podman=config.containerized_worker,
             )
+            if config.role == DeploymentRole.WORKER:
+                self._reconcile_worker_fallback_host(
+                    controller_url,
+                    controller_fallback_ipv4,
+                )
+            config.controller_url = controller_url
+            config.controller_fallback_ipv4 = controller_fallback_ipv4
+            config.agent_ca_file = agent_ca_file
 
     def _run_migrations(self, config: InstallConfig) -> None:
         if not config.installs_controller:
@@ -1431,7 +1640,12 @@ class InstallerEngine:
             "quay.io/sclorg/postgresql-16-c10s:latest",
         )
 
-    def _prepare_controller_images(self, config: InstallConfig) -> None:
+    def _prepare_controller_images(
+        self,
+        config: InstallConfig,
+        *,
+        refresh: bool = False,
+    ) -> None:
         if not config.containerized_controller:
             return
         image_root = (
@@ -1450,7 +1664,7 @@ class InstallerEngine:
                 ["podman", "image", "exists", controller_image],
                 check=False,
             )
-            if exists.returncode != 0 or self.runner.dry_run:
+            if exists.returncode != 0 or refresh or self.runner.dry_run:
                 source = self._controller_source_image()
                 self.runner.run(["podman", "pull", source])
                 self.runner.run(["podman", "tag", source, controller_image])
@@ -1479,7 +1693,12 @@ class InstallerEngine:
             image=self._controller_image(),
         )
 
-    def _prepare_worker_image(self, config: InstallConfig) -> None:
+    def _prepare_worker_image(
+        self,
+        config: InstallConfig,
+        *,
+        refresh: bool = False,
+    ) -> None:
         if not config.containerized_worker:
             return
         image_root = (
@@ -1496,11 +1715,12 @@ class InstallerEngine:
             ["podman", "image", "exists", worker_image],
             check=False,
         )
-        if exists.returncode != 0 or self.runner.dry_run:
-            if archives and not self.runner.dry_run:
+        if archives:
+            if exists.returncode != 0 and not self.runner.dry_run:
                 raise InstallerError(
                     f"Required worker container image is missing after loading archives: {worker_image}"
                 )
+        elif exists.returncode != 0 or refresh or self.runner.dry_run:
             source = self._worker_source_image()
             self.runner.run(["podman", "pull", source])
             self.runner.run(["podman", "tag", source, worker_image])
@@ -1796,6 +2016,10 @@ class InstallerEngine:
             else:
                 self.runner.run(
                     [
+                        "runuser",
+                        "-u",
+                        config.service_user,
+                        "--",
                         str(release / ".venv" / "bin" / "python"),
                         "-m",
                         "app.installer.verify_worker",

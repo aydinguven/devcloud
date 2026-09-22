@@ -251,10 +251,15 @@
   <form id="download-settings-form" class="responsive-form-grid responsive-form-grid--download">
     <label class="form-group" style="margin:0;">
       <span class="form-label">Worker kurulumunda kullanılacak Controller URL</span>
-      <input class="form-input" type="url" name="public_base_url" value="{{ download_public_base_url }}" placeholder="http://10.253.6.189" required>
-      <small style="color:var(--text-muted);">Worker bootstrap scripti, arşiv indirme adresi ve DEVCLOUD_CONTROLLER_URL varsayılanı bu değeri kullanır.</small>
+      <input class="form-input" type="url" name="public_base_url" value="{{ download_public_base_url }}" placeholder="https://devcloud.example.com" required>
+      <small style="color:var(--text-muted);">Worker kimliği olarak HTTPS FQDN kullanılır; WSS ve sertifika hostname doğrulaması bu adla korunur.</small>
     </label>
-    <button id="btn-save-download-settings" class="btn btn-primary btn-sm" type="submit">URL'yi Kaydet</button>
+    <label class="form-group" style="margin:0;">
+      <span class="form-label">Worker fallback IPv4 (isteğe bağlı)</span>
+      <input class="form-input" name="worker_fallback_ipv4" value="{{ download_settings.worker_fallback_ipv4 if download_settings else '' }}" placeholder="10.253.6.189" inputmode="decimal">
+      <small style="color:var(--text-muted);">FQDN DNS/rota erişimi yoksa aynı FQDN için yalnız rota fallback'i olarak kullanılır; TLS kimliği IP'ye düşürülmez.</small>
+    </label>
+    <button id="btn-save-download-settings" class="btn btn-primary btn-sm" type="submit">URL ve Fallback'i Kaydet</button>
     <div id="download-settings-status" class="quota-form-status" style="grid-column:1/-1;" role="status" aria-live="polite"></div>
   </form>
 
@@ -289,6 +294,11 @@
         <label class="form-label" for="https-private-key-file">Private key (şifresiz PEM)</label>
         <input id="https-private-key-file" class="form-input" type="file" name="private_key" accept=".pem,.key,application/x-pem-file" data-file-picker-label="Private Key Seç">
       </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label" for="https-agent-ca-file">Worker güven CA bundle (isteğe bağlı)</label>
+        <input id="https-agent-ca-file" class="form-input" type="file" name="agent_ca" accept=".pem,.crt,.cer,application/x-pem-file" data-file-picker-label="CA Bundle Seç">
+        <small style="color:var(--text-muted);">Yalnız kök/ara CA sertifikaları. Yeni worker scriptine güvenli biçimde aktarılır; private key yüklemeyin.</small>
+      </div>
     </div>
     <small id="https-certificate-summary" style="display:block;color:var(--text-muted);margin-bottom:.75rem;">
       {% if download_settings and download_settings.certificate_sha256 %}
@@ -296,6 +306,9 @@
       {% else %}
         Henüz sertifika yüklenmedi. Sertifika ve private key yalnızca birlikte kabul edilir; eşleşme ve SAN hostname'i uygulanmadan önce doğrulanır.
       {% endif %}
+    </small>
+    <small id="https-agent-ca-summary" data-uploaded="{{ 'true' if download_agent_ca_uploaded else 'false' }}" style="display:block;color:var(--text-muted);margin-bottom:.75rem;">
+      {{ 'Worker CA bundle kayıtlı; boş seçim mevcut bundle\'ı korur.' if download_agent_ca_uploaded else 'Worker özel CA kullanıyorsa kök ve ara CA bundle yükleyin.' }}
     </small>
     <div class="table-actions">
       <button id="btn-apply-https-settings" class="btn btn-primary btn-sm" type="submit">Kaydet ve Nginx'e Uygula</button>
@@ -377,7 +390,7 @@ cd devcloud
         Aşağıdaki butonla tek kullanımlık komut üretin ve yeni worker üzerinde çalıştırın. Script yalnızca worker adını sorar; NVIDIA donanımı algılarsa mevcut driver, Container Toolkit ve CDI yapılandırmasını kayıt oluşturmadan önce doğrular.
       </p>
       <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">
-        Her komut yalnızca bir worker kaydedebilir ve 10 dakika sonra geçersiz olur. HTTPS kullanılması önerilir.
+        Her komut yalnızca bir worker kaydedebilir ve 10 dakika sonra geçersiz olur. HTTPS etkin değilse komut üretilmez. Controller kimliği FQDN olarak korunur; özel CA ve yapılandırılmış IPv4 rota fallback'i bootstrap sırasında otomatik uygulanır.
       </p>
     </div>
   </details>

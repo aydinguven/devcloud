@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import secrets
@@ -25,6 +26,8 @@ from app.worker_bootstrap import (
     active_ticket,
     controller_base_url,
     current_platform_release,
+    require_https_controller_url,
+    worker_bootstrap_transport,
 )
 
 
@@ -47,12 +50,26 @@ async def worker_install_script(
     """Render a ticket-bound installer without consuming the ticket."""
     await active_ticket(ticket, db)
     current_platform_release()
-    base_url = await controller_base_url(request, db)
+    transport = await worker_bootstrap_transport(request, db)
+    require_https_controller_url(request, transport.controller_url)
+    base_url = transport.controller_url
+    agent_ca_sha256 = (
+        hashlib.sha256(transport.agent_ca_pem.strip() + b"\n").hexdigest()
+        if transport.agent_ca_pem
+        else ""
+    )
     values = {
         "__CONTROLLER_URL__": shlex.quote(base_url),
         "__ENROLLMENT_URL__": shlex.quote(
             f"{base_url}/api/bootstrap/workers/{ticket}/enroll"
         ),
+        "__CONTROLLER_HOST__": shlex.quote(transport.hostname),
+        "__CONTROLLER_PORT__": shlex.quote(str(transport.port)),
+        "__CONTROLLER_FALLBACK_IPV4__": shlex.quote(transport.fallback_ipv4),
+        "__AGENT_CA_BASE64__": shlex.quote(
+            base64.b64encode(transport.agent_ca_pem).decode("ascii")
+        ),
+        "__AGENT_CA_SHA256__": shlex.quote(agent_ca_sha256),
     }
     script = worker_bootstrap_template.read_text(encoding="utf-8")
     for placeholder, value in values.items():
@@ -82,8 +99,9 @@ async def enroll_worker(
 ):
     """Consume one bootstrap ticket and return one permanent worker credential."""
     current_platform_release()
-    base_url = await controller_base_url(request, db)
     record = await active_ticket(ticket, db)
+    base_url = await controller_base_url(request, db)
+    require_https_controller_url(request, base_url)
     now = datetime.now(timezone.utc)
     claimed = await db.execute(
         update(WorkerBootstrapTicket)

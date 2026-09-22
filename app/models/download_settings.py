@@ -25,6 +25,9 @@ class DownloadSettings(Base):
     http_fallback_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
+    worker_fallback_ipv4: Mapped[str] = mapped_column(
+        String(15), default="", nullable=False
+    )
     certificate_subject: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     certificate_not_after: Mapped[str | None] = mapped_column(String(64), nullable=True)
     certificate_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -59,6 +59,33 @@ Managed controller updates preserve this opt-in in
 The only required worker-to-controller firewall flow is outbound TCP 443.
 Never expose Podman, workspace ports, or a worker management listener.
 
+## HTTPS identity, private CA, and route fallback
+
+Remote worker enrollment requires the controller HTTPS FQDN. Configure it under
+**Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi** before generating
+a one-time command. The generated command keeps that FQDN as the URL, TLS SNI,
+HTTP Host header, and certificate verification identity.
+
+For a private PKI, upload the CA-only trust bundle in the same panel. The bundle
+may contain root and intermediate CA certificates, but never a leaf certificate
+or private key. The Admin-generated command authenticates its first script fetch
+with the controller certificate's SPKI pin, installs the verified public CA bundle
+as `/etc/devcloud/pki/controller-ca.pem`, and records
+`DEVCLOUD_AGENT_CA_FILE` for both native and container workers. Repair and update
+preserve this path and any configured worker mTLS certificate/key pair.
+
+An optional **Worker fallback IPv4** may be configured next to the public
+Controller URL. Enrollment always tries normal FQDN resolution first. Only DNS,
+connection, or timeout failures activate the fallback; the script validates the
+fallback with the same FQDN TLS identity before adding its managed `/etc/hosts`
+route. It never changes the controller URL to an IP and never disables ongoing
+certificate validation.
+
+Containerized controllers discover their Podman bridge gateway on every start
+and trust forwarded headers only from that exact IP and loopback. This keeps WSS
+secret delivery working after clean installs, repairs, updates, or Podman network
+recreation without a manually maintained `FORWARDED_ALLOW_IPS=*` setting.
+
 ## Workspace AI connectivity and settings rollout
 
 Jupyter AI and Cline settings are controller-managed. Every enrolled worker fetches the

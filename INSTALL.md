@@ -129,9 +129,10 @@ The same page manages the shared model catalogue, display names, descriptions,
 and the model initially selected for a new Claude session. The default catalogue
 contains the former on-prem Qwen model plus the GLM, DeepSeek, Qwen Coder, and
 Kimi OpenRouter routes.
-Use HTTPS for the controller-to-worker connection, or keep an HTTP deployment
-on an isolated trusted management network, because workers must receive the
-decrypted shared token before creating Jupyter containers.
+Remote workers require an HTTPS controller FQDN because workers receive
+decrypted shared settings and per-operation secrets over the agent tunnel. The
+all-in-one worker may keep its loopback HTTP connection because it never leaves
+the host network namespace.
 
 The following `/etc/devcloud/worker.env` values remain available only as a
 rolling-upgrade fallback when the controller has no central Jupyter AI record:

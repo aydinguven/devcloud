@@ -1989,6 +1989,7 @@ function initDownloadSettings() {
     const publicBaseUrl = String(form.elements.public_base_url.value || "")
       .trim()
       .replace(/\/+$/, "");
+    const workerFallbackIpv4 = String(form.elements.worker_fallback_ipv4.value || "").trim();
     saveButton.disabled = true;
     status.textContent = "Controller URL kaydediliyor...";
     status.className = "quota-form-status";
@@ -1996,14 +1997,18 @@ function initDownloadSettings() {
       const response = await fetch("/api/admin/download-settings", {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({public_base_url: publicBaseUrl}),
+        body: JSON.stringify({
+          public_base_url: publicBaseUrl,
+          worker_fallback_ipv4: workerFallbackIpv4,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.detail || `Controller URL kaydedilemedi (${response.status})`);
       }
       form.elements.public_base_url.value = data.public_base_url;
-      status.textContent = "Controller URL kaydedildi; yeni bootstrap scriptleri bu adresi kullanacak.";
+      form.elements.worker_fallback_ipv4.value = data.worker_fallback_ipv4 || "";
+      status.textContent = "Controller FQDN ve worker rota fallback ayarları kaydedildi.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;
@@ -2021,6 +2026,7 @@ function initHttpsSettings() {
   const status = document.getElementById("https-settings-status");
   const badge = document.getElementById("https-status-badge");
   const summary = document.getElementById("https-certificate-summary");
+  const agentCaSummary = document.getElementById("https-agent-ca-summary");
   const masterForm = document.getElementById("download-settings-form");
 
   form.addEventListener("submit", async (event) => {
@@ -2063,13 +2069,19 @@ function initHttpsSettings() {
       form.elements.http_fallback_enabled.checked = data.http_fallback_enabled;
       form.elements.certificate.value = "";
       form.elements.private_key.value = "";
+      form.elements.agent_ca.value = "";
       form.elements.certificate.dispatchEvent(new Event("change"));
       form.elements.private_key.dispatchEvent(new Event("change"));
+      form.elements.agent_ca.dispatchEvent(new Event("change"));
       badge.className = `badge ${data.https_enabled ? "badge-running" : "badge-stopped"}`;
       badge.textContent = data.https_enabled ? "HTTPS Etkin" : "HTTP Etkin";
       if (data.certificate_uploaded) {
         summary.dataset.uploaded = "true";
         summary.textContent = `Yüklü sertifika: ${data.certificate_subject} · Son geçerlilik: ${data.certificate_not_after} · SHA-256: ${data.certificate_sha256}`;
+      }
+      if (agentCaSummary && data.agent_ca_uploaded) {
+        agentCaSummary.dataset.uploaded = "true";
+        agentCaSummary.textContent = "Worker CA bundle kayıtlı; yeni worker bootstrap scriptlerine otomatik aktarılacak.";
       }
       if (masterForm) masterForm.elements.public_base_url.value = data.public_base_url;
       status.textContent = data.https_enabled

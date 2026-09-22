@@ -182,6 +182,7 @@ async def ensure_download_settings_columns(conn) -> None:
             f"'{default_hostname}'"
         ),
         "http_fallback_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        "worker_fallback_ipv4": "VARCHAR(15) NOT NULL DEFAULT ''",
         "certificate_subject": "VARCHAR(1024)",
         "certificate_not_after": "VARCHAR(64)",
         "certificate_sha256": "VARCHAR(64)",
