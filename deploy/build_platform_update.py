@@ -2,7 +2,8 @@
 """Build one controller-managed update containing controller and worker images.
 
 Workspace images are intentionally excluded. Production hosts load these
-prebuilt artifacts and never build application images during an update.
+prebuilt artifacts and never build application images or contact a Python package
+index during an update.
 """
 
 from __future__ import annotations
@@ -12,9 +13,10 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
-import sys
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -22,8 +24,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from deploy.build_release import ReleaseBuildError, run, version
 from app.installer.update_source import write_channel
+from deploy.build_release import ReleaseBuildError, run, version
+from deploy.package_offline import (
+    DEFAULT_PYTHON_VERSIONS,
+    PackageError,
+    download_wheels,
+)
 
 
 def sha256(path: Path) -> str:
@@ -111,6 +118,7 @@ def build(
     worker_source: str = "",
     signing_key: str = "",
     release_keyring: Path | None = None,
+    python_versions: Iterable[str] = DEFAULT_PYTHON_VERSIONS,
     allow_dirty: bool = False,
 ) -> Path:
     if not allow_dirty and command(root, "git", "status", "--porcelain", "--untracked-files=no"):
@@ -130,6 +138,16 @@ def build(
         stage = Path(temporary) / f"devcloud-{release_version}"
         stage.mkdir()
         _copy_tracked(root, stage)
+        try:
+            bundled_python_versions = download_wheels(
+                root,
+                stage / "offline/wheels",
+                python_versions,
+            )
+        except PackageError as exc:
+            raise ReleaseBuildError(
+                f"Could not bundle native-worker Python dependencies: {exc}"
+            ) from exc
         if release_keyring is not None:
             keyring = release_keyring.resolve()
             if not keyring.is_file() or keyring.is_symlink() or not keyring.stat().st_size:
@@ -144,7 +162,11 @@ def build(
             "version": release_version,
             "source_commit": commit,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "target": {"os": "linux", "architecture": "amd64"},
+            "target": {
+                "os": "linux",
+                "architecture": "amd64",
+                "native_worker_python_versions": bundled_python_versions,
+            },
             "workspace_images_included": False,
             "images": {
                 "controller": {
@@ -216,6 +238,12 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="HTTPS, file://, or repository-relative URL stored in the channel",
     )
+    parser.add_argument(
+        "--python-version",
+        action="append",
+        default=None,
+        help="native-worker CPython major.minor; repeat for multiple targets (default: 3.12)",
+    )
     parser.add_argument("--allow-dirty", action="store_true")
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parent.parent
@@ -228,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             worker_source=args.worker_source,
             signing_key=args.signing_key,
             release_keyring=args.release_keyring,
+            python_versions=args.python_version or DEFAULT_PYTHON_VERSIONS,
             allow_dirty=args.allow_dirty,
         )
         print(built)
