@@ -15,7 +15,7 @@ fail() {
 [[ "$(id -u)" -eq 0 ]] || fail \
     "Run through sudo: curl -fsSL <ticket-url> | sudo bash"
 
-for required_command in basename curl dirname grep hostname mktemp printenv sha256sum stat tar; do
+for required_command in base64 basename curl dirname grep hostname install mktemp printenv sha256sum stat tar; do
     command -v "${required_command}" >/dev/null 2>&1 || fail \
         "Required base command is missing: ${required_command}"
 done
@@ -75,6 +75,11 @@ fi
 
 CONTROLLER_URL=__CONTROLLER_URL__
 ENROLLMENT_URL=__ENROLLMENT_URL__
+CONTROLLER_HOST=__CONTROLLER_HOST__
+CONTROLLER_PORT=__CONTROLLER_PORT__
+CONTROLLER_FALLBACK_IPV4=__CONTROLLER_FALLBACK_IPV4__
+AGENT_CA_BASE64=__AGENT_CA_BASE64__
+AGENT_CA_SHA256=__AGENT_CA_SHA256__
 WORKER_NAME="${DEVCLOUD_WORKER_NAME:-}"
 if [[ -z "${WORKER_NAME}" ]]; then
     [[ -r /dev/tty && -w /dev/tty ]] || fail \
@@ -93,11 +98,81 @@ cleanup() {
 }
 trap cleanup EXIT
 
+AGENT_CA_FILE=""
+CURL_TLS_ARGS=()
+if [[ -n "${AGENT_CA_BASE64}" ]]; then
+    log "Installing the controller worker trust bundle..."
+    AGENT_CA_TEMP="${TEMP_DIR}/controller-ca.pem"
+    printf '%s' "${AGENT_CA_BASE64}" | base64 --decode > "${AGENT_CA_TEMP}" || fail \
+        "Controller CA bundle could not be decoded."
+    printf '%s  %s\n' "${AGENT_CA_SHA256}" "${AGENT_CA_TEMP}" | sha256sum -c - >/dev/null || fail \
+        "Controller CA bundle checksum validation failed."
+    install -d -o root -g root -m 0755 /etc/devcloud/pki
+    install -o root -g root -m 0644 \
+        "${AGENT_CA_TEMP}" /etc/devcloud/pki/controller-ca.pem
+    AGENT_CA_FILE=/etc/devcloud/pki/controller-ca.pem
+    CURL_TLS_ARGS=(--cacert "${AGENT_CA_FILE}")
+fi
+
+reconcile_controller_fallback_hosts() {
+    CONTROLLER_HOST="${CONTROLLER_HOST}" \
+    CONTROLLER_FALLBACK_IPV4="${1:-}" \
+    python3 - <<'PY'
+import os
+from pathlib import Path
+
+path = Path("/etc/hosts")
+marker = "# devcloud-controller-fallback"
+hostname = os.environ["CONTROLLER_HOST"]
+fallback = os.environ.get("CONTROLLER_FALLBACK_IPV4", "")
+original = path.read_text(encoding="utf-8")
+lines = [line for line in original.splitlines() if marker not in line]
+if fallback:
+    lines.append(f"{fallback}\t{hostname}\t{marker} {hostname}")
+payload = "\n".join(lines) + "\n"
+if payload != original:
+    path.write_text(payload, encoding="utf-8")
+PY
+}
+
+# Remove a stale managed route before testing normal DNS, then install the
+# current fallback only if the primary network path is unavailable.
+reconcile_controller_fallback_hosts ""
+
+log "Checking the controller HTTPS FQDN route..."
+if curl --fail --silent --show-error --output /dev/null \
+    "${CURL_TLS_ARGS[@]}" "${CONTROLLER_URL}/healthz"; then
+    log "Controller FQDN is reachable through the primary resolver."
+else
+    primary_status=$?
+    case "${primary_status}" in
+        5|6|7|28)
+            [[ -n "${CONTROLLER_FALLBACK_IPV4}" ]] || fail \
+                "Controller FQDN route failed and no fallback IPv4 is configured."
+            log "Primary FQDN route failed; validating the configured IPv4 fallback without changing TLS identity..."
+            curl --fail --silent --show-error --output /dev/null \
+                "${CURL_TLS_ARGS[@]}" \
+                --resolve "${CONTROLLER_HOST}:${CONTROLLER_PORT}:${CONTROLLER_FALLBACK_IPV4}" \
+                "${CONTROLLER_URL}/healthz" || fail \
+                "Configured fallback IPv4 cannot reach the controller with valid FQDN TLS."
+            reconcile_controller_fallback_hosts "${CONTROLLER_FALLBACK_IPV4}"
+            curl --fail --silent --show-error --output /dev/null \
+                "${CURL_TLS_ARGS[@]}" "${CONTROLLER_URL}/healthz" || fail \
+                "Controller fallback route was installed but did not become reachable."
+            log "Controller FQDN identity is using the validated IPv4 route fallback."
+            ;;
+        *)
+            fail "Controller HTTPS validation failed (curl exit ${primary_status}); check the FQDN certificate and worker CA bundle."
+            ;;
+    esac
+fi
+
 log "Enrolling ${WORKER_NAME} with the controller..."
 ENROLLMENT_PAYLOAD="$(WORKER_NAME="${WORKER_NAME}" python3 -c \
     'import json, os; print(json.dumps({"name": os.environ["WORKER_NAME"]}))')"
 ENROLLMENT_RESPONSE="${TEMP_DIR}/enrollment.json"
 curl --fail-with-body --silent --show-error \
+    "${CURL_TLS_ARGS[@]}" \
     --request POST \
     --header 'Content-Type: application/json' \
     --data "${ENROLLMENT_PAYLOAD}" \
@@ -120,6 +195,7 @@ chmod 0600 "${CURL_AUTH_CONFIG}"
 RELEASE_METADATA="${TEMP_DIR}/release.json"
 log "Resolving the controller's current platform release..."
 curl --fail-with-body --silent --show-error \
+    "${CURL_TLS_ARGS[@]}" \
     --config "${CURL_AUTH_CONFIG}" \
     --output "${RELEASE_METADATA}" \
     "${CONTROLLER_URL}/api/agent/releases/latest?node_id=${NODE_ID}"
@@ -134,8 +210,13 @@ EXPECTED_SHA256="${RELEASE[2]}"
 EXPECTED_SIZE="${RELEASE[3]}"
 [[ "${BUNDLE_FILENAME}" == "$(basename -- "${BUNDLE_FILENAME}")" ]] || fail \
     "Controller returned an unsafe release filename."
-[[ "${BUNDLE_URL}" =~ ^https?://[^[:space:]]+$ ]] || fail \
-    "Controller returned an invalid release URL."
+if [[ "${BUNDLE_URL}" == /* ]]; then
+    BUNDLE_URL="${CONTROLLER_URL}${BUNDLE_URL}"
+elif [[ "${BUNDLE_URL}" != "${CONTROLLER_URL}/api/agent/releases/"* ]]; then
+    fail "Controller returned a release URL outside its canonical FQDN origin."
+fi
+[[ "${BUNDLE_URL}" =~ ^https://[^[:space:]]+$ ]] || fail \
+    "Controller returned an invalid HTTPS release URL."
 [[ "${EXPECTED_SHA256}" =~ ^[0-9a-f]{64}$ ]] || fail \
     "Controller returned an invalid release checksum."
 [[ "${EXPECTED_SIZE}" =~ ^[0-9]+$ ]] || fail \
@@ -144,6 +225,7 @@ EXPECTED_SIZE="${RELEASE[3]}"
 BUNDLE_PATH="${TEMP_DIR}/${BUNDLE_FILENAME}"
 log "Downloading ${BUNDLE_FILENAME}..."
 curl --fail-with-body --silent --show-error \
+    "${CURL_TLS_ARGS[@]}" \
     --config "${CURL_AUTH_CONFIG}" \
     --output "${BUNDLE_PATH}" \
     "${BUNDLE_URL}"
@@ -167,6 +249,8 @@ TOKEN_FILE="${TEMP_DIR}/enrollment-token"
 printf '%s\n' "${NODE_TOKEN}" > "${TOKEN_FILE}"
 chmod 0600 "${TOKEN_FILE}"
 export DEVCLOUD_INSTALL_CONTROLLER_URL="${CONTROLLER_URL}"
+export DEVCLOUD_INSTALL_CONTROLLER_FALLBACK_IPV4="${CONTROLLER_FALLBACK_IPV4}"
+export DEVCLOUD_INSTALL_AGENT_CA_FILE="${AGENT_CA_FILE}"
 export DEVCLOUD_INSTALL_WORKER_ID="${NODE_ID}"
 export DEVCLOUD_INSTALL_TOKEN_FILE="${TOKEN_FILE}"
 export DEVCLOUD_INSTALL_WORKER_NAME="${WORKER_NAME}"

@@ -424,18 +424,28 @@ until deletion. Physical-GPU slot sharing is cooperative: the 8 GB flavor value
 is scheduling guidance, not hard VRAM isolation. Use MIG when hardware-enforced
 memory and fault isolation are required.
 
-The initial bootstrap/controller address is `http://10.253.6.189` and can be
-changed without restarting DevCloud from the Offline Downloads card in Admin.
+The initial bootstrap/controller address is `http://10.253.6.189` only until
+HTTPS is configured. Remote worker commands are generated only after an HTTPS
+FQDN is active. The Offline Downloads card also accepts an optional route-only
+fallback IPv4 for workers that cannot resolve or route the FQDN directly.
 
 ### In-app HTTPS and certificate upload
 
 A clean connected or offline controller installation configures Nginx on port 80.
 In **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**, set the
 hostname, upload the PEM certificate chain and its unencrypted PEM private key,
-then enable HTTPS. DevCloud verifies the certificate validity period, server
-authentication usage, SAN coverage, and certificate/key match before applying
-the Nginx configuration. The private key is stored only in the restricted
-ingress directory and is never returned by the API.
+then enable HTTPS. When the organization CA is not already trusted by workers,
+also upload the CA-only worker trust bundle. DevCloud verifies the server
+certificate validity period, server authentication usage, SAN coverage, and
+certificate/key match; every worker trust certificate must be a currently valid
+CA with certificate-signing authority. The private key is stored only in the
+restricted ingress directory and is never returned by the API.
+
+The generated worker command first uses normal FQDN and PKI validation. For a
+private CA, its recovery fetch remains authenticated by the server certificate
+SPKI pin shown only in the Admin-generated command, then installs the verified
+CA bundle for all later HTTPS/WSS traffic. An optional fallback IPv4 changes
+only routing: SNI, Host, and certificate validation continue to use the FQDN.
 
 For the planned deployment, the certificate SAN must contain
 devcloud.example.com, DNS must resolve that name to the controller, and clients

@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 22
+CURRENT_SCHEMA_VERSION = 23
 
 
 class MigrationError(RuntimeError):
@@ -771,6 +771,9 @@ async def upgrade() -> None:
         if 22 not in applied:
             # init_db creates the portable onboarding settings and progress tables.
             await _record_version(conn, 22, "versioned onboarding tour")
+        if 23 not in applied:
+            # init_db adds the optional worker IPv4 route fallback column.
+            await _record_version(conn, 23, "worker FQDN route fallback")
 
 
 async def current_version() -> int:

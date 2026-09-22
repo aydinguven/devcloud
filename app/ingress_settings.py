@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import os
 import re
@@ -22,6 +24,7 @@ from app.config import settings
 
 MAX_CERTIFICATE_BYTES = 256 * 1024
 MAX_PRIVATE_KEY_BYTES = 64 * 1024
+MAX_AGENT_CA_BYTES = 256 * 1024
 CERTIFICATE_PATTERN = re.compile(
     br"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
     re.DOTALL,
@@ -156,6 +159,74 @@ def validate_certificate_pair(
     )
 
 
+def certificate_public_key_pin(certificate_pem: bytes) -> str:
+    """Return the curl-compatible SHA-256 SPKI pin for the leaf certificate."""
+    certificate_blocks = CERTIFICATE_PATTERN.findall(certificate_pem)
+    if not certificate_blocks:
+        raise IngressConfigurationError("Sertifika PEM formatında olmalıdır.")
+    try:
+        leaf = x509.load_pem_x509_certificate(certificate_blocks[0])
+    except ValueError as exc:
+        raise IngressConfigurationError("Sertifika PEM içeriği okunamadı.") from exc
+    public_key = leaf.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    digest = hashlib.sha256(public_key).digest()
+    return "sha256//" + base64.b64encode(digest).decode("ascii")
+
+
+def validate_agent_ca_bundle(certificate_pem: bytes) -> str:
+    """Validate a public CA-only PEM bundle and return its content digest."""
+    if not certificate_pem or len(certificate_pem) > MAX_AGENT_CA_BYTES:
+        raise IngressConfigurationError(
+            "Worker CA bundle dosyası boş veya 256 KB sınırını aşıyor."
+        )
+    certificate_blocks = CERTIFICATE_PATTERN.findall(certificate_pem)
+    if not certificate_blocks or CERTIFICATE_PATTERN.sub(b"", certificate_pem).strip():
+        raise IngressConfigurationError(
+            "Worker CA bundle yalnızca PEM sertifika blokları içermelidir."
+        )
+    try:
+        certificates = [
+            x509.load_pem_x509_certificate(block) for block in certificate_blocks
+        ]
+    except ValueError as exc:
+        raise IngressConfigurationError(
+            "Worker CA bundle PEM içeriği okunamadı."
+        ) from exc
+
+    now = datetime.now(timezone.utc)
+    for certificate in certificates:
+        if now < certificate.not_valid_before_utc or now > certificate.not_valid_after_utc:
+            raise IngressConfigurationError(
+                "Worker CA bundle süresi dolmuş veya henüz geçerli olmayan sertifika içeriyor."
+            )
+        try:
+            constraints = certificate.extensions.get_extension_for_class(
+                x509.BasicConstraints
+            ).value
+        except x509.ExtensionNotFound as exc:
+            raise IngressConfigurationError(
+                "Worker CA bundle içindeki her sertifika CA Basic Constraints taşımalıdır."
+            ) from exc
+        if not constraints.ca:
+            raise IngressConfigurationError(
+                "Worker CA bundle yalnızca kök ve ara CA sertifikaları içerebilir."
+            )
+        try:
+            key_usage = certificate.extensions.get_extension_for_class(x509.KeyUsage).value
+        except x509.ExtensionNotFound:
+            key_usage = None
+        if key_usage is not None and not key_usage.key_cert_sign:
+            raise IngressConfigurationError(
+                "Worker CA bundle sertifikası sertifika imzalama yetkisi taşımıyor."
+            )
+
+    normalized = certificate_pem.strip() + b"\n"
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def _atomic_write(path: Path, content: bytes, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -177,6 +248,7 @@ class IngressManager:
         self.helper = helper or Path(settings.INGRESS_APPLY_COMMAND)
         self.certificate_path = self.staging_root / "certificate.pem"
         self.private_key_path = self.staging_root / "private-key.pem"
+        self.agent_ca_path = self.staging_root / "agent-ca.pem"
         self.desired_path = self.staging_root / "desired.json"
         self.request_path = self.staging_root / "apply.request"
         self.result_path = self.staging_root / "apply-result.json"
@@ -233,6 +305,7 @@ class IngressManager:
         http_fallback_enabled: bool,
         certificate_pem: bytes | None = None,
         private_key_pem: bytes | None = None,
+        agent_ca_pem: bytes | None = None,
     ) -> CertificateInfo | None:
         async with self._lock:
             hostname = normalize_https_hostname(hostname)
@@ -241,12 +314,27 @@ class IngressManager:
                     "Sertifika ve private key birlikte yüklenmelidir."
                 )
 
-            paths = (self.certificate_path, self.private_key_path, self.desired_path)
+            paths = (
+                self.certificate_path,
+                self.private_key_path,
+                self.agent_ca_path,
+                self.desired_path,
+            )
             previous = {
                 path: path.read_bytes() if path.is_file() else None for path in paths
             }
             info = None
             try:
+                if agent_ca_pem is not None:
+                    validate_agent_ca_bundle(agent_ca_pem)
+                    _atomic_write(
+                        self.agent_ca_path,
+                        agent_ca_pem.strip() + b"\n",
+                        0o600,
+                    )
+                elif self.agent_ca_path.is_file():
+                    validate_agent_ca_bundle(self.agent_ca_path.read_bytes())
+
                 if certificate_pem is not None and private_key_pem is not None:
                     info = validate_certificate_pair(
                         certificate_pem, private_key_pem, hostname

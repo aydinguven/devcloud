@@ -594,6 +594,7 @@ async def admin_page(
                 nodes = []
 
         context["nodes"] = nodes
+        context["download_settings"] = download_settings
         context["download_public_base_url"] = (
             download_settings.public_base_url
             if download_settings and download_settings.public_base_url
@@ -637,6 +638,9 @@ async def admin_page(
                     else settings.DOWNLOAD_PUBLIC_BASE_URL
                 ),
                 "download_settings": download_settings,
+                "download_agent_ca_uploaded": (
+                    Path(settings.INGRESS_STAGING_ROOT) / "agent-ca.pem"
+                ).is_file(),
                 "https_default_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
             }
         )

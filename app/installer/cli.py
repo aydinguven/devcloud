@@ -78,6 +78,12 @@ def _worker_config_from_environment(
     return InstallConfig(
         role=role,
         controller_url=values["controller_url"],
+        controller_fallback_ipv4=os.environ.get(
+            "DEVCLOUD_INSTALL_CONTROLLER_FALLBACK_IPV4", ""
+        ).strip(),
+        agent_ca_file=os.environ.get(
+            "DEVCLOUD_INSTALL_AGENT_CA_FILE", ""
+        ).strip(),
         worker_id=values["worker_id"],
         enrollment_token_file=values["enrollment_token_file"],
         worker_name=(

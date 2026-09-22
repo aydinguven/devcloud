@@ -44,6 +44,8 @@ class InstallConfig:
     role: DeploymentRole
     public_url: str = "http://127.0.0.1"
     controller_url: str = "http://127.0.0.1:8000"
+    controller_fallback_ipv4: str = ""
+    agent_ca_file: str = ""
     database_mode: DatabaseMode = DatabaseMode.SQLITE
     database_url: str = ""
     registry_mode: RegistryMode = RegistryMode.PRELOADED

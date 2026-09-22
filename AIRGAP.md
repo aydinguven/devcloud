@@ -299,8 +299,11 @@ open **Admin > Çevrim Dışı İndirmeler > HTTPS & Sertifika Yönetimi**:
 1. set the hostname to devcloud.example.com;
 2. upload the CA-issued certificate chain in PEM format;
 3. upload the matching, unencrypted PEM private key;
-4. leave HTTP fallback enabled until DNS and internal CA trust are confirmed;
-5. select **Kaydet ve Nginx'e Uygula**.
+4. if workers do not already trust the issuing PKI, upload the CA-only worker
+   trust bundle (root and intermediate CA certificates, never a private key);
+5. optionally set the worker fallback IPv4 next to the public Controller URL;
+6. leave HTTP fallback enabled until DNS and internal CA trust are confirmed;
+7. select **Kaydet ve Nginx'e Uygula**.
 
 The panel rejects expired/not-yet-valid certificates, SAN mismatches, non-server
 certificates, mismatched private keys, and oversized uploads. Nginx is tested
@@ -310,6 +313,11 @@ root-owned devcloud-ingress.path unit handles only fixed files under
 sudo.
 
 The application URL used by worker bootstrap changes to
-https://devcloud.example.com when HTTPS is enabled. Before using the one-line
-worker installer over HTTPS, ensure the worker trusts the internal CA and can
-resolve the hostname. No HSTS header is emitted while fallback is supported.
+https://devcloud.example.com when HTTPS is enabled. New remote worker commands
+require this HTTPS FQDN. The command uses an Admin-delivered SPKI pin to
+bootstrap an uploaded private CA bundle, then keeps normal CA and hostname
+validation enabled. A configured fallback IPv4 is tried only after FQDN network
+failure and is installed as a route for the same FQDN; worker credentials are
+never sent to an `https://IP` or HTTP fallback. Before using the one-line worker
+installer, ensure the worker can reach either the FQDN route or the configured
+fallback IP. No HSTS header is emitted while the port 80 fallback is supported.

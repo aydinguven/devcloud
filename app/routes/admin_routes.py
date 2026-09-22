@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -121,6 +122,7 @@ from app.installer.update_source import (
 )
 from app.release_catalog import semantic_version
 from app.ingress_settings import (
+    MAX_AGENT_CA_BYTES,
     MAX_CERTIFICATE_BYTES,
     MAX_PRIVATE_KEY_BYTES,
     IngressApplyError,
@@ -144,10 +146,13 @@ from app.workspace_image_service import (
 )
 from app.worker_bootstrap import (
     WORKER_BOOTSTRAP_TTL_SECONDS,
+    bootstrap_install_command,
     controller_base_url,
     current_platform_release,
     new_ticket_token,
+    require_https_controller_url,
     ticket_hash,
+    worker_bootstrap_transport,
 )
 
 admin_router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -711,10 +716,12 @@ def _download_settings_out(record: DownloadSettings) -> DownloadSettingsOut:
     base_url = record.public_base_url.rstrip("/")
     return DownloadSettingsOut(
         public_base_url=base_url,
+        worker_fallback_ipv4=record.worker_fallback_ipv4,
         https_enabled=record.https_enabled,
         https_hostname=record.https_hostname,
         http_fallback_enabled=record.http_fallback_enabled,
         certificate_uploaded=bool(record.certificate_sha256),
+        agent_ca_uploaded=ingress_manager.agent_ca_path.is_file(),
         certificate_subject=record.certificate_subject,
         certificate_not_after=record.certificate_not_after,
         certificate_sha256=record.certificate_sha256,
@@ -752,6 +759,7 @@ async def update_download_settings(
 ):
     record = await _get_or_create_download_settings(db)
     record.public_base_url = update.public_base_url
+    record.worker_fallback_ipv4 = update.worker_fallback_ipv4
     db.add(record)
     await db.commit()
     await db.refresh(record)
@@ -781,6 +789,7 @@ async def apply_https_settings(
     db: Annotated[AsyncSession, Depends(get_db)],
     certificate: Annotated[UploadFile | None, File()] = None,
     private_key: Annotated[UploadFile | None, File()] = None,
+    agent_ca: Annotated[UploadFile | None, File()] = None,
 ):
     record = await _get_or_create_download_settings(db)
     certificate_pem = await _read_upload(
@@ -788,6 +797,9 @@ async def apply_https_settings(
     )
     private_key_pem = await _read_upload(
         private_key, MAX_PRIVATE_KEY_BYTES, "Private key"
+    )
+    agent_ca_pem = await _read_upload(
+        agent_ca, MAX_AGENT_CA_BYTES, "Worker CA bundle"
     )
     try:
         hostname = normalize_https_hostname(https_hostname)
@@ -800,6 +812,7 @@ async def apply_https_settings(
             http_fallback_enabled=effective_http_fallback,
             certificate_pem=certificate_pem,
             private_key_pem=private_key_pem,
+            agent_ca_pem=agent_ca_pem,
         )
     except IngressConfigurationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -810,6 +823,21 @@ async def apply_https_settings(
             status_code=503,
             detail=f"HTTPS ayar dosyaları yazılamadı: {exc}",
         ) from exc
+
+    if https_enabled and not record.worker_fallback_ipv4:
+        previous_host = urllib.parse.urlsplit(record.public_base_url).hostname or ""
+        try:
+            previous_address = ipaddress.ip_address(previous_host)
+        except ValueError:
+            previous_address = None
+        if (
+            previous_address is not None
+            and previous_address.version == 4
+            and not previous_address.is_loopback
+            and not previous_address.is_unspecified
+            and not previous_address.is_multicast
+        ):
+            record.worker_fallback_ipv4 = str(previous_address)
 
     record.https_enabled = https_enabled
     record.https_hostname = hostname
@@ -878,6 +906,8 @@ async def create_worker_bootstrap_ticket(
 ):
     """Create a short-lived command that may enroll exactly one worker."""
     current_platform_release()
+    transport = await worker_bootstrap_transport(request, db)
+    require_https_controller_url(request, transport.controller_url)
     token = new_ticket_token()
     expires_at = datetime.now(timezone.utc) + timedelta(
         seconds=WORKER_BOOTSTRAP_TTL_SECONDS
@@ -890,11 +920,12 @@ async def create_worker_bootstrap_ticket(
         )
     )
     await db.commit()
-    base_url = await controller_base_url(request, db)
-    install_url = f"{base_url}/api/bootstrap/workers/{token}/install.sh"
+    install_url = (
+        f"{transport.controller_url}/api/bootstrap/workers/{token}/install.sh"
+    )
     return WorkerBootstrapTicketCreated(
         install_url=install_url,
-        command=f"curl -fsSL {shlex.quote(install_url)} | sudo bash",
+        command=bootstrap_install_command(install_url, transport),
         expires_at=expires_at,
     )
 

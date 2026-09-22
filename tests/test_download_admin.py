@@ -91,10 +91,12 @@ async def test_download_update_controls_are_admin_only(
     assert saved_settings.status_code == 200
     assert saved_settings.json() == {
         "public_base_url": "https://master.internal.example",
+        "worker_fallback_ipv4": "",
         "https_enabled": False,
         "https_hostname": settings.HTTPS_DEFAULT_HOSTNAME,
         "http_fallback_enabled": True,
         "certificate_uploaded": False,
+        "agent_ca_uploaded": False,
         "certificate_subject": None,
         "certificate_not_after": None,
         "certificate_sha256": None,

@@ -1258,7 +1258,11 @@ class WorkerAgent:
             node_id = _required_env("DEVCLOUD_NODE_ID")
             token = _required_env("DEVCLOUD_NODE_TOKEN")
             headers = {"Authorization": f"Bearer {token}"}
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(
+                timeout=60.0,
+                verify=self._http_verify_context(controller_url),
+                follow_redirects=False,
+            ) as client:
                 metadata_response = await client.get(
                     f"{controller_url.rstrip('/')}/api/agent/releases/latest",
                     params={"node_id": node_id},
@@ -1303,10 +1307,20 @@ class WorkerAgent:
                 )
                 destination = uploads / f"{uuid.uuid4().hex}{suffix}"
                 temporary = destination.with_suffix(".part")
+                download_url = str(metadata.get("url") or "")
+                canonical_base = controller_url.rstrip("/")
+                if download_url.startswith("/"):
+                    download_url = f"{canonical_base}{download_url}"
+                elif not download_url.startswith(
+                    f"{canonical_base}/api/agent/releases/"
+                ):
+                    raise RuntimeError(
+                        "Controller returned a release URL outside its canonical origin"
+                    )
                 digest = hashlib.sha256()
                 size = 0
                 async with client.stream(
-                    "GET", metadata["url"], headers=headers
+                    "GET", download_url, headers=headers
                 ) as response:
                     response.raise_for_status()
                     with temporary.open("xb") as handle:

@@ -52,6 +52,15 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
     monkeypatch,
 ):
     _publish_fake_release(tmp_path, monkeypatch)
+    db_session.add(
+        DownloadSettings(
+            id=1,
+            public_base_url="https://devcloud.test",
+            https_enabled=True,
+            https_hostname="devcloud.test",
+        )
+    )
+    await db_session.commit()
     headers = await _admin_headers(client)
     captured_creator_ids = []
     ticket_model = WorkerBootstrapTicket
@@ -66,7 +75,8 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
     )
 
     created = await client.post(
-        "/api/admin/worker-bootstrap-tickets", headers=headers
+        "https://devcloud.test/api/admin/worker-bootstrap-tickets",
+        headers=headers,
     )
 
     assert created.status_code == 201
@@ -100,7 +110,7 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
 
     raw_ticket = ticket["install_url"].split("/")[-2]
     enrolled = await client.post(
-        f"/api/bootstrap/workers/{raw_ticket}/enroll",
+        f"https://devcloud.test/api/bootstrap/workers/{raw_ticket}/enroll",
         json={"name": "company-worker-01"},
     )
 
@@ -108,7 +118,7 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
     credentials = enrolled.json()
     assert credentials["node_id"]
     assert credentials["enrollment_token"]
-    assert credentials["controller_url"] == "http://test"
+    assert credentials["controller_url"] == "https://devcloud.test"
     check = await client.get(
         "/api/agent/check",
         params={"node_id": credentials["node_id"]},
@@ -118,7 +128,7 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
     assert check.json()["accepted"] is True
 
     reused = await client.post(
-        f"/api/bootstrap/workers/{raw_ticket}/enroll",
+        f"https://devcloud.test/api/bootstrap/workers/{raw_ticket}/enroll",
         json={"name": "company-worker-02"},
     )
     assert reused.status_code == 410
@@ -205,7 +215,7 @@ async def test_bootstrap_uses_configured_public_controller_url(
     headers = await _admin_headers(client)
 
     created = await client.post(
-        "/api/admin/worker-bootstrap-tickets",
+        "https://devcloud.example.com/api/admin/worker-bootstrap-tickets",
         headers=headers,
         json={},
     )
