@@ -1,4 +1,5 @@
 import gzip
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -395,3 +396,124 @@ async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(
     assert captured["action"] == "proxy.http.open"
     assert captured["payload"]["custom_port"] == 3000
     assert captured["payload"]["path"] == "/health"
+
+
+
+class _StubClientSocket:
+    """Minimal WebSocket stand-in for the browser side of the proxy."""
+
+    def __init__(self, subprotocols):
+        self.scope = {"subprotocols": list(subprotocols), "query_string": b""}
+        self.accepted_with = "__not_accepted__"
+        self.received = []
+
+    async def accept(self, subprotocol=None):
+        self.accepted_with = subprotocol
+
+    async def receive(self):
+        return {"type": "websocket.disconnect"}
+
+    async def send_text(self, data):
+        self.received.append(data)
+
+    async def send_bytes(self, data):
+        self.received.append(data)
+
+
+def _stub_agent(captured, *, echo_subprotocol=True):
+    class Connection:
+        async def receive_stream(self, stream):
+            return await stream.queue.get()
+
+        async def close_stream(self, stream_id):
+            pass
+
+        async def send_stream_data(self, stream_id, data, text=False):
+            pass
+
+        async def open_stream(self, action, payload):
+            captured["action"] = action
+            captured["payload"] = payload
+            stream = AgentStream("ws-stream-1")
+            await stream.queue.put(StreamChunk(b"0ready"))
+            await stream.queue.put(None)
+            offered = payload.get("subprotocols") or []
+            metadata = {"connected": True}
+            if echo_subprotocol and offered:
+                metadata["subprotocol"] = offered[0]
+            return metadata, stream
+
+    return Connection()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offered, expected",
+    [
+        # A terminal workspace: ttyd only serves sockets speaking "tty" and
+        # closes the rest, which the browser shows as "Press Enter to
+        # Reconnect". The subprotocol has to survive both proxy legs.
+        (["tty"], "tty"),
+        # code-server and friends offer nothing and must stay unaffected.
+        ([], None),
+    ],
+)
+async def test_proxy_negotiates_websocket_subprotocol(
+    monkeypatch, offered, expected
+):
+    captured = {}
+    monkeypatch.setattr(
+        proxy_module.agent_manager, "get", lambda node_id: _stub_agent(captured)
+    )
+    socket = _StubClientSocket(offered)
+    workspace = SimpleNamespace(
+        id="ws-1",
+        node_id="remote-node",
+        container_name="devcloud-1-shell-abcd1234",
+        host_port=7681,
+        template_id="terminal-rocky",
+        workspace_token="tok",
+    )
+
+    await proxy_module.proxy_remote_websocket(socket, workspace, "/ws")
+
+    # Offered upstream so the worker can request it from the container.
+    assert captured["payload"]["subprotocols"] == offered
+    # Echoed back, so the browser handshake agrees with the container.
+    assert socket.accepted_with == expected
+
+
+@pytest.mark.asyncio
+async def test_proxy_accepts_without_subprotocol_for_legacy_worker(monkeypatch):
+    """A worker predating subprotocol support must not break the handshake."""
+    captured = {}
+    monkeypatch.setattr(
+        proxy_module.agent_manager,
+        "get",
+        lambda node_id: _stub_agent(captured, echo_subprotocol=False),
+    )
+    socket = _StubClientSocket(["tty"])
+    workspace = SimpleNamespace(
+        id="ws-2",
+        node_id="remote-node",
+        container_name="devcloud-1-shell-abcd1234",
+        host_port=7681,
+        template_id="terminal-rocky",
+        workspace_token="tok",
+    )
+
+    await proxy_module.proxy_remote_websocket(socket, workspace, "/ws")
+
+    assert socket.accepted_with is None
+
+
+def test_worker_requests_client_subprotocols_upstream():
+    """The worker must forward the offered subprotocols to the container."""
+    import inspect as inspect_module
+
+    source = inspect_module.getsource(worker_module.WorkerAgent.handle_ws_open)
+    # Without this the ttyd handshake is refused and the terminal never attaches.
+    assert "subprotocols=subprotocols or None" in source
+    assert 'payload.get("subprotocols")' in source
+    # The negotiated value has to travel back so the browser handshake matches.
+    assert '"subprotocol"' in source
