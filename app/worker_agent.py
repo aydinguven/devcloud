@@ -1038,13 +1038,27 @@ class WorkerAgent:
         stream_id = str(payload["stream_id"])
         try:
             target_url = await self._target_url(payload, websocket=True)
+            # Offer the browser's subprotocols to the container. ttyd only
+            # serves sockets that request "tty", so dropping them here leaves a
+            # terminal workspace stuck on "Press Enter to Reconnect".
+            subprotocols = [
+                str(item) for item in (payload.get("subprotocols") or []) if str(item)
+            ]
             target = await websockets.connect(
                 target_url,
                 additional_headers=payload.get("headers") or None,
+                subprotocols=subprotocols or None,
                 max_size=MAX_STREAM_FRAME_BYTES,
             )
             self.stream_targets[stream_id] = target
-            await self.result(request_id, {"connected": True})
+            negotiated = getattr(target, "subprotocol", None)
+            await self.result(
+                request_id,
+                {
+                    "connected": True,
+                    "subprotocol": str(negotiated) if negotiated else "",
+                },
+            )
             try:
                 while True:
                     message = await target.recv()

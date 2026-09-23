@@ -274,6 +274,11 @@ def _workspace_websocket_query(websocket: WebSocket) -> str:
     return urlencode([(key, value) for key, value in parse_qsl(raw, keep_blank_values=True) if key != "token"])
 
 
+def _client_subprotocols(websocket: WebSocket) -> list[str]:
+    """Return the WebSocket subprotocols the browser offered, in preference order."""
+    return [str(item) for item in websocket.scope.get("subprotocols") or []]
+
+
 async def proxy_remote_http(
     workspace: Workspace,
     request: Request,
@@ -385,6 +390,7 @@ async def proxy_remote_websocket(
     headers = {}
     if custom_port is None and "jupyter" in workspace.template_id:
         headers["Authorization"] = f"token {workspace.workspace_token}"
+    requested_subprotocols = _client_subprotocols(websocket)
     metadata, stream = await connection.open_stream(
         "proxy.websocket.open",
         {
@@ -395,10 +401,20 @@ async def proxy_remote_websocket(
             "path": path,
             "query": _workspace_websocket_query(websocket),
             "headers": headers,
+            "subprotocols": requested_subprotocols,
         },
     )
     if not metadata.get("connected"):
         raise AgentCommandError("Worker WebSocket hedefine bağlanamadı.")
+
+    # Accept only once the container has agreed, so the subprotocol reported to
+    # the browser is the one actually negotiated upstream. Terminal workspaces
+    # depend on this: ttyd closes any socket that does not speak "tty".
+    negotiated = metadata.get("subprotocol") or None
+    if negotiated is not None and negotiated not in requested_subprotocols:
+        # A worker predating subprotocol support, or a confused upstream.
+        negotiated = None
+    await websocket.accept(subprotocol=negotiated)
 
     async def forward_to_worker():
         try:
@@ -511,9 +527,17 @@ async def proxy_websocket(
     path: str,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Proxy WebSocket traffic (critical for code-server terminals and IDE sync)."""
-    # Accept client websocket
-    await websocket.accept()
+    """Proxy WebSocket traffic (critical for code-server terminals and IDE sync).
+
+    The client socket is accepted inside `proxy_remote_websocket`, once the
+    container has negotiated a subprotocol, so the handshake can echo it back.
+    Rejection paths accept first and then close, which is what lets the browser
+    read the close code and reason.
+    """
+
+    async def reject(code: int, reason: str) -> None:
+        await websocket.accept()
+        await websocket.close(code=code, reason=reason)
 
     # Extract auth token from query params or cookies
     token = websocket.query_params.get("token") or websocket.cookies.get(settings.COOKIE_NAME)
@@ -541,11 +565,11 @@ async def proxy_websocket(
             workspace = await shared_workspace(db, websocket.cookies, workspace_id, custom_port)
             using_share = True
     except HTTPException as exc:
-        await websocket.close(code=4003, reason=str(exc.detail))
+        await reject(4003, str(exc.detail))
         return
     if custom_port is not None:
         if not 1 <= custom_port <= 65535:
-            await websocket.close(code=4003, reason="Geçersiz port")
+            await reject(4003, "Geçersiz port")
             return
         upstream_path = "/" + (custom_parts[2] if len(custom_parts) == 3 else "")
     else:
@@ -584,6 +608,8 @@ async def proxy_websocket(
         close_reason = "Workspace proxy stream failed"
     finally:
         try:
+            # Safe whether or not the handshake completed: ASGI allows
+            # `websocket.close` while still connecting, which rejects it.
             await websocket.close(code=close_code, reason=close_reason)
         except Exception:
             pass
