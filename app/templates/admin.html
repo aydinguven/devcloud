@@ -17,26 +17,24 @@
   <section class="admin-section-content" id="admin-section-content" aria-labelledby="admin-section-title">
 
 {% if admin_section == 'overview' %}
-<div class="admin-stat-grid" data-tour="admin-summary">
-  <div class="card" style="border-top: 3px solid var(--secondary);">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Kullanıcı</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: var(--heading); margin-top: 0.25rem;">{{ admin_stats.users }}</div>
+<dl class="admin-stat-grid" data-tour="admin-summary" aria-label="Sistem özeti">
+  <div class="card admin-stat-card admin-stat-card--users">
+    <dt>Toplam Kullanıcı</dt>
+    <dd>{{ admin_stats.users }}</dd>
   </div>
-  <div class="card" style="border-top: 3px solid var(--primary);">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Toplam Çalışma Alanı</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">{{ admin_stats.workspaces }}</div>
+  <div class="card admin-stat-card admin-stat-card--workspaces">
+    <dt>Toplam Çalışma Alanı</dt>
+    <dd>{{ admin_stats.workspaces }}</dd>
   </div>
-  <div class="card" style="border-top: 3px solid var(--gold);">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Aktif Container</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: var(--success); margin-top: 0.25rem;">
-      {{ admin_stats.running_workspaces }}
-    </div>
+  <div class="card admin-stat-card admin-stat-card--active">
+    <dt>Aktif Container</dt>
+    <dd>{{ admin_stats.running_workspaces }}</dd>
   </div>
-  <div class="card" style="border-top: 3px solid #8b5cf6;">
-    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Worker Node</div>
-    <div style="font-size: 1.75rem; font-weight: 700; color: #8b5cf6; margin-top: 0.25rem;">{{ admin_stats.workers }}</div>
+  <div class="card admin-stat-card admin-stat-card--workers">
+    <dt>Worker Node</dt>
+    <dd>{{ admin_stats.workers }}</dd>
   </div>
-</div>
+</dl>
 
 <section class="admin-overview-grid" data-tour="admin-overview" aria-label="Yönetim alanları">
   {% for key, item in admin_sections.items() if key != 'overview' %}
@@ -59,9 +57,20 @@
 {% if admin_section in ['system', 'workspaces'] %}
 {% if admin_section == 'system' %}
 <nav class="admin-section-jumps" aria-label="Sistem bölümleri">
+  <span class="admin-section-jumps-label">Hızlı geçiş</span>
   <a href="#platform-update">Platform Güncelleme</a>
-  <a href="#https-settings-form">Network &amp; TLS</a>
+  <a href="#session-policy">Oturum</a>
+  <a href="#onboarding-tour-settings">Canlı Tur</a>
+  <a href="#network-tls">Network &amp; TLS</a>
   <a href="#offline-packages">Offline Paketler</a>
+</nav>
+{% else %}
+<nav class="admin-section-jumps" aria-label="Workspace yönetimi bölümleri">
+  <span class="admin-section-jumps-label">Hızlı geçiş</span>
+  <a href="#template-builder-card">Şablon Derle</a>
+  <a href="#resource-profiles">Kaynak Profilleri</a>
+  <a href="#workspace-types">Workspace Tipleri</a>
+  <a href="#workspace-inventory">Tüm Alanlar</a>
 </nav>
 {% endif %}
 <div class="admin-feature-grid">
@@ -176,27 +185,26 @@
 
   <!-- Custom Template Builder Trigger Card -->
   {% if admin_section == 'workspaces' %}
-  <div class="card" style="border-top: 3px solid #8b5cf6;">
+  <section class="card admin-action-card admin-action-card--template" id="template-builder-card">
     <div class="card-header">
       <div>
-        <h2 class="card-title">🛠️ Özel Şablon Oluşturucu</h2>
-        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
-          Doğrudan Containerfile içeriği girerek yeni ortam şablonları derleyin ve kullanıcılara sunun.
+        <span class="section-eyebrow">Özel ortam</span>
+        <h2 class="card-title">Özel Şablon Oluşturucu</h2>
+        <p class="admin-section-description">
+          Containerfile içeriğiyle yeni bir ortam şablonu derleyin ve kataloğa ekleyin.
         </p>
       </div>
     </div>
-    <div style="margin-top: 0.5rem;">
-      <button id="btn-open-template-builder-modal" class="btn btn-secondary btn-sm" style="width: 100%; padding: 0.6rem; font-weight: 600;">
-        + Yeni Şablon Derle (Containerfile)
-      </button>
-    </div>
-  </div>
+    <button id="btn-open-template-builder-modal" class="btn btn-secondary admin-action-card-button" type="button">
+      Yeni Şablon Derle
+    </button>
+  </section>
   {% endif %}
 </div>
 {% endif %}
 
 {% if admin_section == 'system' %}
-<div class="card" style="margin-bottom: 2rem;">
+<div class="card admin-settings-card" id="session-policy" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Oturum Zaman Aşımı</h2>
@@ -213,7 +221,7 @@
     <div id="session-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
   </form>
 </div>
-<div class="card" data-tour="onboarding-settings" style="margin-bottom: 2rem;">
+<div class="card admin-settings-card" id="onboarding-tour-settings" data-tour="onboarding-settings" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Yeni Kullanıcı Canlı Turu</h2>
@@ -235,16 +243,16 @@
     <div id="onboarding-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
   </form>
 </div>
-<div class="card download-update-card" id="offline-packages" style="margin-bottom: 2rem;">
+<div class="card download-update-card" id="network-tls" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Çevrim Dışı İndirmeler & Disk Yönetimi</h2>
+      <h2 class="card-title">Ağ, TLS ve Çevrim Dışı İndirmeler</h2>
       <p class="download-update-description">
         Controller ve CPU worker kurulum paketlerini ayrı ayrı derleyin, doğrulayın ve <a href="/download/" target="_blank">/download/</a> adresinde yayımlayın. Her paket türünün yalnızca en güncel sürümü korunur.
       </p>
     </div>
     <div class="download-update-actions" style="display: flex; gap: 0.5rem; align-items: center;">
-      <button id="btn-clean-downloads" class="btn btn-secondary btn-sm" type="button" title="Eski paketleri ve geçici derleme dosyalarını temizler">🧹 Eski Paketleri Temizle</button>
+      <button id="btn-clean-downloads" class="btn btn-secondary btn-sm" type="button" title="Eski paketleri ve geçici derleme dosyalarını temizler">Eski Paketleri Temizle</button>
     </div>
   </div>
 
@@ -316,7 +324,13 @@
     </div>
   </form>
 
-  <div class="grid grid-cols-2" style="gap: 1rem; align-items: start;">
+  <section class="admin-subsection" id="offline-packages">
+    <div class="admin-subsection-heading">
+      <span class="section-eyebrow">Paket yönetimi</span>
+      <h3>Çevrim Dışı Kurulum Paketleri</h3>
+      <p>Controller ve worker paketlerini ayrı izleyin ve yalnızca gerektiğinde yeniden üretin.</p>
+    </div>
+    <div class="admin-package-grid">
     <section style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
       <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:center;margin-bottom:.75rem;">
         <div>
@@ -348,7 +362,8 @@
       <button id="btn-update-worker-downloads" class="btn btn-warning btn-sm" type="button" disabled style="margin:.75rem 0;">Worker Paketini Güncelle</button>
       <pre id="worker-download-update-logs" class="terminal-window download-update-logs">Henüz worker paket logu yok.</pre>
     </section>
-  </div>
+    </div>
+  </section>
 
   <p class="download-update-warning">
     Her iki paket de Python wheel'lerini, beş Podman image'ını ve üretildiği Rocky 10/RHEL 10 dağıtımına ait Podman/Python sistem RPM'lerini içerir. Foreman/Katello kaydı için subscription-manager iki dağıtımda da eklenir. Aynı anda yalnızca bir paket derlenir.
@@ -356,7 +371,7 @@
 
   <details style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
     <summary style="cursor: pointer; font-weight: 600; color: var(--text-main); font-size: 0.9rem; user-select: none;">
-      📖 Hızlı Çevrim Dışı Kurulum Adımları
+      Hızlı Çevrim Dışı Kurulum Adımları
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem;"><strong>Controller:</strong></p>
@@ -383,7 +398,7 @@ cd devcloud
 
   <details style="margin-bottom: 1.25rem; background: var(--bg-card); border-radius: 6px; padding: 0.75rem 1rem; border: 1px solid var(--border-color); color: var(--text-main);">
     <summary style="cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--heading);">
-      🚀 Tek Satır Komut ile Worker Kurulumu ve Controller'a Bağlama
+      Worker Kurulumu ve Controller'a Bağlama
     </summary>
     <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
       <p style="margin-bottom: 0.5rem; color: var(--text-main);">
@@ -536,10 +551,38 @@ cd devcloud
   </table>
   </div>
 </section>
+
+<!-- Node Label Editor Modal -->
+<div id="node-label-modal" class="modal-backdrop">
+  <div class="modal admin-modal admin-modal--compact" role="dialog" aria-modal="true" aria-labelledby="node-label-modal-title">
+    <div class="card-header admin-modal-header">
+      <h2 class="card-title" id="node-label-modal-title">Worker Etiketlerini Düzenle</h2>
+      <button id="btn-close-label-modal" class="admin-modal-close" type="button" aria-label="Kapat">&times;</button>
+    </div>
+    <form id="node-label-form">
+      <input type="hidden" id="label-modal-node-id">
+      <div class="form-group">
+        <label class="form-label" for="label-modal-text">Etiketler (JSON veya anahtar:değer formatında)</label>
+        <textarea id="label-modal-text" class="form-input admin-code-input" rows="4" placeholder='{"zone": "dmz", "gpu": "true", "tier": "fast"}'></textarea>
+        <small class="form-help">Örnek: <code>{"zone": "dmz", "gpu": "true"}</code></small>
+      </div>
+      <div class="admin-modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('node-label-modal').classList.remove('open');">İptal</button>
+        <button type="submit" class="btn btn-primary">Kaydet</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endif %}
 
 {% if admin_section == 'integrations' %}
-<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
+<nav class="admin-section-jumps" aria-label="Entegrasyon bölümleri">
+  <span class="admin-section-jumps-label">Hızlı geçiş</span>
+  <a href="#workspace-ai-integration">Workspace AI</a>
+  <a href="#container-registry-integration">Container Registry</a>
+  <a href="#mlflow-integration">MLflow</a>
+</nav>
+<section class="card admin-integration-card admin-integration-card--ai" id="workspace-ai-integration" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Workspace AI · Jupyter + Cline</h2>
@@ -629,7 +672,7 @@ cd devcloud
   </form>
 </section>
 
-<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #0f766e;">
+<section class="card admin-integration-card admin-integration-card--registry" id="container-registry-integration" style="margin-bottom: 2rem; border-top: 3px solid #0f766e;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Model Container Registry</h2>
@@ -678,7 +721,7 @@ cd devcloud
   </form>
 </section>
 
-<section class="card" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
+<section class="card admin-integration-card admin-integration-card--mlflow" id="mlflow-integration" style="margin-bottom: 2rem; border-top: 3px solid var(--gold);">
   <div class="card-header">
     <div>
       <h2 class="card-title">MLflow Model Registry</h2>
@@ -701,7 +744,12 @@ cd devcloud
 {% endif %}
 
 {% if admin_section == 'users' %}
-<section class="card" style="margin-bottom: 2rem; border-top: 3px solid #2563eb;">
+<nav class="admin-section-jumps" aria-label="Kullanıcı yönetimi bölümleri">
+  <span class="admin-section-jumps-label">Hızlı geçiş</span>
+  <a href="#directory-settings">Kurumsal Dizin</a>
+  <a href="#registered-users">Kayıtlı Kullanıcılar</a>
+</nav>
+<section class="card admin-directory-card" id="directory-settings" style="margin-bottom: 2rem; border-top: 3px solid #2563eb;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Kurumsal Dizin (LDAPS / Active Directory)</h2>
@@ -827,7 +875,7 @@ cd devcloud
   </form>
 </section>
 
-<section class="card admin-users-panel">
+<section class="card admin-users-panel" id="registered-users">
   <div class="card-header">
     <div>
       <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
@@ -909,7 +957,7 @@ cd devcloud
 {% endif %}
 
 {% if admin_section == 'workspaces' %}
-<section class="card" style="margin-bottom: 2rem;">
+<section class="card admin-management-card" id="resource-profiles" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
       <h2 class="card-title">Oluşturulabilir Kaynak Profilleri</h2>
@@ -980,7 +1028,7 @@ cd devcloud
   <div id="admin-flavor-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
 </section>
 
-<section class="card" style="margin-bottom:2rem">
+<section class="card admin-management-card" id="workspace-types" style="margin-bottom:2rem">
   <div class="card-header"><div><h2 class="card-title">Workspace Tipleri</h2><p class="admin-section-description">Yerleşik ve özel şablonların görünen adını ve açıklamasını düzenleyin. Özel şablonlarda port da değiştirilebilir; kullanımda olanlar silinemez.</p></div></div>
   <div class="data-table-shell responsive-card-table-shell">
     <table id="admin-custom-template-table" class="table responsive-card-table" data-inline-edit-catalog>
@@ -1010,7 +1058,7 @@ cd devcloud
   <div id="admin-template-settings-status" class="quota-form-status" role="status" aria-live="polite"></div>
 </section>
 
-<section class="card">
+<section class="card admin-management-card" id="workspace-inventory">
   <div class="card-header">
     <div>
       <h2 class="card-title">Tüm Container ve Çalışma Alanları</h2>
@@ -1063,10 +1111,10 @@ cd devcloud
 
 <!-- Custom Template Builder Modal -->
 <div id="template-builder-modal" class="modal-backdrop">
-  <div class="modal" role="dialog" aria-modal="true" style="max-width: 680px;">
-    <div class="card-header" style="margin-bottom: 1.25rem;">
-      <h2 class="card-title">Yeni Ortam Şablonu Derle</h2>
-      <button id="btn-close-template-builder-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+  <div class="modal admin-modal admin-modal--wide" role="dialog" aria-modal="true" aria-labelledby="template-builder-modal-title">
+    <div class="card-header admin-modal-header">
+      <h2 class="card-title" id="template-builder-modal-title">Yeni Ortam Şablonu Derle</h2>
+      <button id="btn-close-template-builder-modal" class="admin-modal-close" type="button" aria-label="Kapat">&times;</button>
     </div>
     <form id="template-builder-form">
       <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
@@ -1121,29 +1169,7 @@ USER coder" required></textarea>
 
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
         <button type="button" class="btn btn-secondary" onclick="document.getElementById('template-builder-modal').classList.remove('open');">İptal</button>
-        <button type="submit" id="btn-submit-tb" class="btn btn-primary">🔨 Derle ve Şablonu Kaydet</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Node Label Editor Modal -->
-<div id="node-label-modal" class="modal-backdrop">
-  <div class="modal" role="dialog" aria-modal="true" style="max-width: 480px;">
-    <div class="card-header" style="margin-bottom: 1.25rem;">
-      <h2 class="card-title">Worker Etiketlerini Düzenle</h2>
-      <button id="btn-close-label-modal" aria-label="Kapat" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
-    </div>
-    <form id="node-label-form">
-      <input type="hidden" id="label-modal-node-id">
-      <div class="form-group">
-        <label class="form-label" for="label-modal-text">Etiketler (JSON veya anahtar:değer formatında)</label>
-        <textarea id="label-modal-text" class="form-input" rows="4" style="font-family: var(--font-mono); font-size: 0.85rem;" placeholder='{"zone": "dmz", "gpu": "true", "tier": "fast"}'></textarea>
-        <small style="color:var(--text-muted);font-size:0.75rem;margin-top:0.25rem;display:block;">Örnek: <code>{"zone": "dmz", "gpu": "true"}</code></small>
-      </div>
-      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('node-label-modal').classList.remove('open');">İptal</button>
-        <button type="submit" class="btn btn-primary">Kaydet</button>
+        <button type="submit" id="btn-submit-tb" class="btn btn-primary">Derle ve Şablonu Kaydet</button>
       </div>
     </form>
   </div>
