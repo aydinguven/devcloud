@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 23
+CURRENT_SCHEMA_VERSION = 24
 
 
 class MigrationError(RuntimeError):
@@ -422,6 +422,77 @@ async def _add_gpu_allocation_constraints(conn) -> None:
         )
 
 
+async def _add_workspace_name_uniqueness(conn) -> None:
+    """Scope workspace names to their owner.
+
+    Names were previously unconstrained, so one user could own several
+    identically named workspaces. Legacy duplicates are disambiguated with a
+    numeric suffix before the constraint is created; the display name is
+    updated alongside the key so the dashboard does not show two rows that
+    look identical.
+    """
+    from app.models.workspace import normalize_workspace_name
+
+    columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("workspaces")
+        }
+    )
+    if "name_key" not in columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE workspaces ADD COLUMN name_key "
+                "VARCHAR(100) NOT NULL DEFAULT ''"
+            )
+        )
+
+    rows = (
+        await conn.execute(
+            text("SELECT id, user_id, name FROM workspaces ORDER BY created_at, id")
+        )
+    ).all()
+    claimed: set[tuple[int, str]] = set()
+    for workspace_id, user_id, name in rows:
+        original = str(name or "").strip()
+        display = original or f"workspace-{str(workspace_id)[:8]}"
+        candidate = display
+        key = normalize_workspace_name(candidate)
+        suffix = 2
+        while (user_id, key) in claimed:
+            candidate = f"{display} ({suffix})"[:100]
+            key = normalize_workspace_name(candidate)
+            suffix += 1
+        claimed.add((user_id, key))
+        await conn.execute(
+            text(
+                "UPDATE workspaces SET name = :name, name_key = :name_key "
+                "WHERE id = :id"
+            ),
+            {"name": candidate, "name_key": key[:100], "id": workspace_id},
+        )
+
+    unique_sets = await conn.run_sync(
+        lambda sync_conn: {
+            tuple(item.get("column_names") or ())
+            for item in (
+                inspect(sync_conn).get_unique_constraints("workspaces")
+                + [
+                    index
+                    for index in inspect(sync_conn).get_indexes("workspaces")
+                    if index.get("unique")
+                ]
+            )
+        }
+    )
+    if ("user_id", "name_key") not in unique_sets:
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX uq_workspaces_user_name "
+                "ON workspaces (user_id, name_key)"
+            )
+        )
+
+
 async def _add_jupyter_ai_model_catalog(conn) -> None:
     """Add the centrally managed multi-model catalog to existing databases."""
     from app.jupyter_ai import default_model_catalog, parse_model_catalog
@@ -774,6 +845,9 @@ async def upgrade() -> None:
         if 23 not in applied:
             # init_db adds the optional worker IPv4 route fallback column.
             await _record_version(conn, 23, "worker FQDN route fallback")
+        if 24 not in applied:
+            await _add_workspace_name_uniqueness(conn)
+            await _record_version(conn, 24, "per-owner workspace names")
 
 
 async def current_version() -> int:

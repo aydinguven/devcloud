@@ -19,7 +19,13 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.node import Node
-from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.workspace import (
+    Workspace,
+    WorkspaceStatus,
+    consumes_compute,
+    normalize_workspace_name,
+    workspace_name_slug,
+)
 from app.models.workspace_image import WorkspaceImage
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
@@ -167,6 +173,78 @@ class QuotaExceeded(RuntimeError):
     pass
 
 
+def _snapshot_ide_type(template_id: str) -> str:
+    """Carry the source workspace's interface over to its snapshot template."""
+    source = get_template(template_id)
+    if source:
+        return source.ide_type
+    if "jupyter" in template_id:
+        return "jupyter"
+    if "terminal" in template_id:
+        return "terminal"
+    return "vscode"
+
+
+class WorkspaceNameConflict(RuntimeError):
+    """The owner already has a workspace with the requested name."""
+
+
+WORKSPACE_NAME_CONFLICT_DETAIL = "Bu adla bir çalışma alanınız zaten var."
+
+
+def _is_workspace_name_conflict(exc: IntegrityError) -> bool:
+    """Tell the per-owner name constraint apart from port/GPU slot races.
+
+    PostgreSQL names the violated index, SQLite names the columns, so both
+    spellings are matched.
+    """
+    message = str(getattr(exc, "orig", exc)).lower()
+    return "uq_workspaces_user_name" in message or "name_key" in message
+
+
+async def available_workspace_name(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    name: str,
+    limit: int = 60,
+) -> str:
+    """Return the requested name, or its first free numeric variant.
+
+    Used where the name is derived rather than typed by the user, so a
+    collision should not fail the whole operation.
+    """
+    base = name.strip()
+    candidate = base
+    suffix = 2
+    while await workspace_name_taken(db, user_id=user_id, name=candidate):
+        marker = f"-{suffix}"
+        candidate = f"{base[: max(1, limit - len(marker))]}{marker}"
+        suffix += 1
+    return candidate
+
+
+async def workspace_name_taken(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    name: str,
+) -> bool:
+    """Report whether the owner already uses a workspace name."""
+    name_key = normalize_workspace_name(name)
+    if not name_key:
+        return False
+    existing = (
+        await db.execute(
+            select(Workspace.id).where(
+                Workspace.user_id == user_id,
+                Workspace.name_key == name_key,
+            )
+        )
+    ).first()
+    return existing is not None
+
+
 async def active_workspace_image(
     db: AsyncSession,
     *,
@@ -237,16 +315,26 @@ async def reserve_workspace(
     accelerator = placement.accelerator
     workspace_id = str(uuid.uuid4())
     host_port = await allocate_workspace_port(db, node.id)
+    name = data.name.strip()
+    # The UUID keeps the container name unique; the slug only makes `podman ps`
+    # readable, so an unslugifiable name simply contributes nothing.
+    name_fragment = workspace_name_slug(name)
+    container_name = "-".join(
+        part
+        for part in ("devcloud", str(current_user.id), name_fragment, workspace_id[:8])
+        if part
+    )
     workspace = Workspace(
             id=workspace_id,
-            name=data.name.strip(),
+            # `name_key` is derived by the mapper from `name`.
+            name=name,
             description=data.description.strip(),
             user_id=current_user.id,
             node_id=node.id,
             template_id=data.template_id,
             flavor_id=data.flavor_id,
             image_id=workspace_image.id if workspace_image else None,
-            container_name=f"devcloud-{current_user.id}-{workspace_id[:8]}",
+            container_name=container_name,
             host_port=host_port,
             container_port=template.default_port,
             storage_path="",
@@ -276,8 +364,10 @@ async def schedule_and_reserve_workspace(
     workspace_image: WorkspaceImage | None = None,
     linked_deployment: MlflowDeployment | None = None,
 ) -> tuple[Workspace, WorkspacePlacement]:
-    """Check user quota and placement inside one serialized reservation."""
+    """Check name, user quota and placement inside one serialized reservation."""
     user_id = current_user.id
+    if await workspace_name_taken(db, user_id=user_id, name=data.name):
+        raise WorkspaceNameConflict(WORKSPACE_NAME_CONFLICT_DETAIL)
     existing = (await db.execute(select(Workspace).where(Workspace.user_id == user_id))).scalars().all()
     disk_usage = await get_workspace_disk_usage_by_user(existing)
     if workspace_image is None:
@@ -312,7 +402,12 @@ async def schedule_and_reserve_workspace(
                     linked_deployment.quota_reserved = False
                     db.add(linked_deployment)
             return workspace, placement
-        except IntegrityError:
+        except IntegrityError as exc:
+            # Port and GPU-slot races are worth retrying; a duplicate name is
+            # a decision the caller has to change, so surface it verbatim
+            # instead of exhausting the attempts and reporting a 503.
+            if _is_workspace_name_conflict(exc):
+                raise WorkspaceNameConflict(WORKSPACE_NAME_CONFLICT_DETAIL) from exc
             if attempt == 4:
                 raise RuntimeError("Workspace reservation conflicted repeatedly.")
     raise RuntimeError("Workspace reservation failed.")
@@ -324,8 +419,14 @@ async def get_quota_error(
     flavor: Flavor,
     *,
     disk_used_bytes: int | None = None,
+    include_disk: bool = True,
 ) -> str | None:
-    """Return a readable quota error for a proposed workspace allocation."""
+    """Return a readable quota error for a proposed workspace allocation.
+
+    CPU and RAM are charged only for workspaces that currently hold compute;
+    `quota_violations` applies that filter. The full workspace list is still
+    passed through so the disk metric keeps counting stopped workspaces.
+    """
     result = await db.execute(
         select(Workspace).where(Workspace.user_id == user.id)
     )
@@ -344,7 +445,7 @@ async def get_quota_error(
         *workspaces,
         *(SimpleNamespace(flavor_id=item.flavor_id) for item in reservations),
     ]
-    if disk_used_bytes is None:
+    if disk_used_bytes is None and include_disk:
         disk_usage = await get_workspace_disk_usage_by_user(workspaces)
         disk_used_bytes = disk_usage.get(user.id, 0)
     violations = await asyncio.to_thread(
@@ -352,11 +453,38 @@ async def get_quota_error(
         user,
         quota_allocations,
         flavor,
-        disk_used_bytes=disk_used_bytes,
+        disk_used_bytes=disk_used_bytes or 0,
+        include_disk=include_disk,
     )
     if not violations:
         return None
     return "Kullanıcı kotası aşıldı: " + "; ".join(violations) + "."
+
+
+async def get_resume_quota_error(
+    db: AsyncSession,
+    workspace: Workspace,
+) -> str | None:
+    """Return a quota error blocking a workspace from resuming, if any.
+
+    Because a stopped workspace no longer charges CPU and RAM, resuming it is a
+    fresh admission decision and has to be re-checked. A workspace already
+    holding compute is counted in the current usage, so it admits for free.
+    Disk is excluded: the check runs under the admission lock, which must never
+    perform worker I/O, and a full disk should not trap a user out of the very
+    workspace they need in order to clean it up.
+    """
+    if consumes_compute(workspace):
+        return None
+    flavor = get_flavor(workspace.flavor_id)
+    if not flavor:
+        return None
+    owner = await db.get(User, workspace.user_id, populate_existing=True)
+    if owner is None:
+        return None
+    return await get_quota_error(
+        db, owner, flavor, disk_used_bytes=0, include_disk=False
+    )
 
 
 @workspace_router.get("/templates", response_model=list[TemplateInfo])
@@ -465,7 +593,7 @@ async def create_workspace(
             template=template,
             flavor=flavor,
         )
-    except QuotaExceeded as e:
+    except (QuotaExceeded, WorkspaceNameConflict) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except (NoSchedulableNode, RuntimeError) as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -579,6 +707,9 @@ async def deploy_workspace_stream(
                         f"{placement.accelerator.shared_slots}",
                         "success",
                     )
+            except WorkspaceNameConflict as e:
+                await emit_error(str(e))
+                return
             except (NoSchedulableNode, RuntimeError) as e:
                 await emit_error(f"Kaynak ayrılamadı: {str(e)}")
                 return
@@ -687,6 +818,11 @@ async def start_workspace_endpoint(
             await validate_restart_capacity(db, workspace)
         except NoSchedulableNode as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # The owner's quota, not the caller's: an admin may resume another
+        # user's workspace and must not spend their own allowance.
+        resume_quota_error = await get_resume_quota_error(db, workspace)
+        if resume_quota_error:
+            raise HTTPException(status_code=409, detail=resume_quota_error)
         was_running = workspace.status == WorkspaceStatus.RUNNING
         workspace.status = WorkspaceStatus.STARTING
 
@@ -1074,7 +1210,7 @@ async def snapshot_workspace_endpoint(
         icon="cube",
         image_tag=image_tag_or_err,
         default_port=workspace.container_port,
-        ide_type="jupyter" if "jupyter" in workspace.template_id else "vscode",
+        ide_type=_snapshot_ide_type(workspace.template_id),
         is_ready=True,
     )
     db.add(custom_tpl)

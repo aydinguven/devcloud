@@ -65,6 +65,17 @@ cross-worker data migration is not in the current target; do not reassign node
 IDs without an operator-controlled backup/restore process. Remove assigned
 workspaces before deleting a worker.
 
+Node capacity and per-user CPU/RAM quota are charged for the same lifecycle
+states: `creating`, `starting`, `stopping`, `error`, and `running`. A `stopped`
+workspace releases compute on both axes, so pausing one returns its allowance
+to the owner and its headroom to the worker. Resuming is therefore a fresh
+admission decision and re-checks worker capacity and owner quota together.
+Disk is measured from the filesystem rather than the flavor, so paused
+workspaces keep consuming it. GPU slots stay charged while stopped because the
+reservation keeps the accelerator slot pinned on the worker; releasing the
+quota without releasing the slot would let a user oversubscribe slots that no
+one else can claim.
+
 Losing a controller temporarily removes management and proxy access, but
 Podman containers continue according to their restart policy. Losing a worker
 removes access to the workspaces and local storage on that worker.

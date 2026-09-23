@@ -37,12 +37,14 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
     assert "vscode-react" in tpl_ids
     assert "jupyter-python" in tpl_ids
     assert "vscode-java" in tpl_ids
+    assert "terminal-rocky" in tpl_ids
     for tid, tname in {
         "vscode-empty": "Boş Proje",
         "vscode-python": "Python 3.14",
         "vscode-react": "React/Node.js",
         "jupyter-python": "Jupyter Notebook",
         "vscode-java": "Java 21 LTS",
+        "terminal-rocky": "Terminal (Rocky Linux 10)",
     }.items():
         assert template_names.get(tid) == tname
 
@@ -433,3 +435,304 @@ async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
     assert streamed.status_code == 200
     assert "Kullanıcı kotası aşıldı" in streamed.text
     assert '"type": "done"' not in streamed.text
+
+
+
+@pytest.mark.asyncio
+async def test_stopping_a_workspace_frees_cpu_and_ram_quota(
+    client: AsyncClient,
+    db_session,
+):
+    """A paused workspace keeps its disk but releases compute quota."""
+    headers = await get_authenticated_headers(client, "pause_quota_tester")
+    result = await db_session.execute(
+        select(User).where(User.username == "pause_quota_tester")
+    )
+    user = result.scalar_one()
+    user.cpu_quota = 0.5
+    user.memory_mb_quota = 512
+    user.disk_mb_quota = 1024
+    db_session.add(user)
+    await db_session.commit()
+
+    payload = {
+        "name": "First Workspace",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+    first = await client.post("/api/workspaces", json=payload, headers=headers)
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    # Quota is exhausted while it runs.
+    blocked = await client.post(
+        "/api/workspaces", json={**payload, "name": "Second Workspace"}, headers=headers
+    )
+    assert blocked.status_code == 409
+
+    stopped = await client.post(f"/api/workspaces/{first_id}/stop", headers=headers)
+    assert stopped.status_code == 200
+    assert stopped.json()["status"] == WorkspaceStatus.STOPPED.value
+
+    # The freed allowance now admits a second workspace.
+    second = await client.post(
+        "/api/workspaces", json={**payload, "name": "Second Workspace"}, headers=headers
+    )
+    assert second.status_code == 201
+
+    usage = await client.get("/api/workspaces/usage", headers=headers)
+    assert usage.status_code == 200
+    user_usage = usage.json()["user"]
+    assert user_usage["cpu"]["used"] == 0.5
+    assert user_usage["allocated"]["cpu"]["used"] == 1.0
+    assert user_usage["workspace_count"] == 2
+    assert user_usage["running_workspace_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_workspace_rechecks_user_quota(
+    client: AsyncClient,
+    db_session,
+):
+    """Restarting a paused workspace must not let a user exceed their quota."""
+    headers = await get_authenticated_headers(client, "resume_quota_tester")
+    result = await db_session.execute(
+        select(User).where(User.username == "resume_quota_tester")
+    )
+    user = result.scalar_one()
+    user.cpu_quota = 0.5
+    user.memory_mb_quota = 512
+    user.disk_mb_quota = 1024
+    db_session.add(user)
+    await db_session.commit()
+
+    payload = {
+        "name": "Paused Workspace",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+    first = await client.post("/api/workspaces", json=payload, headers=headers)
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    assert (await client.post(f"/api/workspaces/{first_id}/stop", headers=headers)).status_code == 200
+
+    second = await client.post(
+        "/api/workspaces", json={**payload, "name": "Active Workspace"}, headers=headers
+    )
+    assert second.status_code == 201
+
+    # Both running at once would need 1.0 CPU against a 0.5 quota.
+    resumed = await client.post(f"/api/workspaces/{first_id}/start", headers=headers)
+    assert resumed.status_code == 409
+    assert "Kullanıcı kotası aşıldı" in resumed.json()["detail"]
+
+    # Freeing the other workspace lets the paused one resume.
+    assert (
+        await client.post(f"/api/workspaces/{second.json()['id']}/stop", headers=headers)
+    ).status_code == 200
+    allowed = await client.post(f"/api/workspaces/{first_id}/start", headers=headers)
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == WorkspaceStatus.RUNNING.value
+
+
+@pytest.mark.asyncio
+async def test_resuming_is_not_blocked_by_a_full_disk_quota(
+    client: AsyncClient,
+    db_session,
+):
+    """A full disk must not trap a user out of the workspace they need to clean."""
+    headers = await get_authenticated_headers(client, "disk_resume_tester")
+    result = await db_session.execute(
+        select(User).where(User.username == "disk_resume_tester")
+    )
+    user = result.scalar_one()
+    user.cpu_quota = 4.0
+    user.memory_mb_quota = 4096
+    db_session.add(user)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Disk Bound",
+            "description": "",
+            "template_id": "vscode-empty",
+            "flavor_id": "t1.nano",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    workspace_id = created.json()["id"]
+    assert (await client.post(f"/api/workspaces/{workspace_id}/stop", headers=headers)).status_code == 200
+
+    user.disk_mb_quota = 0
+    db_session.add(user)
+    await db_session.commit()
+
+    resumed = await client.post(f"/api/workspaces/{workspace_id}/start", headers=headers)
+    assert resumed.status_code == 200
+
+
+
+@pytest.mark.asyncio
+async def test_workspace_names_are_unique_per_owner_not_globally(
+    client: AsyncClient,
+    db_session,
+):
+    """Two users may both own "MyWorkspace"; one user may not own it twice."""
+    first_headers = await get_authenticated_headers(client, "name_owner_one")
+    second_headers = await get_authenticated_headers(client, "name_owner_two")
+    for username in ("name_owner_one", "name_owner_two"):
+        user = (
+            await db_session.execute(select(User).where(User.username == username))
+        ).scalar_one()
+        user.cpu_quota = 8.0
+        user.memory_mb_quota = 8192
+        db_session.add(user)
+    await db_session.commit()
+
+    payload = {
+        "name": "MyWorkspace",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+
+    mine = await client.post("/api/workspaces", json=payload, headers=first_headers)
+    assert mine.status_code == 201
+
+    # The same name under a different owner is allowed.
+    theirs = await client.post("/api/workspaces", json=payload, headers=second_headers)
+    assert theirs.status_code == 201
+
+    # A second copy for the same owner is refused.
+    duplicate = await client.post(
+        "/api/workspaces", json=payload, headers=first_headers
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Bu adla bir çalışma alanınız zaten var."
+
+    # Case and repeated whitespace do not create a new name.
+    for variant in ("myworkspace", "  MYWORKSPACE  ", "My Workspace"):
+        response = await client.post(
+            "/api/workspaces", json={**payload, "name": variant}, headers=first_headers
+        )
+        if variant == "My Workspace":
+            # Distinct name: the space makes it a different workspace.
+            assert response.status_code == 201
+        else:
+            assert response.status_code == 409
+
+    streamed = await client.post(
+        "/api/workspaces/deploy-stream", json=payload, headers=first_headers
+    )
+    assert streamed.status_code == 200
+    assert "Bu adla bir çalışma alanınız zaten var." in streamed.text
+    assert '"type": "done"' not in streamed.text
+
+
+@pytest.mark.asyncio
+async def test_container_name_carries_owner_and_workspace_slug(
+    client: AsyncClient,
+    db_session,
+):
+    """The runtime identifier stays unique but readable in `podman ps`."""
+    headers = await get_authenticated_headers(client, "slug_tester")
+    created = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Data Analysis",
+            "description": "",
+            "template_id": "vscode-empty",
+            "flavor_id": "t1.nano",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+
+    workspace = (
+        await db_session.execute(
+            select(Workspace).where(Workspace.id == created.json()["id"])
+        )
+    ).scalar_one()
+    user = (
+        await db_session.execute(select(User).where(User.username == "slug_tester"))
+    ).scalar_one()
+
+    assert workspace.name_key == "data analysis"
+    assert workspace.container_name.startswith(f"devcloud-{user.id}-data-analysis-")
+    assert len(workspace.container_name) <= 128
+
+
+@pytest.mark.asyncio
+async def test_freed_name_can_be_reused_after_deletion(
+    client: AsyncClient,
+):
+    """Deleting a workspace releases its name for the same owner."""
+    headers = await get_authenticated_headers(client, "name_reuse_tester")
+    payload = {
+        "name": "Recycled",
+        "description": "",
+        "template_id": "vscode-empty",
+        "flavor_id": "t1.nano",
+    }
+    first = await client.post("/api/workspaces", json=payload, headers=headers)
+    assert first.status_code == 201
+
+    deleted = await client.delete(
+        f"/api/workspaces/{first.json()['id']}", headers=headers
+    )
+    assert deleted.status_code in (200, 204)
+
+    again = await client.post("/api/workspaces", json=payload, headers=headers)
+    assert again.status_code == 201
+
+
+
+@pytest.mark.asyncio
+async def test_terminal_workspace_deploys_and_is_proxied(
+    client: AsyncClient,
+    db_session,
+):
+    """A terminal workspace reaches RUNNING and is served over the proxy."""
+    headers = await get_authenticated_headers(client, "terminal_tester")
+    user = (
+        await db_session.execute(select(User).where(User.username == "terminal_tester"))
+    ).scalar_one()
+    user.cpu_quota = 4.0
+    user.memory_mb_quota = 4096
+    db_session.add(user)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/workspaces",
+        json={
+            "name": "Shell Box",
+            "description": "Rocky terminal",
+            "template_id": "terminal-rocky",
+            "flavor_id": "t1.micro",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["status"] == WorkspaceStatus.RUNNING.value
+    assert body["web_url"] == f"/proxy/{body['id']}/"
+
+    workspace = (
+        await db_session.execute(select(Workspace).where(Workspace.id == body["id"]))
+    ).scalar_one()
+    # The published container port must match the template, or the proxy would
+    # tunnel to a closed socket.
+    assert workspace.container_port == 7681
+    assert workspace.template_id == "terminal-rocky"
+
+    # The persistent home is bind-mounted, so storage is provisioned.
+    assert workspace.storage_path
+
+    listed = await client.get("/api/workspaces", headers=headers)
+    assert listed.status_code == 200
+    assert any(item["template_id"] == "terminal-rocky" for item in listed.json())

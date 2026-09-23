@@ -62,6 +62,11 @@ IMAGES = (
     ("devcloud-vscode-react", "localhost/devcloud-vscode-react:latest", "vscode-react"),
     ("devcloud-jupyter-python", "localhost/devcloud-jupyter-python:latest", "jupyter-python"),
     ("devcloud-vscode-java", "localhost/devcloud-vscode-java:latest", "vscode-java"),
+    (
+        "devcloud-terminal-rocky",
+        "localhost/devcloud-terminal-rocky:latest",
+        "terminal-rocky",
+    ),
 )
 CONTROLLER_IMAGE_ARCHIVE = "devcloud-controller"
 WORKER_IMAGE_ARCHIVE = "devcloud-worker"

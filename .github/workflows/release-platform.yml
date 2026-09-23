@@ -70,7 +70,7 @@ jobs:
           fi
 
           workspace_images=()
-          for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python; do
+          for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python terminal-rocky; do
             if [[ "${image}" == "jupyter-python" && "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
               workspace_images+=("${image}")
               continue

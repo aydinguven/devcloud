@@ -99,7 +99,10 @@ def test_release_publishes_versioned_changed_workspace_images():
     assert "Resolve release build scope" in workflow
     assert "git diff --quiet" in workflow
     assert "containers/${image}" in workflow
-    assert "vscode-empty vscode-python vscode-react vscode-java jupyter-python" in workflow
+    assert (
+        "vscode-empty vscode-python vscode-react vscode-java jupyter-python "
+        "terminal-rocky" in workflow
+    )
     assert "rebuild_jupyter" in workflow
     assert "needs: release_scope" in workflow
     assert "needs: [release_scope, workspace_images]" in workflow

@@ -1,0 +1,80 @@
+# Terminal (Rocky Linux 10)
+# A native Rocky Linux shell delivered to the browser. ttyd serves HTTP and
+# WebSocket traffic on a single port, which is exactly what the DevCloud proxy
+# tunnels. DevCloud is the only authenticator, so ttyd runs without
+# credentials of its own, matching the `--auth none` posture of the VS Code
+# images.
+FROM docker.io/rockylinux/rockylinux:10.2@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
+
+ARG TTYD_VERSION=1.7.7
+ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+
+USER root
+
+# A deliberately self-sufficient toolchain: workspaces have no sudo, so
+# anything a user cannot install under $HOME has to be present up front.
+# curl is omitted because the base image already provides curl-minimal.
+RUN dnf -y install --setopt=install_weak_deps=False --nodocs \
+        bash-completion \
+        ca-certificates \
+        diffutils \
+        file \
+        findutils \
+        gcc \
+        gcc-c++ \
+        git \
+        gzip \
+        iputils \
+        jq \
+        less \
+        make \
+        nano \
+        openssh-clients \
+        patch \
+        procps-ng \
+        python3 \
+        python3-pip \
+        rsync \
+        tar \
+        tmux \
+        tree \
+        unzip \
+        vim-enhanced \
+        wget \
+        which \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/log/dnf.*
+
+# Checksum-locked static ttyd; upstream ships no RPM for Rocky 10.
+RUN curl -fsSL \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
+        -o /usr/local/bin/ttyd \
+    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/ttyd \
+    && ttyd --version
+
+RUN useradd --create-home --uid 1000 --shell /bin/bash devuser
+
+COPY devcloud-terminal.sh /etc/profile.d/devcloud-terminal.sh
+COPY entrypoint.sh /usr/local/bin/devcloud-terminal-entrypoint
+RUN chmod 0644 /etc/profile.d/devcloud-terminal.sh \
+    && chmod 0755 /usr/local/bin/devcloud-terminal-entrypoint
+
+# The workspace volume is mounted over /home/devuser, which hides whatever the
+# image put there. Keep a copy of the skeleton so the entrypoint can seed an
+# empty volume on first start.
+RUN tar -cf /opt/devcloud-home-skel.tar -C /home/devuser . \
+    && chmod 0444 /opt/devcloud-home-skel.tar
+
+ENV HOME=/home/devuser \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TERM=xterm-256color \
+    DEVCLOUD_TERMINAL_PORT=7681
+
+USER devuser
+WORKDIR /home/devuser
+
+EXPOSE 7681
+
+ENTRYPOINT ["/usr/local/bin/devcloud-terminal-entrypoint"]

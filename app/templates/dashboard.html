@@ -38,19 +38,28 @@
   <article class="usage-card">
     <div class="usage-card-heading">
       <div>
-        <span class="usage-eyebrow">Çalışma alanlarınıza ayrılan</span>
+        <span class="usage-eyebrow">Kotanızdan düşen güncel kullanım</span>
         <h2>Toplam Kullanıcı Kullanımı</h2>
       </div>
       <span class="usage-icon usage-icon-user">◎</span>
     </div>
     {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk'), ('gpu', 'GPU')] %}
       {% set metric = user_usage[key] %}
+      {% set allocated = user_usage.allocated[key] if key in ['cpu', 'memory'] else None %}
       <div class="usage-row">
         <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong></div>
         <div class="usage-track usage-track-user"><span style="width: {{ metric.percent }}%;"></span></div>
-        <small>Kotanın %{{ metric.percent }} kadarı</small>
+        {% if allocated and allocated.used > metric.used %}
+          <small>Kotanın %{{ metric.percent }} kadarı &middot; duraklatılanlar dahil {{ allocated.used_display }} ayrıldı</small>
+        {% else %}
+          <small>Kotanın %{{ metric.percent }} kadarı</small>
+        {% endif %}
       </div>
     {% endfor %}
+    <small style="display: block; margin-top: 0.65rem; color: var(--text-muted); font-size: 0.72rem;">
+      {{ user_usage.running_workspace_count }}/{{ user_usage.workspace_count }} çalışma alanı çalışıyor.
+      Duraklatılan çalışma alanları CPU ve RAM kotanızı serbest bırakır, disk kotasından düşmeye devam eder.
+    </small>
   </article>
 
   <article class="usage-card">
@@ -187,7 +196,10 @@
 
       <div class="form-group">
         <label class="form-label" for="input-workspace-name">Çalışma Alanı Adı</label>
-        <input type="text" id="input-workspace-name" data-tour="workspace-name" class="form-input" placeholder="örn. veri-analizi veya fastapi-uygulamam" required minlength="2">
+        <input type="text" id="input-workspace-name" data-tour="workspace-name" class="form-input" placeholder="örn. veri-analizi veya fastapi-uygulamam" required minlength="2" maxlength="60" pattern="[a-zA-Z0-9_\- ]+" title="Harf, rakam, boşluk, alt çizgi ve tire kullanabilirsiniz.">
+        <small style="display: block; margin-top: 0.35rem; color: var(--text-muted); font-size: 0.72rem;">
+          Ad yalnızca sizin çalışma alanlarınız arasında benzersiz olmalıdır.
+        </small>
       </div>
 
       <div class="form-group">
@@ -217,7 +229,7 @@
             <div class="selectable-card template-card {% if loop.first %}selected{% endif %}" data-template-id="{{ tpl.id }}">
               <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
                 <span style="font-size: 1.25rem;">
-                  {% if 'react' in tpl.id %}⚛{% elif 'python' in tpl.id %}Py{% elif 'java' in tpl.id %}J{% elif 'jupyter' in tpl.id %}Jp{% else %}📦{% endif %}
+                  {% if 'terminal' in tpl.id %}&gt;_{% elif 'react' in tpl.id %}⚛{% elif 'python' in tpl.id %}Py{% elif 'java' in tpl.id %}J{% elif 'jupyter' in tpl.id %}Jp{% else %}📦{% endif %}
                 </span>
                 <span class="template-card-title">{{ tpl.name }}</span>
               </div>

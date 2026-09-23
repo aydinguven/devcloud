@@ -1,9 +1,10 @@
 import enum
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.database import Base
 
@@ -22,6 +23,56 @@ class WorkspaceStatus(str, enum.Enum):
     DELETED = "deleted"
 
 
+# Statuses whose flavor reservation still occupies worker CPU and RAM.
+#
+# A STOPPED workspace keeps its bind-mounted storage but its container is not
+# running, so it releases compute. ERROR stays in the set because the container
+# may still be alive after a failed transition. Node placement and per-user
+# CPU/RAM quota both charge exactly this set.
+ACTIVE_ALLOCATION_STATUSES = frozenset({
+    WorkspaceStatus.CREATING,
+    WorkspaceStatus.STARTING,
+    WorkspaceStatus.STOPPING,
+    WorkspaceStatus.ERROR,
+    WorkspaceStatus.RUNNING,
+})
+
+# `Enum.__hash__` hashes the member *name*, so a raw "running" string never
+# matches the enum set above. Compare against the values when the status may
+# arrive as a plain string from a serialized payload or a test double.
+ACTIVE_ALLOCATION_STATUS_VALUES = frozenset(
+    status.value for status in ACTIVE_ALLOCATION_STATUSES
+)
+
+
+def consumes_compute(workspace) -> bool:
+    """Report whether a workspace currently charges CPU and RAM.
+
+    Objects without a status are pending reservations that have no lifecycle
+    row yet (an MLflow deployment awaiting its workspace), and are charged.
+    """
+    status = getattr(workspace, "status", None)
+    if status is None:
+        return True
+    return getattr(status, "value", status) in ACTIVE_ALLOCATION_STATUS_VALUES
+
+
+def normalize_workspace_name(name: str) -> str:
+    """Return the per-owner uniqueness key for a workspace name.
+
+    Names are compared without regard to case or repeated whitespace, so one
+    user cannot own both "My App" and "my  app". Normalizing in Python instead
+    of relying on database collation keeps SQLite and PostgreSQL in agreement.
+    """
+    return " ".join(str(name or "").strip().lower().split())
+
+
+def workspace_name_slug(name: str, *, limit: int = 32) -> str:
+    """Return a container-safe fragment derived from a workspace name."""
+    slug = re.sub(r"[^a-z0-9]+", "-", normalize_workspace_name(name))
+    return slug.strip("-")[:limit].strip("-")
+
+
 class Workspace(Base):
     """Workspace instance deployed as a container."""
     __tablename__ = "workspaces"
@@ -33,12 +84,19 @@ class Workspace(Base):
             "accelerator_slot",
             name="uq_workspaces_accelerator_slot",
         ),
+        # Names are the owner's namespace, not the platform's: two users may
+        # both keep a "MyWorkspace", one user may not.
+        UniqueConstraint("user_id", "name_key", name="uq_workspaces_user_name"),
     )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Normalized form of `name`, maintained by `normalize_workspace_name`.
+    name_key: Mapped[str] = mapped_column(
+        String(100), default="", server_default="", nullable=False
+    )
     description: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     
     # Ownership
@@ -102,6 +160,17 @@ class Workspace(Base):
     )
     last_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     last_stopped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @validates("name")
+    def _track_name_key(self, _field: str, value: str) -> str:
+        """Derive the uniqueness key whenever the display name is set.
+
+        Keeping this in the mapper means no caller can persist a workspace
+        whose key disagrees with its name, including the direct constructor
+        calls made by fixtures and internal services.
+        """
+        self.name_key = normalize_workspace_name(value)
+        return value
 
     def __repr__(self) -> str:
         return f"<Workspace id={self.id} name='{self.name}' status='{self.status}'>"

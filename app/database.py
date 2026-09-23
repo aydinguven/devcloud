@@ -152,6 +152,23 @@ async def ensure_workspace_columns(conn) -> None:
             current_columns = await _workspace_column_names(conn)
             if column_name not in current_columns:
                 raise
+    existing_columns = await _workspace_column_names(conn)
+    if "name_key" not in existing_columns:
+        # The migration backfills the values and adds the unique index; the
+        # column itself is created here so a rolling restart cannot write rows
+        # through the model before the ladder runs.
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        "ALTER TABLE workspaces ADD COLUMN name_key "
+                        "VARCHAR(100) NOT NULL DEFAULT ''"
+                    )
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _workspace_column_names(conn)
+            if "name_key" not in current_columns:
+                raise
     try:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_workspaces_node_id ON workspaces (node_id)")
