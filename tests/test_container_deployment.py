@@ -116,3 +116,79 @@ def test_all_builtin_vscode_images_install_locked_cline():
             not in containerfile
         )
 
+
+
+
+def test_terminal_workspace_image_is_pinned_and_proxy_compatible():
+    """The terminal image must stay reproducible and reachable via the proxy."""
+    containerfile = (
+        ROOT / "containers" / "terminal-rocky" / "Containerfile"
+    ).read_text(encoding="utf-8")
+
+    # Digest-pinned Rocky 10 base, matching the release container.
+    assert (
+        "FROM docker.io/rockylinux/rockylinux:10.2@"
+        "sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834"
+    ) in containerfile
+    # Checksum-locked ttyd, mirroring the Cline VSIX pattern.
+    assert "ARG TTYD_VERSION=1.7.7" in containerfile
+    assert (
+        "ARG TTYD_SHA256="
+        "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"
+    ) in containerfile
+    assert 'echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c -' in containerfile
+    # The proxy publishes template.default_port; they have to agree.
+    assert "EXPOSE 7681" in containerfile
+    # Workspaces are unprivileged and carry no privilege-escalation tooling.
+    assert "USER devuser" in containerfile
+    instructions = "\n".join(
+        line
+        for line in containerfile.splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "sudo" not in instructions
+
+    entrypoint = (
+        ROOT / "containers" / "terminal-rocky" / "entrypoint.sh"
+    ).read_text(encoding="utf-8")
+    # ttyd must be writable, or the terminal is read-only.
+    assert "--writable" in entrypoint
+    # tmux keeps a dropped WebSocket from killing the user's work.
+    assert "tmux new-session -A -s devcloud" in entrypoint
+    # No upstream credential: DevCloud is the only authenticator.
+    assert "--credential" not in entrypoint
+    # The home volume is seeded on first start, since the mount hides the image
+    # skeleton.
+    assert "/opt/devcloud-home-skel.tar" in entrypoint
+
+
+def test_terminal_template_matches_its_image_contract():
+    from app.orchestrator.templates import get_template
+
+    template = get_template("terminal-rocky")
+    assert template is not None
+    assert template.ide_type == "terminal"
+    assert template.default_port == 7681
+    assert template.container_workdir == "/home/devuser"
+    assert template.image_tag == "localhost/devcloud-terminal-rocky:latest"
+    # Persistent home requires the workspace volume to be mounted.
+    assert template.mount_workspace is True
+    # ttyd answers 200 on /, so readiness uses an HTTP probe.
+    assert template.health_path == "/"
+    # An ide_type outside the vscode/jupyter/service branches means
+    # podman_service leaves the image ENTRYPOINT in charge.
+    assert template.startup_command == []
+
+
+def test_terminal_workspace_uses_the_image_entrypoint():
+    """No entrypoint override or injected IDE environment for terminals."""
+    import inspect as inspect_module
+
+    from app.orchestrator.podman_service import PodmanService
+
+    source = inspect_module.getsource(PodmanService.create_workspace_container)
+    # The three branches that rewrite the command are all IDE specific.
+    assert 'is_vscode = template.ide_type == "vscode"' in source
+    assert 'is_jupyter = template.ide_type == "jupyter"' in source
+    assert 'is_service = template.ide_type == "service"' in source
+    assert 'ide_type == "terminal"' not in source

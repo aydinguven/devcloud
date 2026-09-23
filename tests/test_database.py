@@ -17,6 +17,7 @@ from app.migrations import (
     _add_jupyter_ai_cline_toggle,
     _add_directory_profile_fields,
     _add_jupyter_ai_model_catalog,
+    _add_workspace_name_uniqueness,
     _make_mlflow_settings_per_user,
     _migrate_mlflow_server_settings,
     _sync_mlflow_settings_id_sequence,
@@ -451,3 +452,104 @@ async def test_legacy_jupyter_ai_settings_receive_model_catalog(tmp_path):
     assert row.cline_enabled == 1
     assert catalog[0]["model_id"] == "private-default"
     assert "qwen3.6-35b" in {item["model_id"] for item in catalog}
+
+
+
+@pytest.mark.asyncio
+async def test_legacy_duplicate_workspace_names_are_disambiguated(tmp_path):
+    """Migration 24 must survive databases that already hold duplicate names."""
+    database_path = (tmp_path / "duplicate-names.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE workspaces ("
+                    "id VARCHAR(36) PRIMARY KEY, "
+                    "name VARCHAR(100) NOT NULL, "
+                    "user_id INTEGER NOT NULL, "
+                    "created_at VARCHAR(64) NOT NULL)"
+                )
+            )
+            rows = (
+                ("a1", "MyWorkspace", 1, "2026-01-01T00:00:00"),
+                ("a2", "myworkspace", 1, "2026-01-02T00:00:00"),
+                ("a3", "  MyWorkspace  ", 1, "2026-01-03T00:00:00"),
+                ("b1", "MyWorkspace", 2, "2026-01-04T00:00:00"),
+                ("b2", "", 2, "2026-01-05T00:00:00"),
+            )
+            for row in rows:
+                await conn.execute(
+                    text(
+                        "INSERT INTO workspaces (id, name, user_id, created_at) "
+                        "VALUES (:id, :name, :user_id, :created_at)"
+                    ),
+                    dict(zip(("id", "name", "user_id", "created_at"), row)),
+                )
+
+            await _add_workspace_name_uniqueness(conn)
+
+            stored = (
+                await conn.execute(
+                    text("SELECT id, name, name_key, user_id FROM workspaces ORDER BY id")
+                )
+            ).all()
+            unique_sets = await conn.run_sync(
+                lambda sync_conn: {
+                    tuple(index.get("column_names") or ())
+                    for index in inspect(sync_conn).get_indexes("workspaces")
+                    if index.get("unique")
+                }
+            )
+    finally:
+        await engine.dispose()
+
+    by_id = {row[0]: row for row in stored}
+    # Each owner keeps one unsuffixed name; the collisions are numbered.
+    assert by_id["a1"][2] == "myworkspace"
+    assert by_id["a2"][2] == "myworkspace (2)"
+    assert by_id["a3"][2] == "myworkspace (3)"
+    # Display names track the key so the dashboard shows the distinction.
+    assert by_id["a2"][1] == "myworkspace (2)"
+    assert by_id["a3"][1] == "MyWorkspace (3)"
+    # A different owner is untouched by the first owner's collisions.
+    assert by_id["b1"][2] == "myworkspace"
+    # An empty legacy name is replaced with a deterministic placeholder.
+    assert by_id["b2"][2] == "workspace-b2"
+
+    keys = [(row[3], row[2]) for row in stored]
+    assert len(keys) == len(set(keys))
+    assert ("user_id", "name_key") in unique_sets
+
+
+@pytest.mark.asyncio
+async def test_workspace_name_uniqueness_migration_is_idempotent(tmp_path):
+    database_path = (tmp_path / "idempotent-names.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE TABLE workspaces ("
+                    "id VARCHAR(36) PRIMARY KEY, "
+                    "name VARCHAR(100) NOT NULL, "
+                    "user_id INTEGER NOT NULL, "
+                    "created_at VARCHAR(64) NOT NULL)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO workspaces (id, name, user_id, created_at) "
+                    "VALUES ('c1', 'Solo', 1, '2026-01-01T00:00:00')"
+                )
+            )
+            await _add_workspace_name_uniqueness(conn)
+            await _add_workspace_name_uniqueness(conn)
+
+            name_key = (
+                await conn.execute(text("SELECT name_key FROM workspaces"))
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+    assert name_key == "solo"

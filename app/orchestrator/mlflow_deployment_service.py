@@ -52,6 +52,7 @@ from app.routes.workspace_routes import (
     QuotaExceeded,
     _flavor_definition,
     _template_definition,
+    available_workspace_name,
     delete_workspace_resources,
     get_quota_error,
     schedule_and_reserve_workspace,
@@ -593,8 +594,13 @@ async def _reserve_when_image_synced(
     flavor = await resolve_flavor(db, deployment.flavor_id)
     if image is None or user is None or template is None or flavor is None:
         raise RuntimeError("Deployment çalışma alanı girdileri artık bulunamıyor.")
+    # Deployment names are unique among a user's deployments but may still
+    # collide with a workspace they created by hand, so take the next variant
+    # rather than failing a deployment that is otherwise ready to serve.
     request = WorkspaceCreate(
-        name=deployment.name,
+        name=await available_workspace_name(
+            db, user_id=deployment.user_id, name=deployment.name
+        ),
         description=f"MLflow {deployment.model_name} v{deployment.model_version}",
         template_id=template.id,
         flavor_id=flavor.id,

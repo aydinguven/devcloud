@@ -661,6 +661,7 @@ class PodmanService:
                 "localhost/devcloud-vscode-react:latest",
                 "localhost/devcloud-jupyter-python:latest",
                 "localhost/devcloud-vscode-java:latest",
+                "localhost/devcloud-terminal-rocky:latest",
             ]
         code, stdout, _ = await self.run_cmd("images", "--format", "{{.Repository}}:{{.Tag}}")
         if code != 0:

@@ -13,6 +13,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - **VS Code (Python 3.14 / 3.12)**: Preloaded with Python, `pip`, `uv`, the official Python/Jupyter extensions, and Cline.
   - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
   - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, Red Hat Java Language Support, and Cline.
+- **Native Linux Terminal Workspace**: A full Rocky Linux 10 shell in the browser, served by `ttyd` over the same authenticated proxy as the IDEs. The session runs inside `tmux`, so a dropped connection reattaches instead of killing running work, and the entire home directory persists across restarts. Workspaces carry no `sudo`; the image ships git, Python 3, a C/C++ toolchain, and the usual shell utilities.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
   - `t1.micro`: 1 CPU, 1 GB RAM (Default profile for newly registered users)
@@ -34,6 +35,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user CPU/RAM/disk/GPU allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, persistent-disk, and GPU-slot limits with workspace deployment enforcement. GPU quota defaults to zero.
+- **Pause to Reclaim Quota**: CPU and RAM are charged only while a workspace holds compute, so pausing one frees its allowance for another. Disk keeps counting paused workspaces because their data stays on the worker, and GPU slots keep counting because a paused workspace holds its accelerator slot. Resuming re-checks the owner's quota and is refused when it would exceed the limit.
 - **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, display physical GPU and MIG inventory, and schedule GPU workspaces onto exact CDI devices.
 - **GPU Sharing Policy**: RTX 4090 workers default to two workspace slots per physical GPU and RTX 5090 workers to three; admins can override physical GPUs to one, two, or three slots. Every MIG CDI slice is an exclusive single slot.
 - **Managed MLflow Tracking & Registry View**: Administrators define one MLflow URL and TLS policy while every user supplies encrypted personal credentials. DevCloud browses experiments, runs, parameters, metrics, artifacts, registered models, versions, aliases, tags, and run-to-model lineage, then injects the effective MLflow environment into newly created or recreated workspaces.
@@ -494,7 +496,8 @@ intelligent-nobel/
 │   ├── vscode-python/
 │   ├── vscode-react/
 │   ├── jupyter-python/
-│   └── vscode-java/
+│   ├── vscode-java/
+│   └── terminal-rocky/
 ├── deploy/                      # Linux VM deployment scripts & systemd unit
 ├── tests/                       # Pytest test suite (Auth, Workspaces, Podman, Proxy)
 ├── requirements.txt
@@ -542,7 +545,19 @@ pytest -v
 
 CPU/RAM/GPU quota checks and placement reservations share a serialized database
 transaction (SQLite `BEGIN IMMEDIATE`, PostgreSQL transaction advisory lock).
-Restarts check capacity on the assigned worker before reserving `STARTING`.
+Restarts check both worker capacity and the owner's quota before reserving
+`STARTING`, because a paused workspace releases its CPU and RAM allowance and
+has to be re-admitted. That re-check deliberately skips the disk gate so a full
+disk cannot lock a user out of the workspace they need in order to clear space.
+
+`creating`, `starting`, `stopping`, `error`, and `running` all charge CPU and
+RAM; `stopped` does not. Node placement and per-user quota share that single
+definition (`ACTIVE_ALLOCATION_STATUSES`), so the scheduler and the quota
+accountant can never disagree about what a worker is carrying.
+
+Workspace names are unique per owner, not globally. Uniqueness is enforced on a
+normalized key (case-insensitive, whitespace-collapsed) computed in Python, so
+SQLite and PostgreSQL agree regardless of collation.
 Failed or uncertain operations retain capacity until an operator successfully
 stops or deletes the workspace. Failed stops preserve status; failed deletion
 preserves the controller record and worker tracking. A durable deletion receipt

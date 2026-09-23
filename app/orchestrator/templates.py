@@ -86,6 +86,28 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         ide_type="jupyter",
         env_vars={"JUPYTER_ENABLE_LAB": "yes"},
     ),
+    "terminal-rocky": WorkspaceTemplate(
+        id="terminal-rocky",
+        name="Terminal (Rocky Linux 10)",
+        description="Tarayıcıda çalışan yerel Rocky Linux 10 kabuğu; tmux ile kalıcı oturum.",
+        category="Sistem",
+        icon="command-line",
+        default_port=7681,
+        # The whole home directory persists, so shell history, dotfiles and
+        # user-installed tooling survive a restart.
+        container_workdir="/home/devuser",
+        image_tag="localhost/devcloud-terminal-rocky:latest",
+        features=[
+            "Rocky Linux 10 kabuğu",
+            "tmux ile kalıcı oturum",
+            "Git, Python 3, derleyici araçları",
+            "Kalıcı ev dizini",
+        ],
+        # A dedicated ide_type keeps the image's own ENTRYPOINT in charge: no
+        # entrypoint override, no injected IDE environment, no startup command.
+        ide_type="terminal",
+        health_path="/",
+    ),
     "vscode-java": WorkspaceTemplate(
         id="vscode-java",
         name="Java 21 LTS",
@@ -156,6 +178,8 @@ def register_custom_template(
     workdir = "/home/jovyan/work" if ide_type == "jupyter" else "/home/coder/project"
     if ide_type == "service":
         workdir = "/"
+    elif ide_type == "terminal":
+        workdir = "/home/devuser"
     if mount_workspace is None:
         mount_workspace = ide_type != "service"
     features = ["Özel Şablon", f"Port: {default_port}", f"Görüntü: {image_tag}"]

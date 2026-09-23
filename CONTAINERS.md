@@ -66,6 +66,11 @@ Image'ları** from GHCR, another reachable OCI registry, or an OCI/Docker archiv
 All four maintained VS Code images bake in checksum-locked Cline 4.1.17 and
 disable native Chat/Copilot. Cline receives the gateway, API key, and default
 model from the controller-managed Workspace AI record at container creation.
+The `terminal-rocky` image carries no IDE and no AI assistant: it is a
+digest-pinned Rocky Linux 10 base plus a checksum-locked static `ttyd`, which
+serves the shell over HTTP and WebSocket on port 7681. Because its `ide_type` is
+`terminal`, the worker leaves the image's own `ENTRYPOINT` in charge instead of
+injecting IDE environment or rewriting the container command.
 The Admin Cline toggle controls installation in each new container; existing
 Admin choices are preserved. Enable it before recreating workspaces that used
 the native Chat images. Recreating an enabled container restores the pinned
@@ -95,6 +100,10 @@ reinstalling controller and worker bundles.
 ## Lifecycle rules
 
 - Database migrations run before every controller start and are idempotent.
+- Schema 24 scopes workspace names to their owner. Installations that already
+  hold duplicate names per user are disambiguated during the upgrade with a
+  numeric suffix (`MyWorkspace`, `MyWorkspace (2)`), applied to both the display
+  name and the uniqueness key.
 - Application startup uses one Uvicorn process because worker tunnels are
   still process-local.
 - Container hosts never build during an update. A trusted release builder

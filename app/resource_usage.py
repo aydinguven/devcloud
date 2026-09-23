@@ -10,7 +10,7 @@ from typing import Any
 
 from app.config import settings
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, consumes_compute
 from app.orchestrator.flavors import Flavor, get_flavor
 
 BYTES_PER_MB = 1024 * 1024
@@ -146,14 +146,25 @@ def directory_size(path: Path) -> int:
     return total
 
 
-def workspace_allocations(workspaces: Iterable[Workspace]) -> tuple[float, int, int]:
-    """Return reserved CPU, RAM MB, and recognized workspace count."""
+def workspace_allocations(
+    workspaces: Iterable[Workspace],
+    *,
+    compute_only: bool = True,
+) -> tuple[float, int, int]:
+    """Return reserved CPU, RAM MB, and recognized workspace count.
+
+    By default only workspaces that currently occupy compute are summed, so a
+    stopped workspace stops charging CPU and RAM while keeping its disk
+    footprint. Pass ``compute_only=False`` for the lifetime allocation total.
+    """
     cpu_used = 0.0
     memory_mb_used = 0
     count = 0
     for workspace in workspaces:
         flavor = get_flavor(workspace.flavor_id)
         if not flavor:
+            continue
+        if compute_only and not consumes_compute(workspace):
             continue
         cpu_used += flavor.cpus
         memory_mb_used += flavor.memory_mb
@@ -162,7 +173,12 @@ def workspace_allocations(workspaces: Iterable[Workspace]) -> tuple[float, int, 
 
 
 def workspace_gpu_allocations(workspaces: Iterable[Workspace]) -> int:
-    """Return reserved GPU slots for recognized workspace flavors."""
+    """Return reserved GPU slots for recognized workspace flavors.
+
+    Unlike CPU and RAM this deliberately counts every status: a stopped
+    workspace keeps its accelerator slot pinned on the worker, so releasing
+    the quota would let a user oversubscribe slots nobody else can claim.
+    """
     total = 0
     for workspace in workspaces:
         flavor = get_flavor(workspace.flavor_id)
@@ -177,9 +193,17 @@ def get_user_usage(
     *,
     disk_used_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """Return a user's allocations, actual disk use, and remaining quota."""
+    """Return a user's allocations, actual disk use, and remaining quota.
+
+    ``cpu`` and ``memory`` report what quota actually charges, which is only
+    the workspaces currently holding compute. ``allocated`` reports the same
+    metrics across every workspace so the UI can explain the difference.
+    """
     workspaces = list(workspaces)
-    cpu_used, memory_mb_used, workspace_count = workspace_allocations(workspaces)
+    cpu_used, memory_mb_used, running_count = workspace_allocations(workspaces)
+    cpu_allocated, memory_mb_allocated, workspace_count = workspace_allocations(
+        workspaces, compute_only=False
+    )
     gpu_used = workspace_gpu_allocations(workspaces)
     disk_used = (
         directory_size(Path(settings.STORAGE_ROOT) / str(user.id))
@@ -199,7 +223,16 @@ def get_user_usage(
             format_bytes,
         ),
         "gpu": _metric(gpu_used, getattr(user, "gpu_quota", 0), format_gpu),
+        "allocated": {
+            "cpu": _metric(cpu_allocated, user.cpu_quota, format_cpu),
+            "memory": _metric(
+                memory_mb_allocated * BYTES_PER_MB,
+                user.memory_mb_quota * BYTES_PER_MB,
+                format_bytes,
+            ),
+        },
         "workspace_count": workspace_count,
+        "running_workspace_count": running_count,
     }
 
 
@@ -233,8 +266,15 @@ def quota_violations(
     requested_flavor: Flavor,
     *,
     disk_used_bytes: int | None = None,
+    include_disk: bool = True,
 ) -> list[str]:
-    """Describe quota limits a new workspace allocation would exceed."""
+    """Describe quota limits a new workspace allocation would exceed.
+
+    ``include_disk=False`` skips the disk gate. Resuming a stopped workspace
+    uses it so a user whose disk is full can still start a workspace to free
+    space, and so the caller never has to measure disk under the admission
+    lock.
+    """
     usage = get_user_usage(
         user, workspaces, disk_used_bytes=disk_used_bytes
     )
@@ -255,7 +295,7 @@ def quota_violations(
         violations.append(
             f"GPU {requested_gpu:.0f}/{gpu_quota} slot olacak"
         )
-    if usage["disk"]["used"] >= usage["disk"]["limit"]:
+    if include_disk and usage["disk"]["used"] >= usage["disk"]["limit"]:
         violations.append(
             f"Disk kullanımı {usage['disk']['used_display']}/{usage['disk']['limit_display']}"
         )

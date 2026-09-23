@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.manager import agent_manager
 from app.models.node import Node, NodeStatus
-from app.models.workspace import Workspace, WorkspaceStatus
+from app.models.workspace import (
+    ACTIVE_ALLOCATION_STATUSES,
+    Workspace,
+    WorkspaceStatus,
+)
 from app.models.workspace_image import WorkspaceImage
 from app.release_catalog import semantic_version
 from app.orchestrator.flavors import Flavor, get_flavor
@@ -41,13 +45,6 @@ class WorkspacePlacement:
     accelerator: AcceleratorPlacement | None = None
 
 
-ACTIVE_ALLOCATION_STATUSES = {
-    WorkspaceStatus.CREATING,
-    WorkspaceStatus.STARTING,
-    WorkspaceStatus.STOPPING,
-    WorkspaceStatus.ERROR,
-    WorkspaceStatus.RUNNING,
-}
 CDI_DEVICE_PATTERN = re.compile(r"^nvidia\.com/gpu=[A-Za-z0-9_.:/-]+$")
 
 

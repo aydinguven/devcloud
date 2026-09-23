@@ -117,7 +117,8 @@ agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
 on-prem gateway. Every maintained VS Code image also includes Cline and receives
 a Cline profile generated from the same central gateway record. Native VS Code
-Chat and Copilot are disabled.
+Chat and Copilot are disabled. The `terminal-rocky` image intentionally has no
+AI assistant and needs no gateway configuration.
 
 Configure the gateway once under **Admin > Entegrasyonlar > Workspace AI ·
 Jupyter + Cline**. The controller encrypts the shared API key at
@@ -216,9 +217,9 @@ to trust your project before using Cline.
    worker update and confirm the affected workers report version 3.6.6.
 2. Import the replacement image under **Admin > Workspace Image'ları**:
    `quay.io/aaslangoren/devcloud:vscode-python-3.6.6-e0ccf03e5272`.
-   Other flavors use `vscode-empty`, `vscode-react`, or `vscode-java` with the
-   same version and commit suffix. Wait for the assigned workers to finish
-   synchronizing the new image.
+   Other flavors use `vscode-empty`, `vscode-react`, `vscode-java`, or
+   `terminal-rocky` with the same version and commit suffix. Wait for the
+   assigned workers to finish synchronizing the new image.
 3. Under **Admin > Entegrasyonlar > Workspace AI**, enable shared gateway access
    and Cline. Keep the existing gateway URL, API key, and default model. Save
    and allow the workers' 30-second settings synchronization to complete.
