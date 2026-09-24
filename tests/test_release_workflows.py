@@ -83,11 +83,38 @@ def test_platform_release_builds_only_changed_workspace_images():
     assert "rebuild_jupyter:" in content
     assert "git diff --quiet" in content
     assert "release_infrastructure_changed" in content
-    assert '"vscode-python" || "${image}" == "jupyter-python"' in content
+    assert 'archive_images=" vscode-python jupyter-python "' in content
     assert '"containers/${image}"' in content
     assert "if: needs.release_scope.outputs.build_workspace == 'true'" in content
     assert "needs.workspace_images.result == 'skipped'" in content
     assert "workspace_matrix" in content
+
+
+def test_unchanged_archive_workspaces_are_republished_without_rebuilding():
+    content = workflow("release-platform.yml")
+
+    # An unchanged workspace whose offline archive ships as a release asset is
+    # pulled from the previous release instead of being rebuilt.
+    assert (
+        "REUSE_SOURCE: ${{ fromJSON(needs.release_scope.outputs.reuse_sources)"
+        "[matrix.image] }}" in content
+    )
+    assert "Reuse published workspace image" in content
+    assert "if: env.REUSE_SOURCE != ''" in content
+    assert 'docker pull --platform linux/amd64 "${source_image}"' in content
+
+    # Reusing an image skips both the rebuild and its Cline smoke test, because
+    # the published image was already smoke-tested at its own release.
+    assert "if: steps.reuse.outputs.reused != 'true'" in content
+    assert (
+        "if: startsWith(matrix.image, 'vscode-') && "
+        "steps.reuse.outputs.reused != 'true'" in content
+    )
+
+    # A reused image must still be republished under the new version tags so the
+    # next release can resolve it, and the offline archive still gets exported.
+    assert 'echo "reused=false" >> "${GITHUB_OUTPUT}"' in content
+    assert "Push immutable workspace image tags" in content
 
 
 def test_formal_release_exports_python_workspace_archives():

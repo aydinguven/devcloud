@@ -108,6 +108,16 @@ release infrastructure are unchanged. A manual workflow dispatch can select
 release images to Quay automatically. For manual workflow runs, Quay mirroring
 remains an explicit opt-in.
 
+`vscode-python` and `jupyter-python` are the exception, because every formal
+version tag has to ship their offline archives. When their build context is
+unchanged, the workflow pulls the image published by the previous version tag,
+republishes it under the new version tags, and exports the archive from it.
+Those workspaces contain no platform code, so an unchanged build context yields
+an equivalent image, and the rebuild plus its Cline smoke test are skipped.
+This keeps a no-op release from spending hours rebuilding two large images. If
+the previous image can no longer be pulled, the job logs a warning and falls
+back to a full rebuild and smoke test.
+
 The two offline workspace archives are staged between jobs with short-lived
 GitHub Actions artifacts and then attached permanently to the GitHub Release.
 Each archive is checked against GitHub's 2 GiB per-asset limit before upload.
