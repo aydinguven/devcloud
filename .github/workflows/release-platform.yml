@@ -41,6 +41,7 @@ jobs:
     outputs:
       build_workspace: ${{ steps.scope.outputs.build_workspace }}
       workspace_matrix: ${{ steps.scope.outputs.workspace_matrix }}
+      reuse_sources: ${{ steps.scope.outputs.reuse_sources }}
     env:
       FORCE_JUPYTER_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_jupyter }}
     steps:
@@ -63,37 +64,64 @@ jobs:
           )
           previous_tag="${previous_tags[0]:-}"
 
+          # Immutable coordinates of the images published by the previous
+          # release, used to reuse byte-identical workspace layers.
+          previous_version=""
+          previous_sha=""
+          if [[ -n "${previous_tag}" ]]; then
+            previous_version="${previous_tag#v}"
+            previous_sha="$(git rev-parse "${previous_tag}^{commit}")"
+            previous_sha="${previous_sha:0:12}"
+          fi
+
           release_infrastructure_changed=false
           if [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- \
             deploy/ci/build-release-assets.sh; then
             release_infrastructure_changed=true
           fi
 
+          # Workspaces whose offline archive ships as a release asset must be
+          # present on every formal version tag, changed or not.
+          archive_images=" vscode-python jupyter-python "
+
           workspace_images=()
+          reuse_pairs=()
           for image in vscode-empty vscode-python vscode-react vscode-java jupyter-python terminal-rocky; do
+            rebuild=false
             if [[ "${image}" == "jupyter-python" && "${FORCE_JUPYTER_REBUILD}" == "true" ]]; then
+              rebuild=true
+            elif [[ "${release_infrastructure_changed}" == "true" ]]; then
+              rebuild=true
+            elif [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- "containers/${image}"; then
+              rebuild=true
+            fi
+
+            if [[ "${rebuild}" == "true" ]]; then
               workspace_images+=("${image}")
               continue
             fi
+
+            # Unchanged build context. Keep the image in the matrix only when
+            # this release has to ship its offline archive, and then republish
+            # the already smoke-tested image instead of rebuilding it.
             if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && \
-              [[ "${image}" == "vscode-python" || "${image}" == "jupyter-python" ]]; then
+              [[ "${archive_images}" == *" ${image} "* ]] && \
+              [[ -n "${previous_version}" && -n "${previous_sha}" ]]; then
               workspace_images+=("${image}")
-              continue
-            fi
-            if [[ "${release_infrastructure_changed}" == "true" ]]; then
-              workspace_images+=("${image}")
-              continue
-            fi
-            if [[ -z "${previous_tag}" ]] || ! git diff --quiet "${previous_tag}" "${GITHUB_SHA}" -- "containers/${image}"; then
-              workspace_images+=("${image}")
+              reuse_pairs+=("${image}=${image}-${previous_version}-${previous_sha}")
             fi
           done
 
           matrix_json="$(printf '%s\n' "${workspace_images[@]}" | python3 -c 'import json, sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))')"
+          reuse_json="$(printf '%s\n' "${reuse_pairs[@]}" | python3 -c 'import json, sys; print(json.dumps(dict(line.strip().split("=", 1) for line in sys.stdin if line.strip())))')"
           echo "workspace_matrix=${matrix_json}" >> "${GITHUB_OUTPUT}"
+          echo "reuse_sources=${reuse_json}" >> "${GITHUB_OUTPUT}"
           if ((${#workspace_images[@]})); then
             echo "build_workspace=true" >> "${GITHUB_OUTPUT}"
             echo "Workspace images selected: ${workspace_images[*]}"
+            if ((${#reuse_pairs[@]})); then
+              echo "Reused without rebuilding: ${reuse_pairs[*]}"
+            fi
           else
             echo "build_workspace=false" >> "${GITHUB_OUTPUT}"
             echo "No workspace image build contexts changed since ${previous_tag}."
@@ -120,6 +148,8 @@ jobs:
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
       PUBLISH_QUAY: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_quay) }}
+      # Empty unless this release may republish an unchanged workspace image.
+      REUSE_SOURCE: ${{ fromJSON(needs.release_scope.outputs.reuse_sources)[matrix.image] }}
 
     steps:
       - name: Check out release source
@@ -141,7 +171,33 @@ jobs:
           echo "DEVCLOUD_VERSION=${version}" >> "${GITHUB_ENV}"
           echo "SHORT_SHA=${GITHUB_SHA:0:12}" >> "${GITHUB_ENV}"
 
+      - name: Reuse published workspace image
+        id: reuse
+        if: env.REUSE_SOURCE != ''
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image="${{ matrix.image }}"
+          local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
+          source_image="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${REUSE_SOURCE}"
+          [[ -n "${IMAGE_USERNAME:-}" && -n "${IMAGE_PASSWORD:-}" ]] || {
+            echo "Reusing a published image requires IMAGE_USERNAME and IMAGE_PASSWORD." >&2
+            exit 1
+          }
+          printf '%s' "${IMAGE_PASSWORD}" |
+            docker login --username "${IMAGE_USERNAME}" --password-stdin "${IMAGE_REGISTRY}"
+          trap 'docker logout "${IMAGE_REGISTRY}" >/dev/null 2>&1 || true' EXIT
+          if docker pull --platform linux/amd64 "${source_image}"; then
+            docker tag "${source_image}" "${local_image}"
+            echo "reused=true" >> "${GITHUB_OUTPUT}"
+            echo "Reused ${source_image}; containers/${image} is unchanged since the previous release."
+          else
+            echo "reused=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::${source_image} could not be pulled; rebuilding ${image} from source."
+          fi
+
       - name: Build workspace image
+        if: steps.reuse.outputs.reused != 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -154,7 +210,7 @@ jobs:
             "containers/${image}"
 
       - name: Smoke test Cline in the browser extension host
-        if: startsWith(matrix.image, 'vscode-')
+        if: startsWith(matrix.image, 'vscode-') && steps.reuse.outputs.reused != 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
