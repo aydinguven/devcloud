@@ -176,7 +176,10 @@ def _safe_artifact_path(value: str) -> PurePosixPath:
     return path
 
 
-def _deployment_out(deployment: MlflowDeployment) -> MlflowDeploymentOut:
+def _deployment_out(
+    deployment: MlflowDeployment,
+    build: MlflowModelBuild | None = None,
+) -> MlflowDeploymentOut:
     base = f"/api/model-endpoints/{deployment.id}"
     return MlflowDeploymentOut(
         id=deployment.id,
@@ -194,6 +197,9 @@ def _deployment_out(deployment: MlflowDeployment) -> MlflowDeploymentOut:
         status=deployment.status,
         status_message=deployment.status_message,
         error_message=deployment.error_message,
+        build_status=build.status.value if build else None,
+        build_status_message=build.status_message if build else None,
+        build_error_message=build.error_message if build else None,
         created_at=deployment.created_at,
         updated_at=deployment.updated_at,
         endpoint_url=f"{base}/invocations",
@@ -786,7 +792,16 @@ async def get_mlflow_deployment(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return _deployment_out(await _owned_deployment(db, deployment_id, current_user))
+    deployment = await _owned_deployment(db, deployment_id, current_user)
+    # The image build keeps the container build log tail that explains most
+    # deployment failures, so include it on the detail read. The list read stays
+    # build-free to avoid a query per deployment.
+    build = (
+        await db.get(MlflowModelBuild, deployment.build_id)
+        if deployment.build_id
+        else None
+    )
+    return _deployment_out(deployment, build)
 
 
 @mlflow_router.get(

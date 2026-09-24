@@ -53,7 +53,13 @@
       ]);
       status.textContent = deployment.status;
       status.className = `badge ${statusBadge(deployment.status)}`;
-      events.textContent = (eventData.events || []).map(item => `[${new Date(item.created_at).toLocaleTimeString("tr-TR")}] ${item.message}`).join("\n");
+      const lines = (eventData.events || []).map(item => `[${new Date(item.created_at).toLocaleTimeString("tr-TR")}] ${item.message}`);
+      // A failed container build is only explainable from the build log, so
+      // append it verbatim under the progress events instead of hiding it.
+      if (deployment.build_error_message) {
+        lines.push("", "----- image build günlüğü -----", deployment.build_error_message);
+      }
+      events.textContent = lines.join("\n");
       events.scrollTop = events.scrollHeight;
       if (deployment.status === "running") {
         result.hidden = false;
