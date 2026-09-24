@@ -511,6 +511,15 @@ async def _build_image(
             "Registry parolası build worker'a yalnızca WSS veya loopback tunnel "
             "üzerinden gönderilebilir."
         )
+    # Name the worker and the target tag before the long-running RPC so a build
+    # that dies inside the worker can be traced to a specific host from the
+    # deployment's own progress log.
+    await append_deployment_event(
+        db,
+        deployment,
+        f"Image build worker'ı seçildi: {node.name}; hedef image {image_tag}.",
+    )
+    await db.commit()
     async with _maintain_deployment_lease(deployment.id, build.id):
         result = await connection.request(
             "image.mlflow.build",
@@ -545,13 +554,19 @@ async def _build_image(
         await append_deployment_event(db, deployment, "Model image oluşturuldu; checksum kataloğu hazırlanıyor.", "success")
         await db.commit()
 
-        metadata = await asyncio.to_thread(
-            import_registry_image,
-            image_ref=image_tag,
-            source_ref=image_tag,
-            username=registry.username,
-            password=registry.password,
-        )
+        try:
+            metadata = await asyncio.to_thread(
+                import_registry_image,
+                image_ref=image_tag,
+                source_ref=image_tag,
+                username=registry.username,
+                password=registry.password,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Worker image'ı {image_tag} olarak push etti ancak controller "
+                f"registry'den çekemedi: {exc}"
+            ) from exc
     await _assert_deployment_lease(db, deployment)
     image = WorkspaceImage(
         id=str(metadata["id"]),
@@ -766,6 +781,36 @@ async def process_mlflow_deployment(deployment_id: str) -> None:
                 level="error",
                 error=str(exc)[:4000],
             )
+            # The generic stage message alone leaves the progress log
+            # undiagnosable, so replay the underlying reason (for image builds
+            # this is the tail of the worker's build output) as its own event.
+            await _append_failure_detail(db, deployment, exc)
+
+
+_FAILURE_DETAIL_LIMIT = 900
+
+
+async def _append_failure_detail(
+    db,
+    deployment: MlflowDeployment,
+    exc: BaseException,
+) -> None:
+    detail = str(exc).strip()
+    if not detail:
+        detail = exc.__class__.__name__
+    label = "Hata ayrıntısı"
+    if len(detail) > _FAILURE_DETAIL_LIMIT:
+        detail = detail[-_FAILURE_DETAIL_LIMIT:]
+        label = f"Hata ayrıntısı (son {_FAILURE_DETAIL_LIMIT} karakter)"
+    try:
+        await append_deployment_event(db, deployment, f"{label}: {detail}", "error")
+        await db.commit()
+    except Exception:  # pragma: no cover - diagnostics must never mask a failure
+        logger.exception(
+            "Could not record failure detail for MLflow deployment %s",
+            deployment.id,
+        )
+        await db.rollback()
 
 
 async def _recover_stale_deployment(db, deployment: MlflowDeployment) -> None:

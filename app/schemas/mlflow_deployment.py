@@ -48,6 +48,9 @@ class MlflowDeploymentOut(BaseModel):
     status: MlflowDeploymentStatus
     status_message: str
     error_message: str | None = None
+    build_status: str | None = None
+    build_status_message: str | None = None
+    build_error_message: str | None = None
     created_at: datetime
     updated_at: datetime
     endpoint_url: str

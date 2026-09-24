@@ -15,7 +15,7 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:{{PROJECT_DIR}}/.venv/bin
 
 LimitNOFILE=65535
 TimeoutStopSec=15

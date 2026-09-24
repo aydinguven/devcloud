@@ -1,14 +1,16 @@
 import asyncio
 import base64
+import importlib.util
 import json
 import logging
 import os
 import re
 import shutil
 import socket
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -43,6 +45,67 @@ def _redacted_command(cmd: list[str]) -> str:
     return " ".join(redacted)
 
 
+class MlflowCliUnavailable(Exception):
+    """Raised when the host has no usable MLflow command line interface."""
+
+
+def _mlflow_module_available(name: str = "mlflow") -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def resolve_mlflow_cli(
+    configured_bin: str | None = None,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    interpreter: str | None = None,
+    module_available: Callable[[str], bool] = _mlflow_module_available,
+) -> list[str]:
+    """Return the argv prefix that runs the MLflow CLI on this host.
+
+    Workers are started as ``<project>/.venv/bin/python -m app.worker_agent``
+    while systemd hands them a fixed PATH that excludes the virtualenv, so the
+    default bare ``mlflow`` name is regularly unresolvable even though the
+    package is installed right next to the running interpreter. Probe the
+    configured binary first, then the interpreter's own ``bin/`` directory, and
+    finally fall back to ``<python> -m mlflow`` so an image build never dies on
+    a PATH detail.
+    """
+    configured = (
+        settings.MLFLOW_BIN if configured_bin is None else configured_bin
+    ).strip()
+    python = interpreter or sys.executable
+    attempted: list[str] = []
+
+    if configured:
+        attempted.append(configured)
+        if os.sep in configured:
+            candidate = Path(configured)
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return [str(candidate)]
+        else:
+            resolved = which(configured)
+            if resolved:
+                return [resolved]
+
+    if python:
+        sibling = Path(python).parent / (Path(configured).name or "mlflow")
+        attempted.append(str(sibling))
+        if sibling.is_file() and os.access(sibling, os.X_OK):
+            return [str(sibling)]
+        attempted.append(f"{python} -m mlflow")
+        if module_available("mlflow"):
+            return [python, "-m", "mlflow"]
+
+    raise MlflowCliUnavailable(
+        "MLflow komut satırı aracı build worker'ında bulunamadı. Denenen yollar: "
+        + ", ".join(attempted or ["mlflow"])
+        + ". Worker'ın sanal ortamında 'pip install -r requirements.txt' "
+        "çalıştırın veya MLFLOW_BIN ayarını mlflow çalıştırılabilirinin tam "
+        "yoluna ayarlayın."
+    )
 
 
 class PodmanExecutionError(Exception):
@@ -797,24 +860,67 @@ class PodmanService:
                     redacted = redacted.replace(secret, "<redacted>")
             return redacted[-200_000:]
 
-        async def run_process(*arguments: str, cwd: str | None = None) -> tuple[int, str]:
-            process = await asyncio.create_subprocess_exec(
-                *arguments,
-                cwd=cwd,
-                env=process_environment,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
+        def phase(title: str) -> str:
+            return f"===== {title} ====="
+
+        async def run_process(*arguments: str) -> tuple[int, str]:
+            """Run one build step, always returning its output instead of raising.
+
+            A build step that raises escapes to the agent command dispatcher,
+            which reports only ``str(exc)`` and leaves the build row without any
+            log tail. Returning ``(code, output)`` for launch failures and
+            timeouts alike keeps every diagnostic attached to the build.
+            """
+            with tempfile.TemporaryFile() as output_file:
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *arguments,
+                        env=process_environment,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=output_file,
+                        stderr=asyncio.subprocess.STDOUT,
+                    )
+                except OSError as exc:
+                    return 127, redact(f"{arguments[0]} başlatılamadı: {exc}")
+                timed_out = False
+                try:
+                    return_code = await asyncio.wait_for(
+                        process.wait(),
+                        timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+                    )
+                except TimeoutError:
+                    timed_out = True
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    return_code = await process.wait()
+                output_file.seek(0)
+                output = output_file.read().decode("utf-8", errors="replace")
+                if timed_out:
+                    output = (
+                        f"{output}\nAdım "
+                        f"{settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS}s sonra "
+                        "zaman aşımına uğradı ve durduruldu."
+                    )
+                return (124 if timed_out else return_code or 0), redact(output)
+
+        async def run_podman(*arguments: str) -> tuple[int, str]:
+            """Run podman, turning execution errors into reportable output."""
             try:
-                output, _ = await asyncio.wait_for(
-                    process.communicate(),
+                code, stdout, stderr = await self.run_cmd(
+                    *arguments,
                     timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
                 )
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-                raise RuntimeError("MLflow model image build timed out.")
-            return process.returncode or 0, redact(output.decode("utf-8", errors="replace"))
+            except PodmanExecutionError as exc:
+                return 125, redact(str(exc))
+            return code, redact("\n".join(filter(None, [stdout, stderr])))
+
+        try:
+            mlflow_cli = resolve_mlflow_cli()
+        except MlflowCliUnavailable as exc:
+            logger.error("MLflow model image build cannot start: %s", exc)
+            return False, f"{phase('mlflow cli')}\n{exc}"
 
         with tempfile.TemporaryDirectory(prefix="devcloud-mlflow-build-") as tmpdir:
             os.chmod(tmpdir, 0o700)
@@ -826,8 +932,8 @@ class PodmanService:
                 os.chmod(ca_path, 0o600)
                 process_environment["MLFLOW_TRACKING_SERVER_CERT_PATH"] = str(ca_path)
                 process_environment["REQUESTS_CA_BUNDLE"] = str(ca_path)
-            code, generate_logs = await run_process(
-                settings.MLFLOW_BIN,
+            code, generate_output = await run_process(
+                *mlflow_cli,
                 "models",
                 "generate-dockerfile",
                 "--model-uri",
@@ -835,18 +941,51 @@ class PodmanService:
                 "-d",
                 str(build_directory),
             )
-            if code != 0:
-                return False, generate_logs
-            build_code, build_stdout, build_stderr = await self.run_cmd(
-                "build",
-                "-t",
-                image_tag,
-                str(build_directory),
-                timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+            generate_logs = "\n".join(
+                [
+                    phase(f"mlflow models generate-dockerfile ({model_uri})"),
+                    f"$ {' '.join(mlflow_cli)} models generate-dockerfile",
+                    generate_output,
+                ]
             )
-            logs = redact("\n".join(filter(None, [generate_logs, build_stdout, build_stderr])))
+            if code != 0:
+                return False, redact(
+                    f"{generate_logs}\nAdım {code} çıkış kodu ile başarısız oldu; "
+                    "model artifact'ları indirilemedi."
+                )
+            recipe = next(
+                (
+                    candidate
+                    for candidate in ("Dockerfile", "Containerfile")
+                    if (build_directory / candidate).is_file()
+                ),
+                None,
+            )
+            if recipe is None:
+                return False, redact(
+                    f"{generate_logs}\nMLflow başarı bildirdi ancak "
+                    f"{build_directory} altında Dockerfile üretilmedi."
+                )
+
+            build_code, build_output = await run_podman(
+                "build", "-t", image_tag, str(build_directory)
+            )
+            logs = redact(
+                "\n".join(
+                    filter(
+                        None,
+                        [
+                            generate_logs,
+                            phase(f"podman build -t {image_tag} ({recipe})"),
+                            build_output,
+                        ],
+                    )
+                )
+            )
             if build_code != 0:
-                return False, logs
+                return False, redact(
+                    f"{logs}\nImage build {build_code} çıkış kodu ile başarısız oldu."
+                )
 
             auth_path: Path | None = None
             try:
@@ -864,12 +1003,21 @@ class PodmanService:
                     os.chmod(auth_path, 0o600)
                     push_args.extend(["--authfile", str(auth_path)])
                 push_args.append(image_tag)
-                push_code, push_stdout, push_stderr = await self.run_cmd(
-                    *push_args,
-                    timeout=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS,
+                push_code, push_output = await run_podman(*push_args)
+                logs = redact(
+                    "\n".join(
+                        filter(
+                            None,
+                            [logs, phase(f"podman push {image_tag}"), push_output],
+                        )
+                    )
                 )
-                logs = redact("\n".join(filter(None, [logs, push_stdout, push_stderr])))
-                return push_code == 0, logs
+                if push_code != 0:
+                    return False, redact(
+                        f"{logs}\nImage push {push_code} çıkış kodu ile başarısız "
+                        "oldu; Model Container Registry erişimini doğrulayın."
+                    )
+                return True, logs
             finally:
                 if auth_path:
                     auth_path.unlink(missing_ok=True)

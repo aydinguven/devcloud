@@ -13,7 +13,7 @@ RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/devcloud/worker.env
 Environment=XDG_RUNTIME_DIR=/run/user/%U
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:{{PROJECT_DIR}}/.venv/bin
 ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U
 LimitNOFILE=65535
 TimeoutStopSec=15
