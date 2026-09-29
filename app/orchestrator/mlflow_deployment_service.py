@@ -39,7 +39,7 @@ from app.models.mlflow_deployment import (
 )
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.mlflow_settings import MlflowSettings
-from app.models.node import Node
+from app.models.node import Node, NodeStatus
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.workspace_image import WorkspaceImage
@@ -598,6 +598,67 @@ async def _build_image(
     return build
 
 
+# A fresh model image is a multi-GB archive that every worker pulls from the
+# controller on its own 30 s poll, verifies and `podman load`s before it can be
+# scheduled there, so a deployment must wait on real transfer progress rather
+# than a fixed short window.
+_IMAGE_SYNC_TIMEOUT_SECONDS = 1800  # matches the worker's podman load timeout
+_IMAGE_SYNC_STALL_SECONDS = 300  # no worker moved the transfer forward
+_IMAGE_READY_CAPACITY_SECONDS = 120  # image is on a worker; only capacity is missing
+_IMAGE_SYNC_POLL_SECONDS = 5
+_IMAGE_SYNC_STATE_RANK = {"queued": 0, "downloading": 1, "verifying": 2, "loading": 3}
+_IMAGE_SYNC_STATE_LABELS = {
+    "queued": "image sırada",
+    "downloading": "image indiriliyor",
+    "verifying": "image doğrulanıyor",
+    "loading": "image Podman'a yükleniyor",
+}
+
+
+def _node_capabilities(node: Node) -> dict:
+    try:
+        capabilities = json.loads(node.capabilities_json or "{}")
+    except ValueError:
+        return {}
+    return capabilities if isinstance(capabilities, dict) else {}
+
+
+def _image_sync_snapshot(
+    nodes: list[Node],
+    image_id: str,
+    image_ref: str,
+    image_sha256: str,
+) -> tuple[bool, list[tuple[str, dict]]]:
+    """Return whether any worker holds the image, plus per-worker sync progress."""
+    ready = False
+    progress: list[tuple[str, dict]] = []
+    for node in nodes:
+        capabilities = _node_capabilities(node)
+        images = capabilities.get("workspace_images")
+        if isinstance(images, list) and any(
+            isinstance(item, dict)
+            and item.get("image_ref") == image_ref
+            and item.get("sha256") == image_sha256
+            for item in images
+        ):
+            ready = True
+            continue
+        sync = capabilities.get("workspace_image_sync")
+        if not isinstance(sync, list):
+            continue
+        entry = next(
+            (
+                item
+                for item in sync
+                if isinstance(item, dict) and item.get("id") == image_id
+            ),
+            None,
+        )
+        if entry is not None:
+            progress.append((node.name, entry))
+    return ready, progress
+
+
 async def _reserve_when_image_synced(
     db,
     deployment: MlflowDeployment,
@@ -609,6 +670,14 @@ async def _reserve_when_image_synced(
     flavor = await resolve_flavor(db, deployment.flavor_id)
     if image is None or user is None or template is None or flavor is None:
         raise RuntimeError("Deployment çalışma alanı girdileri artık bulunamıyor.")
+    # A failed attempt rolls the session back, which expires every loaded row;
+    # touching an expired row on AsyncSession raises instead of reloading. Keep
+    # plain keys and reload the rows at the start of each attempt.
+    image_id = image.id
+    image_ref = image.image_ref
+    image_sha256 = image.sha256
+    image_size = int(image.size or 0)
+    user_id = user.id
     # Deployment names are unique among a user's deployments but may still
     # collide with a workspace they created by hand, so take the next variant
     # rather than failing a deployment that is otherwise ready to serve.
@@ -621,10 +690,24 @@ async def _reserve_when_image_synced(
         flavor_id=flavor.id,
         auto_stop_minutes=deployment.auto_stop_minutes,
     )
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    last_progress_at = started
+    ready_since: float | None = None
+    best: dict[str, tuple[int, int]] = {}
+    reported: dict[str, str] = {}
+    worker_error = ""
     last_error: Exception | None = None
-    for _ in range(60):
+    while True:
         try:
             await _assert_deployment_lease(db, deployment)
+            image = await db.get(WorkspaceImage, image_id, populate_existing=True)
+            user = await db.get(User, user_id, populate_existing=True)
+            if image is None or not image.enabled or user is None:
+                raise RuntimeError(
+                    "Deployment çalışma alanı girdileri artık bulunamıyor."
+                )
             workspace, placement = await schedule_and_reserve_workspace(
                 db,
                 data=request,
@@ -638,11 +721,103 @@ async def _reserve_when_image_synced(
         except NoSchedulableNode as exc:
             last_error = exc
             await db.rollback()
-            await asyncio.sleep(2)
-    raise RuntimeError(
-        "Model image worker'lara zamanında senkronize edilemedi: "
-        f"{last_error or 'uygun worker yok'}"
-    )
+        # Reloads the rolled-back deployment row and stops if another
+        # controller process took the job over meanwhile.
+        await _assert_deployment_lease(db, deployment)
+
+        now = loop.time()
+        nodes = [
+            node
+            for node in (
+                await db.execute(
+                    select(Node)
+                    .where(Node.enabled.is_(True), Node.status == NodeStatus.ONLINE)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalars().all()
+            if agent_manager.is_connected(node.id)
+        ]
+        ready, progress = _image_sync_snapshot(
+            nodes, image_id, image_ref, image_sha256
+        )
+        if ready:
+            # The image reached a worker, so what is missing now is CPU/RAM/GPU
+            # capacity; allow a short window for it to free up.
+            ready_since = ready_since if ready_since is not None else now
+            if now - ready_since >= _IMAGE_READY_CAPACITY_SECONDS:
+                raise RuntimeError(
+                    "Model image worker'da hazır ancak kaynak ayrılamadı: "
+                    f"{last_error or 'uygun worker yok'}"
+                )
+        else:
+            ready_since = None
+            in_final_steps = False
+            for node_name, entry in progress:
+                state = str(entry.get("state") or "")
+                downloaded = int(entry.get("downloaded_bytes") or 0)
+                total = int(entry.get("total_bytes") or image_size or 0)
+                if state == "failed":
+                    worker_error = (
+                        f"{node_name}: {entry.get('error') or 'bilinmeyen hata'}"
+                    )
+                    label = f"failed:{worker_error}"
+                    if reported.get(node_name) != label:
+                        reported[node_name] = label
+                        await append_deployment_event(
+                            db,
+                            deployment,
+                            f"{node_name}: image senkronizasyonu başarısız, "
+                            f"worker yeniden deneyecek: {worker_error}",
+                            "warning",
+                        )
+                        await db.commit()
+                    continue
+                rank = _IMAGE_SYNC_STATE_RANK.get(state)
+                if rank is None:
+                    continue
+                in_final_steps = in_final_steps or state in {"verifying", "loading"}
+                # A retry after a failure restarts at zero bytes; only count
+                # getting further than this worker has ever got as progress.
+                marker = (rank, downloaded)
+                if marker > best.get(node_name, (-1, -1)):
+                    best[node_name] = marker
+                    last_progress_at = now
+                percent = (
+                    min(100, downloaded * 100 // total)
+                    if state == "downloading" and total
+                    else None
+                )
+                bucket = (
+                    f"{state}:{percent // 25}" if percent is not None else state
+                )
+                if reported.get(node_name) != bucket:
+                    reported[node_name] = bucket
+                    message = f"{node_name}: {_IMAGE_SYNC_STATE_LABELS[state]}"
+                    if percent is not None:
+                        message += f" (%{percent})"
+                    await append_deployment_event(db, deployment, message + ".")
+                    await db.commit()
+            # Verification and `podman load` report no byte progress, and the
+            # worker bounds them itself, so only the overall timeout applies.
+            if (
+                not in_final_steps
+                and now - last_progress_at >= _IMAGE_SYNC_STALL_SECONDS
+            ):
+                raise RuntimeError(
+                    "Model image hiçbir worker'a senkronize edilemedi; "
+                    f"{_IMAGE_SYNC_STALL_SECONDS // 60} dakikadır ilerleme yok. "
+                    + (
+                        f"Son worker hatası: {worker_error}"
+                        if worker_error
+                        else f"Zamanlayıcı: {last_error or 'uygun worker yok'}"
+                    )
+                )
+        if now - started >= _IMAGE_SYNC_TIMEOUT_SECONDS:
+            raise RuntimeError(
+                "Model image worker'lara zamanında senkronize edilemedi: "
+                f"{worker_error or last_error or 'uygun worker yok'}"
+            )
+        await asyncio.sleep(_IMAGE_SYNC_POLL_SECONDS)
 
 
 async def process_mlflow_deployment(deployment_id: str) -> None:
@@ -700,9 +875,11 @@ async def process_mlflow_deployment(deployment_id: str) -> None:
                 MlflowDeploymentStatus.SCHEDULING,
                 "Model image worker'lara senkronize ediliyor ve kaynak ayrılıyor.",
             )
-            workspace, placement, template, flavor = await _reserve_when_image_synced(
-                db, deployment, build
-            )
+            # The wait can outlast the 5-minute lease, so keep renewing it.
+            async with _maintain_deployment_lease(deployment.id):
+                workspace, placement, template, flavor = (
+                    await _reserve_when_image_synced(db, deployment, build)
+                )
             deployment.workspace_id = workspace.id
             await set_deployment_stage(
                 db,
