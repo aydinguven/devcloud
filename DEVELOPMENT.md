@@ -3,7 +3,8 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest tag `v3.9.2`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest tag `v3.9.2` (3.9.3 in preparation).
+- Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
 - Tests: `.venv\Scripts\python -m pytest -q`.
@@ -12,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | Committed on local `main` (also on `fix/mlflow-deployment-image-sync-wait`); not yet on `origin/main` | `main` | First deployment of a newly built model image fails at "Model image worker'lara senkronize ediliyor ve kaynak ayrılıyor" | Aydin runs `git push origin main` (agents may not push to `main`), or merges the pushed feature branch on GitHub; then deploy and test a new model version on a worker |
+| Kiro | Image-sync fix merged to `main` (PR #26); release 3.9.3 PR open | `release/3.9.3` | Release 3.9.3 with the MLflow deployment image-sync fix | After the release PR merges, push tag `v3.9.3` on the merged `main` commit, watch `release-platform.yml`, then update the server and deploy a new model version on a worker |
 
 ## Decisions
 
@@ -36,4 +37,4 @@
 
 ## Session log
 
-- 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; committed to local `main`.
+- 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; merged as PR #26. Prepared release 3.9.3.
