@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest tag `v3.9.2` (3.9.3 in preparation).
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.9.2`. Tag `v3.9.3` exists but its release run was cancelled (CI broken by SQLAlchemy 2.1, see known issues); 3.9.4 supersedes it.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | Image-sync fix merged to `main` (PR #26); release 3.9.3 PR open | `release/3.9.3` | Release 3.9.3 with the MLflow deployment image-sync fix | After the release PR merges, push tag `v3.9.3` on the merged `main` commit, watch `release-platform.yml`, then update the server and deploy a new model version on a worker |
+| Kiro | Image-sync fix merged (PR #26), version 3.9.3 merged (PR #27); greenlet fix + 3.9.4 PR open | `fix/sqlalchemy-asyncio-greenlet` | Release 3.9.4: MLflow image-sync fix plus `sqlalchemy[asyncio]` so fresh installs get `greenlet` | After the PR merges and CI on `main` is green, push tag `v3.9.4` on the merged commit, watch `release-platform.yml`, then update the server and deploy a new model version on a worker |
 
 ## Decisions
 
@@ -21,7 +21,7 @@
 
 ## Known issues and risks
 
-- `requirements.txt` uses open ranges. A fresh install resolves SQLAlchemy 2.1.x, which no longer installs `greenlet`, so the async engine fails to import. Pin versions or use `sqlalchemy[asyncio]`. Check what the offline wheel bundle ships.
+- `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
 - The deployment background worker processes jobs one at a time, so a long image-sync wait delays other queued deployments. This was already the case during image builds.
 - `tests/test_mlflow_model_build.py::test_worker_unit_exposes_the_virtualenv_console_scripts_on_path` fails on Windows only (it asserts `os.sep` inside a Linux unit file).
 
@@ -37,4 +37,4 @@
 
 ## Session log
 
-- 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; merged as PR #26. Prepared release 3.9.3.
+- 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; merged as PR #26. Prepared 3.9.3 (PR #27); its tag build failed on the SQLAlchemy 2.1 greenlet issue, so fixed that and prepared 3.9.4.
