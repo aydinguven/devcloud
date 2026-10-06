@@ -1,6 +1,7 @@
 import io
 import hashlib
 import json
+import re
 import sqlite3
 import subprocess
 import sys
@@ -601,6 +602,85 @@ def test_failed_rollback_keeps_the_original_failure_visible():
     message = str(raised.value)
     assert message.startswith("original step failure")
     assert "Automatic rollback also failed: rollback failure" in message
+
+
+def test_quadlet_templates_only_use_placeholders_older_installers_render():
+    # Updates from an installed release may render the new templates with the
+    # old installer; an unknown placeholder is copied verbatim and Quadlet
+    # then drops the unit ("Unit ... not found"). Add new keys in code.
+    legacy = {
+        "{{CONTROLLER_IMAGE}}",
+        "{{POSTGRES_IMAGE}}",
+        "{{WORKER_IMAGE}}",
+        "{{WORKSPACE_ROOT}}",
+        "{{DATABASE_DEPENDENCIES}}",
+    }
+    root = Path(__file__).resolve().parents[1] / "deploy/container/quadlet"
+    for template in root.iterdir():
+        found = set(re.findall(r"\{\{[A-Z0-9_]+\}\}", template.read_text(encoding="utf-8")))
+        assert found <= legacy, f"{template.name}: {sorted(found - legacy)}"
+
+
+def test_bundled_database_address_is_injected_into_container_sections(tmp_path):
+    runner = _loaded_units_runner()
+    base_run = runner.run
+
+    def run(command, **kwargs):
+        if command[:3] == ["podman", "network", "inspect"]:
+            runner.commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "10.89.0.0/24 ", "")
+        return base_run(command, **kwargs)
+
+    runner.run = run
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    engine._install_services(candidate)
+
+    quadlets = tmp_path / "etc/containers/systemd"
+    database = (quadlets / "devcloud-postgresql.container").read_text(encoding="utf-8")
+    controller = (quadlets / "devcloud-controller.container").read_text(encoding="utf-8")
+    for unit, line in (
+        (database, "IP=10.89.0.250"),
+        (controller, "AddHost=devcloud-postgresql:10.89.0.250"),
+    ):
+        assert "{{" not in unit
+        container = unit.split("[Container]", 1)[1].split("\n[", 1)[0]
+        assert line in container.splitlines()
+
+
+def test_update_runs_the_target_release_installer(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.installer import cli
+
+    target = tmp_path / "release"
+    (target / "app/installer").mkdir(parents=True)
+    (target / "app/installer/cli.py").write_text("", encoding="utf-8")
+    args = SimpleNamespace(dry_run=False, yes=True, filesystem_root="/")
+    monkeypatch.delenv("DEVCLOUD_INSTALLER_DELEGATED", raising=False)
+    assert cli._should_delegate(target, args) is True
+    own_root = Path(cli.__file__).resolve().parents[2]
+    assert cli._should_delegate(own_root, args) is False
+    assert cli._should_delegate(target, SimpleNamespace(dry_run=True, yes=True, filesystem_root="/")) is False
+
+    calls = []
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs))
+        or subprocess.CompletedProcess(command, 0),
+    )
+    assert cli._delegate_update(target, args) == 0
+    command, kwargs = calls[0]
+    assert command[1:] == [
+        "-m", "app.installer", "--yes", "update", "--prepared-root", str(target.resolve())
+    ]
+    assert kwargs["env"]["PYTHONPATH"] == str(target.resolve())
+    assert kwargs["env"]["DEVCLOUD_INSTALLER_DELEGATED"] == "1"
+    monkeypatch.setenv("DEVCLOUD_INSTALLER_DELEGATED", "1")
+    assert cli._should_delegate(target, args) is False
 
 
 def test_container_quadlets_render_image_and_database_dependencies(tmp_path):

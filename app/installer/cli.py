@@ -140,6 +140,8 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("/etc/devcloud/release-keyring.gpg"),
     )
+    # Internal: apply an already verified, extracted release with this code.
+    update.add_argument("--prepared-root", type=Path, help=argparse.SUPPRESS)
 
     commands.add_parser("repair", help="repair configuration, permissions, SELinux, and services")
     commands.add_parser("status", help="show installation and service state")
@@ -159,6 +161,35 @@ def _parser() -> argparse.ArgumentParser:
         help="also permanently remove configuration and data",
     )
     return parser
+
+
+def _should_delegate(target_root: Path, args) -> bool:
+    """Run the target release's installer unless it is this very code."""
+    if args.dry_run or os.environ.get("DEVCLOUD_INSTALLER_DELEGATED") == "1":
+        return False
+    own_root = Path(__file__).resolve().parents[2]
+    return (
+        target_root.resolve() != own_root
+        and (target_root / "app" / "installer" / "cli.py").is_file()
+    )
+
+
+def _delegate_update(target_root: Path, args) -> int:
+    import subprocess
+    import sys
+
+    command = [sys.executable, "-m", "app.installer"]
+    if args.yes:
+        command.append("--yes")
+    if args.filesystem_root != "/":
+        command.extend(["--filesystem-root", str(args.filesystem_root)])
+    command.extend(["update", "--prepared-root", str(target_root.resolve())])
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(target_root.resolve()),
+        "DEVCLOUD_INSTALLER_DELEGATED": "1",
+    }
+    return subprocess.run(command, cwd="/", env=env, check=False).returncode
 
 
 def _config_from_state(engine: InstallerEngine) -> InstallConfig:
@@ -303,6 +334,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
+        if command == "update" and getattr(args, "prepared_root", None):
+            update_engine = InstallerEngine(
+                project_root=args.prepared_root.resolve(),
+                filesystem_root=Path(args.filesystem_root),
+                runner=runner,
+            )
+            applied = _execute_plan(
+                update_engine.build_update_plan(config),
+                ui,
+                assume_yes=args.yes,
+            )
+            return 0 if applied else 1
+
         if command == "update":
             bundle = getattr(args, "bundle", None)
             source_type = getattr(args, "source_type", None)
@@ -380,16 +424,27 @@ def main(argv: list[str] | None = None) -> int:
                         if (prepared.root / "platform-release.json").is_file()
                         else None
                     )
-                    update_engine = InstallerEngine(
-                        project_root=prepared.root,
-                        filesystem_root=Path(args.filesystem_root),
-                        runner=runner,
-                    )
-                    applied = _execute_plan(
-                        update_engine.build_update_plan(config),
-                        ui,
-                        assume_yes=args.yes,
-                    )
+                    delegated = _should_delegate(prepared.root, args)
+                    if delegated:
+                        # The target release renders its own templates and
+                        # units; the installed code may predate them.
+                        applied = _delegate_update(prepared.root, args) == 0
+                    else:
+                        update_engine = InstallerEngine(
+                            project_root=prepared.root,
+                            filesystem_root=Path(args.filesystem_root),
+                            runner=runner,
+                        )
+                        applied = _execute_plan(
+                            update_engine.build_update_plan(config),
+                            ui,
+                            assume_yes=args.yes,
+                        )
+                    if delegated and not applied:
+                        raise InstallerError(
+                            "The target release installer did not apply the update; "
+                            "see its output above."
+                        )
                     if applied and platform_release and config.installs_controller:
                         published = publish_platform_bundle(
                             resolved_bundle,

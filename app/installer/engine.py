@@ -1860,13 +1860,21 @@ class InstallerEngine:
                 rendered = rendered.replace(
                     "{{DATABASE_DEPENDENCIES}}", dependencies
                 )
-                rendered = rendered.replace(
-                    "{{POSTGRES_STATIC_IP}}",
-                    f"IP={database_ip}" if database_ip else "",
-                ).replace(
-                    "{{DATABASE_HOSTS}}",
-                    f"AddHost=devcloud-postgresql:{database_ip}" if database_ip else "",
-                )
+                # Inject the pinned database address in code instead of a
+                # template placeholder: an older installer applying this
+                # release would copy an unknown placeholder verbatim, and
+                # Quadlet then silently drops the whole unit.
+                if database_ip and target_name == "devcloud-postgresql.container":
+                    rendered = self._add_container_key(rendered, f"IP={database_ip}")
+                elif database_ip and target_name == "devcloud-controller.container":
+                    rendered = self._add_container_key(
+                        rendered, f"AddHost=devcloud-postgresql:{database_ip}"
+                    )
+                leftover = re.search(r"\{\{[A-Z0-9_]+\}\}", rendered)
+                if leftover:
+                    raise InstallerError(
+                        f"{source_name} still contains {leftover.group(0)} after rendering."
+                    )
                 if self.runner.dry_run:
                     self.runner.run(
                         ["install", "-m", "0644", str(source), str(quadlet_dir / target_name)]
@@ -1880,6 +1888,24 @@ class InstallerEngine:
         self.runner.run(["systemctl", "daemon-reload"])
         if config.containerized_controller or config.containerized_worker:
             self._verify_generated_units(config)
+
+    @staticmethod
+    def _add_container_key(rendered: str, line: str) -> str:
+        """Append ``line`` to the [Container] section unless it is already set."""
+        lines = rendered.splitlines()
+        if line in (item.strip() for item in lines):
+            return rendered
+        try:
+            start = lines.index("[Container]")
+        except ValueError as exc:
+            raise InstallerError("Quadlet template has no [Container] section.") from exc
+        end = start + 1
+        while end < len(lines) and not lines[end].startswith("["):
+            end += 1
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, line)
+        return "\n".join(lines) + ("\n" if rendered.endswith("\n") else "")
 
     def _generated_unit_names(self, config: InstallConfig) -> list[str]:
         names: list[str] = []

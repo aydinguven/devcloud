@@ -13,10 +13,8 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | 3.9.5 merged (PR #29) | — | Controller DB access independent of Podman DNS | Tag `v3.9.5`/update IDMVAIFACT1, then delete the manual Quadlet drop-ins (see Latest handoff) |
-| Kiro | Merged (PR #30) | — | 3.10.0: admin users grouped by AD `department`, per-member team quota, per-field user override, editable default group (schema v25) | The update on IDMVAIFACT1 failed (see Latest handoff) |
-| Kiro | PR open | `fix/quadlet-podman-compat` | 3.10.1: fail early with the Quadlet generator output when a rendered unit is skipped; keep the original error if the rollback also fails | Get the host's Quadlet dry-run output, fix the root cause |
-| Kiro | Spec written | `feat/genai-litellm` | GenAI tab: self-service LiteLLM user + API key, later a per-user workspace key | Phase 1 implementation |
+| Kiro | PR open | `fix/update-template-compat` | 3.11.1: updates from older installers render the Quadlet templates correctly; future updates run the target release's installer | Merge, tag `v3.11.1`, update IDMVAIFACT1 (3.9.4), run `sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes repair` so 3.11.1 code writes `IP=`/`AddHost=`, then delete the two manual drop-ins |
+| Kiro | Phase 1 merged (PR #32) | — | GenAI tab: self-service LiteLLM user + personal key | Configure on IDMVAIFACT1 after the update; phase 2 (per-user workspace key) |
 
 ## Decisions
 
@@ -44,7 +42,7 @@
 
 ## Latest handoff
 
-2026-10-06 IDMVAIFACT1 update to 3.10.0 failed with `systemctl restart devcloud-postgresql.service` → "Unit devcloud-postgresql.service not found". This means Quadlet did not generate the unit after `daemon-reload`. 3.10.0 is the first release on that host that renders `IP=`/`AddHost=` (from 3.9.5), on top of the manual `10-static-ip.conf`/`10-db-host.conf` drop-ins. Containerized updates always run the rollback, which also restarts PostgreSQL, so the reported error may come from the rollback rather than the original step. Root cause not confirmed yet. Needed from the host: `podman --version`, `/usr/libexec/podman/quadlet -dryrun 2>&1 | tail -40`, `ls -R /etc/containers/systemd`, `systemctl status devcloud-postgresql devcloud-controller`. 3.10.1 reports the generator output and keeps the original error.
+2026-10-06 IDMVAIFACT1 update 3.9.4 -> 3.10.0 failed with "Unit devcloud-postgresql.service not found" and rolled back cleanly. Root cause (from the journal): the queued update runs the *installed* release's installer (`devcloud-setup.sh` of 3.9.4), which rendered the 3.10.0 Quadlet templates without knowing the new `{{POSTGRES_STATIC_IP}}`/`{{DATABASE_HOSTS}}` placeholders. Quadlet rejected both files ("not a key-value pair") and skipped the units. Fix in 3.11.1: templates use only placeholders every installer knows (guarded by a test), the IP/AddHost keys are injected in code, rendering fails on any leftover placeholder, and from 3.11.1 on the update re-executes the target release's own installer. Updating 3.9.4 -> 3.11.1 still uses the 3.9.4 renderer, so the units get no IP/AddHost lines; the manual drop-ins keep the pinning until `devcloud-setup.sh repair` (3.11.1 code) or a later update writes them.
 
 2026-10-06 production incident (IDMVAIFACT1, 3.9.4): logins returned intermittent HTTP 500 (`Unexpected token 'I'` on the login page), the dashboard 500'd and the worker tunnel flapped. Cause: `firewall-cmd --reload` (run by `apply_ingress.py` on every ingress apply, plus the `yum upgrade` of firewalld) removed netavark's runtime trusted-zone source `10.89.0.0/24`, so container DNS to `10.89.0.1:53` was dropped and `devcloud-postgresql` stopped resolving (`socket.gaierror`). The controller survived on one pooled connection, so `/readyz` stayed green. Restoring needed `podman network reload --all`, a restart, and manual drop-ins `/etc/containers/systemd/devcloud-postgresql.container.d/10-static-ip.conf` (`IP=10.89.0.250`) and `devcloud-controller.container.d/10-db-host.conf` (`AddHost=devcloud-postgresql:10.89.0.250`). 3.9.5 renders the same settings, so delete those two drop-ins after updating.
 
