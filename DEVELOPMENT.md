@@ -14,7 +14,9 @@
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
 | Kiro | 3.9.5 merged (PR #29) | — | Controller DB access independent of Podman DNS | Tag `v3.9.5`/update IDMVAIFACT1, then delete the manual Quadlet drop-ins (see Latest handoff) |
-| Kiro | PR open | `feat/grouped-user-quotas` | 3.10.0: admin users grouped by AD `department`, per-member team quota, per-field user override, editable default group (schema v25) | Merge, tag `v3.10.0`, update and review the Users panel |
+| Kiro | Merged (PR #30) | — | 3.10.0: admin users grouped by AD `department`, per-member team quota, per-field user override, editable default group (schema v25) | The update on IDMVAIFACT1 failed (see Latest handoff) |
+| Kiro | PR open | `fix/quadlet-podman-compat` | 3.10.1: fail early with the Quadlet generator output when a rendered unit is skipped; keep the original error if the rollback also fails | Get the host's Quadlet dry-run output, fix the root cause |
+| Kiro | Spec written | `feat/genai-litellm` | GenAI tab: self-service LiteLLM user + API key, later a per-user workspace key | Phase 1 implementation |
 
 ## Decisions
 
@@ -41,6 +43,8 @@
 - Still required: a real deployment of a new model version on a worker.
 
 ## Latest handoff
+
+2026-10-06 IDMVAIFACT1 update to 3.10.0 failed with `systemctl restart devcloud-postgresql.service` → "Unit devcloud-postgresql.service not found". This means Quadlet did not generate the unit after `daemon-reload`. 3.10.0 is the first release on that host that renders `IP=`/`AddHost=` (from 3.9.5), on top of the manual `10-static-ip.conf`/`10-db-host.conf` drop-ins. Containerized updates always run the rollback, which also restarts PostgreSQL, so the reported error may come from the rollback rather than the original step. Root cause not confirmed yet. Needed from the host: `podman --version`, `/usr/libexec/podman/quadlet -dryrun 2>&1 | tail -40`, `ls -R /etc/containers/systemd`, `systemctl status devcloud-postgresql devcloud-controller`. 3.10.1 reports the generator output and keeps the original error.
 
 2026-10-06 production incident (IDMVAIFACT1, 3.9.4): logins returned intermittent HTTP 500 (`Unexpected token 'I'` on the login page), the dashboard 500'd and the worker tunnel flapped. Cause: `firewall-cmd --reload` (run by `apply_ingress.py` on every ingress apply, plus the `yum upgrade` of firewalld) removed netavark's runtime trusted-zone source `10.89.0.0/24`, so container DNS to `10.89.0.1:53` was dropped and `devcloud-postgresql` stopped resolving (`socket.gaierror`). The controller survived on one pooled connection, so `/readyz` stayed green. Restoring needed `podman network reload --all`, a restart, and manual drop-ins `/etc/containers/systemd/devcloud-postgresql.container.d/10-static-ip.conf` (`IP=10.89.0.250`) and `devcloud-controller.container.d/10-db-host.conf` (`AddHost=devcloud-postgresql:10.89.0.250`). 3.9.5 renders the same settings, so delete those two drop-ins after updating.
 
