@@ -20,6 +20,8 @@ from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.genai_settings import GenAiSettings
+from app.models.genai_account import GenAiAccount
 from app.models.flavor_settings import FlavorSettings
 from app.models.template_settings import TemplateSettings
 
@@ -46,6 +48,8 @@ __all__ = [
     "WorkspaceImage",
     "WorkerBootstrapTicket",
     "JupyterAiSettings",
+    "GenAiSettings",
+    "GenAiAccount",
     "FlavorSettings",
     "TemplateSettings",
 ]

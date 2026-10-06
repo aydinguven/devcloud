@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initJupyterAiSettings();
   initModelContainerRegistrySettings();
   initAdminMlflowSettings();
+  initAdminGenAiSettings();
   initNodeManagement();
   initMlflowSettings();
   initDownloadSettings();
@@ -1979,6 +1980,81 @@ function initAdminMlflowSettings() {
       status.className = "quota-form-status quota-status-error";
     } finally {
       button.disabled = false;
+    }
+  });
+}
+
+function initAdminGenAiSettings() {
+  const form = document.getElementById("genai-settings-form");
+  if (!form) return;
+  const saveButton = document.getElementById("btn-save-genai");
+  const testButton = document.getElementById("btn-test-genai");
+  const status = document.getElementById("genai-form-status");
+  const badge = document.getElementById("genai-status-badge");
+  const showStatus = (message, kind = "") => {
+    status.textContent = message;
+    status.className = `quota-form-status${kind ? ` quota-status-${kind}` : ""}`;
+  };
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const adminKey = String(data.get("admin_key") || "").trim();
+    const budget = String(data.get("max_budget") || "").trim();
+    const payload = {
+      enabled: form.elements.enabled.checked,
+      base_url: String(data.get("base_url") || "").trim(),
+      admin_key: form.elements.clear_admin_key.checked ? "" : (adminKey || null),
+      validate_tls: form.elements.validate_tls.checked,
+      ca_cert_file: String(data.get("ca_cert_file") || "").trim(),
+      timeout_seconds: Number(data.get("timeout_seconds") || 15),
+      user_role: String(data.get("user_role") || ""),
+      models: String(data.get("models") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+      max_budget: budget === "" ? null : Number(budget),
+      budget_duration: String(data.get("budget_duration") || "").trim(),
+      key_duration: String(data.get("key_duration") || "").trim(),
+    };
+    saveButton.disabled = true;
+    showStatus("Kaydediliyor...");
+    try {
+      const response = await fetch("/api/admin/genai-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = Array.isArray(result.detail)
+          ? result.detail.map((item) => String(item.msg || "").replace(/^Value error, /, "")).join(" ")
+          : result.detail;
+        throw new Error(detail || `Ayarlar kaydedilemedi (${response.status})`);
+      }
+      badge.className = `badge ${result.enabled ? "badge-running" : "badge-stopped"}`;
+      badge.textContent = result.enabled ? "Etkin" : "Devre Dışı";
+      form.elements.admin_key.value = "";
+      form.elements.clear_admin_key.checked = false;
+      form.elements.admin_key.placeholder = result.has_admin_key
+        ? "Kayıtlı anahtarı korumak için boş bırakın"
+        : "aifactory kullanıcısının anahtarı";
+      showStatus("GenAI ayarları kaydedildi.", "success");
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+  testButton.addEventListener("click", async () => {
+    testButton.disabled = true;
+    showStatus("Kaydedilmiş ayarlar test ediliyor...");
+    try {
+      const response = await fetch("/api/admin/genai-settings/test", {method: "POST"});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || `Test başarısız (${response.status})`);
+      const owner = result.admin_user_id ? ` Anahtar sahibi: ${result.admin_user_id} (${result.admin_role || "rol bilinmiyor"}).` : "";
+      showStatus(`${result.message}${owner}${result.ok ? ` ${result.latency_ms} ms.` : ""}`, result.ok ? "success" : "error");
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      testButton.disabled = false;
     }
   });
 }

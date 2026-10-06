@@ -10,7 +10,7 @@ All calls send `Authorization: Bearer <aifactory admin key>`.
 
 | Purpose | Call |
 |---|---|
-| Test / admin check | `GET /key/info` (no args → the calling key is valid), then `GET /user/list?page=1&page_size=1` (succeeds only with admin rights) |
+| Test / admin check | `GET /key/info` (no args → owner of the calling key), then `GET /user/info?user_id=<owner>` → `user_role` must be `proxy_admin` (an ownerless master key counts as admin) |
 | Lookup user | `GET /user/info?user_id=<u>` → 404 if missing (older versions return 200 with `user_info: null`; treat both as missing) |
 | Create user | `POST /user/new` `{user_id, user_email, user_role?, auto_create_key: false, metadata: {source: "devcloud"}}` |
 | Create key | `POST /key/generate` `{user_id, key_alias, models?, max_budget?, budget_duration?, duration?, metadata: {source: "devcloud", purpose: "personal"\|"workspace"}}` → `key`, `token_id`/`token` |

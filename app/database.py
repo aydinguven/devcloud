@@ -300,6 +300,8 @@ async def init_db() -> None:
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401
     from app.models.jupyter_ai_settings import JupyterAiSettings  # noqa: F401
+    from app.models.genai_settings import GenAiSettings  # noqa: F401
+    from app.models.genai_account import GenAiAccount  # noqa: F401
     from app.models.flavor_settings import FlavorSettings  # noqa: F401
     from app.models.template_settings import TemplateSettings  # noqa: F401
 

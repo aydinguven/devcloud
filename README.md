@@ -297,6 +297,27 @@ update does not require a new workspace image unless its image definition or
 bundled dependencies changed. See [INSTALL.md](INSTALL.md#workspace-ai-and-the-on-prem-model-gateway)
 for the full gateway, security, and troubleshooting notes.
 
+### GenAI: personal LiteLLM API keys
+
+The **GenAI** tab lets each user create their own LiteLLM user (named after
+their lowercase DevCloud username) and a personal API key. The controller
+makes every LiteLLM call itself; browsers never see the admin credential.
+
+1. In LiteLLM, create a dedicated user such as `aifactory` with the
+   `proxy_admin` role and generate a key for it.
+2. Under **Admin > Entegrasyonlar > GenAI**, enter the LiteLLM root URL (for
+   example `http://idmvopenuit1:5003`, without `/ui`) and that key. Save, then
+   run **Bağlantıyı Test Et**. The test checks that the key's owner is
+   `proxy_admin`.
+3. Optional defaults: the user role and the budget/reset period are applied
+   when a LiteLLM user is created. The allowed models and the key lifetime are
+   applied to each new key. Empty fields mean LiteLLM's defaults apply.
+
+A key is shown once and never stored. DevCloud keeps only its LiteLLM token
+hash, so it can delete the old key on **Anahtarı yenile**. Spend is tracked per
+LiteLLM user, so usage history survives key rotation. If a LiteLLM user with
+the same id already exists, DevCloud adopts it instead of creating a new one.
+
 #### Step 4: Configure Systemd Service
 Copy and edit `deploy/devcloud.service` into `/etc/systemd/system/`:
 ```bash
