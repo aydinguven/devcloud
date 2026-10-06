@@ -540,11 +540,71 @@ def test_container_environment_files_do_not_preserve_quote_characters(tmp_path):
     assert "DATABASE_URL=postgresql+asyncpg://" in controller
 
 
-def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
+def _loaded_units_runner(missing=()):
     runner = CommandRunner()
-    runner.run = lambda command, **_kwargs: subprocess.CompletedProcess(
-        command, 0, "", ""
+
+    def run(command, **_kwargs):
+        runner.commands.append(command)
+        if command[:2] == ["systemctl", "show"]:
+            state = "not-found" if command[-1] in missing else "loaded"
+            return subprocess.CompletedProcess(command, 0, f"{state}\n", "")
+        if command[-1] == "-dryrun":
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                "",
+                "quadlet-generator[1]: converting \"devcloud-postgresql.container\": "
+                "unsupported key 'IP' in group 'Container'\n",
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    runner.run = run
+    return runner
+
+
+def test_install_services_fails_early_when_quadlet_skips_a_unit(tmp_path):
+    generator = tmp_path / "usr/libexec/podman/quadlet"
+    generator.parent.mkdir(parents=True)
+    generator.write_text("", encoding="utf-8")
+    runner = _loaded_units_runner(missing={"devcloud-postgresql.service"})
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.CONTROLLER)
+    candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
+
+    with pytest.raises(InstallerError) as raised:
+        engine._install_services(candidate)
+
+    message = str(raised.value)
+    assert "did not generate devcloud-postgresql.service" in message
+    assert "unsupported key 'IP'" in message
+    assert not any(command[:2] == ["systemctl", "restart"] for command in runner.commands)
+
+
+def test_failed_rollback_keeps_the_original_failure_visible():
+    from app.installer.engine import InstallPlan, PlanStep
+
+    def fail_step():
+        raise InstallerError("original step failure")
+
+    def fail_rollback():
+        raise InstallerError("rollback failure")
+
+    plan = InstallPlan(
+        "demo",
+        [PlanStep("step", "Fails", fail_step)],
+        on_failure=fail_rollback,
     )
+
+    with pytest.raises(InstallerError) as raised:
+        plan.execute()
+
+    message = str(raised.value)
+    assert message.startswith("original step failure")
+    assert "Automatic rollback also failed: rollback failure" in message
+
+
+def test_container_quadlets_render_image_and_database_dependencies(tmp_path):
+    runner = _loaded_units_runner()
     engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
     candidate = config(DeploymentRole.CONTROLLER)
     candidate.database_mode = DatabaseMode.BUNDLED_POSTGRESQL
