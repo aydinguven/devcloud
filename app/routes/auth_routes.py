@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.directory_settings import DirectorySettings
 from app.auth.ldap import DirectoryLoginRejected, DirectoryUnavailableError
 from app.schemas.auth import TokenResponse
+from app.quotas import user_out_for
 from app.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
 
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -97,7 +98,7 @@ async def register_user(
     
     set_session_cookie(response, token, request, timeout)
 
-    return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, token_type="bearer", user=await user_out_for(db, user))
 
 
 @auth_router.post("/login", response_model=TokenResponse)
@@ -140,7 +141,7 @@ async def login_user(
 
     set_session_cookie(response, token, request, timeout)
 
-    return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, token_type="bearer", user=await user_out_for(db, user))
 
 
 @auth_router.post("/logout")
@@ -151,9 +152,12 @@ async def logout_user(request: Request, response: Response):
 
 
 @auth_router.get("/me", response_model=UserOut)
-async def get_me(current_user: Annotated[User, Depends(get_current_user)]):
+async def get_me(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Get current authenticated user profile."""
-    return UserOut.model_validate(current_user)
+    return await user_out_for(db, current_user)
 
 
 @auth_router.put("/profile", response_model=UserOut)
@@ -192,4 +196,4 @@ async def update_profile(
     await db.commit()
     await db.refresh(current_user)
 
-    return UserOut.model_validate(current_user)
+    return await user_out_for(db, current_user)

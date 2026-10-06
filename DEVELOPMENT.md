@@ -13,8 +13,8 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | PR open | `fix/controller-db-dns-and-login-errors` | Release 3.9.5: controller DB access independent of Podman DNS, no `firewall-cmd --reload`, honest `/readyz`, login error hardening | After merge and green CI, tag `v3.9.5`, update IDMVAIFACT1, then delete the manual Quadlet drop-ins (see Latest handoff) |
-| Kiro | Not started | — | Admin users panel: collapsible AD groups with per-group quota, per-user override | Design after 3.9.5 ships |
+| Kiro | 3.9.5 merged (PR #29) | — | Controller DB access independent of Podman DNS | Tag `v3.9.5`/update IDMVAIFACT1, then delete the manual Quadlet drop-ins (see Latest handoff) |
+| Kiro | PR open | `feat/grouped-user-quotas` | 3.10.0: admin users grouped by AD `department`, per-member team quota, per-field user override, editable default group (schema v25) | Merge, tag `v3.10.0`, update and review the Users panel |
 
 ## Decisions
 
@@ -22,6 +22,8 @@
 
 - 2026-10-06: The bundled PostgreSQL gets a fixed IP (`broadcast - 5`, e.g. `10.89.0.250`) on the `devcloud` network and the controller resolves `devcloud-postgresql` through `AddHost`, so database access never depends on aardvark-dns. IPv6-only or unreadable networks keep the DNS-only behaviour.
 - 2026-10-06: Ingress changes firewalld permanently and at runtime; never `firewall-cmd --reload`, which discards netavark's runtime rules. The installer enables `netavark-firewalld-reload.service` when present.
+
+- 2026-10-06: Quotas resolve per field as user override -> team group (`users.team`, AD `department`, normalized by `app.quotas.team_key`) -> default group (`user_group_quotas.group_key = ''`). A team quota applies to each member individually, not as a shared budget. Enforcement reads only `app/quotas.py`; the legacy `users.*_quota` columns are no longer read. Migration 25 turns every legacy value that differs from the configured default into an override, so effective quotas do not change on upgrade.
 
 ## Known issues and risks
 

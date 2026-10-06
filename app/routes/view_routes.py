@@ -40,6 +40,7 @@ from app.orchestrator.templates import list_builtin_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
+from app.quotas import build_group_views, effective_quota, load_quota_groups
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
 from app.workspace_catalog import configured_flavors, configured_templates, list_enabled_flavors, list_enabled_templates
@@ -165,11 +166,13 @@ async def dashboard_page(
     nodes = (await db.execute(select(Node))).scalars().all()
     disk_usage = await get_workspace_disk_usage_by_user(workspaces)
     system_usage = get_cluster_usage(nodes)
+    quota = await effective_quota(db, current_user)
     user_usage = await asyncio.to_thread(
         get_user_usage,
         current_user,
         workspaces,
         disk_used_bytes=disk_usage.get(current_user.id, 0),
+        quota=quota,
     )
 
     flavor_catalog = []
@@ -540,15 +543,21 @@ async def admin_page(
             await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
         ).scalars().all()
         disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+        quota_groups = await load_quota_groups(db)
+        quotas = {user.id: quota_groups.resolve(user) for user in users}
+        usage_by_user = await asyncio.to_thread(
+            get_all_user_usage,
+            users,
+            workspaces,
+            disk_usage_by_user=disk_usage,
+            quotas=quotas,
+        )
         context.update(
             {
                 "all_users": users,
-                "usage_by_user": await asyncio.to_thread(
-                    get_all_user_usage,
-                    users,
-                    workspaces,
-                    disk_usage_by_user=disk_usage,
-                ),
+                "usage_by_user": usage_by_user,
+                "quotas_by_user": quotas,
+                "user_groups": build_group_views(users, quota_groups, usage_by_user),
                 "directory_settings": await db.get(DirectorySettings, 1),
             }
         )

@@ -26,6 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initWorkspaceShares();
   initSnapshotModal();
   initAdminPlatformUpdater();
+  initUserGroupFilter();
   initAdminFilters();
   initWorkspaceImageManager();
   initAdminFlavorSettings();
@@ -318,6 +319,7 @@ function initAdminFilters() {
         const haystack = item.textContent.toLocaleLowerCase("tr-TR");
         item.hidden = Boolean(query) && !haystack.includes(query);
       });
+      input.dispatchEvent(new CustomEvent("admin-filter-applied"));
     });
   });
 }
@@ -1183,51 +1185,128 @@ function initLogPolling() {
   setInterval(fetchLogs, 3000);
 }
 
-// 4. Admin per-user quota editor
+// 4. Admin quota editors: per-user overrides and per-team (group) quotas.
+// A blank field means "inherit" (team value for users, default for teams).
+function readQuotaFields(form, { allowBlank }) {
+  const fields = [
+    ["cpu_quota", "cpu_quota", 1, false],
+    ["memory_gb_quota", "memory_mb_quota", 1024, true],
+    ["disk_gb_quota", "disk_mb_quota", 1024, true],
+    ["gpu_quota", "gpu_quota", 1, true],
+  ];
+  const payload = {};
+  for (const [inputName, apiName, factor, integer] of fields) {
+    const raw = form.elements[inputName].value.trim();
+    if (raw === "") {
+      if (!allowBlank) throw new Error("Tüm alanları doldurun.");
+      payload[apiName] = null;
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) throw new Error("Geçerli sayılar girin.");
+    payload[apiName] = integer ? Math.round(value * factor) : value * factor;
+  }
+  return payload;
+}
+
+async function submitQuotaRequest(form, url, method, payload) {
+  const buttons = form.querySelectorAll("button");
+  const status = form.querySelector(".quota-form-status");
+  buttons.forEach((button) => { button.disabled = true; });
+  status.textContent = "Kaydediliyor...";
+  status.className = "quota-form-status";
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = Array.isArray(data.detail) ? data.detail.map((item) => item.msg).join(" ") : data.detail;
+      throw new Error(detail || `Kota güncellenemedi (${response.status})`);
+    }
+    status.textContent = "Kaydedildi";
+    status.className = "quota-form-status quota-status-success";
+    setTimeout(() => window.location.reload(), 650);
+  } catch (error) {
+    status.textContent = error.message;
+    status.className = "quota-form-status quota-status-error";
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+function showQuotaError(form, message) {
+  const status = form.querySelector(".quota-form-status");
+  status.textContent = message;
+  status.className = "quota-form-status quota-status-error";
+}
+
 function initQuotaForms() {
-  document.querySelectorAll(".quota-form").forEach((form) => {
-    form.addEventListener("submit", async (event) => {
+  document.querySelectorAll(".quota-form[data-user-id]").forEach((form) => {
+    const url = `/api/admin/users/${form.dataset.userId}/quota`;
+    form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const userId = form.dataset.userId;
-      const submitButton = form.querySelector('button[type="submit"]');
-      const status = form.querySelector(".quota-form-status");
-      const cpuQuota = Number(form.elements.cpu_quota.value);
-      const memoryGbQuota = Number(form.elements.memory_gb_quota.value);
-      const diskGbQuota = Number(form.elements.disk_gb_quota.value);
-      const gpuQuota = Number(form.elements.gpu_quota.value);
+      let payload;
+      try { payload = readQuotaFields(form, { allowBlank: true }); }
+      catch (error) { showQuotaError(form, error.message); return; }
+      submitQuotaRequest(form, url, "PUT", payload);
+    });
+    form.querySelector("[data-quota-reset]")?.addEventListener("click", () => {
+      submitQuotaRequest(form, url, "PUT", {
+        cpu_quota: null, memory_mb_quota: null, disk_mb_quota: null, gpu_quota: null,
+      });
+    });
+  });
 
-      if (![cpuQuota, memoryGbQuota, diskGbQuota, gpuQuota].every(Number.isFinite)) {
-        status.textContent = "Geçerli sayılar girin.";
-        status.className = "quota-form-status quota-status-error";
-        return;
-      }
+  document.querySelectorAll(".group-quota-form").forEach((form) => {
+    const isDefault = form.dataset.defaultGroup === "true";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      let payload;
+      try { payload = readQuotaFields(form, { allowBlank: !isDefault }); }
+      catch (error) { showQuotaError(form, error.message); return; }
+      submitQuotaRequest(form, "/api/admin/user-groups", "PUT", { team: form.dataset.team, ...payload });
+    });
+    form.querySelector("[data-group-quota-delete]")?.addEventListener("click", () => {
+      if (!confirm("Takım kotası kaldırılsın mı? Üyeler varsayılan kotaya döner (özel kotalar korunur).")) return;
+      submitQuotaRequest(form, `/api/admin/user-groups/${form.dataset.groupId}`, "DELETE");
+    });
+  });
+}
 
-      submitButton.disabled = true;
-      status.textContent = "Kaydediliyor...";
-      status.className = "quota-form-status";
-      try {
-        const response = await fetch(`/api/admin/users/${userId}/quota`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cpu_quota: cpuQuota,
-            memory_mb_quota: Math.round(memoryGbQuota * 1024),
-            disk_mb_quota: Math.round(diskGbQuota * 1024),
-            gpu_quota: Math.round(gpuQuota),
-          }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.detail || `Kota güncellenemedi (${response.status})`);
+// Team groups follow the user search: groups with matches open, others hide.
+// A query matching a team name shows all of its members.
+function initUserGroupFilter() {
+  document.querySelectorAll("[data-admin-group-filter]").forEach((input) => {
+    const groups = document.querySelectorAll(input.dataset.adminGroupFilter);
+    const userOpened = new WeakMap();
+    groups.forEach((group) => {
+      group.addEventListener("toggle", () => {
+        if (!input.value.trim()) userOpened.set(group, group.open);
+      });
+    });
+    input.addEventListener("admin-filter-applied", () => {
+      const query = input.value.trim().toLocaleLowerCase("tr-TR");
+      groups.forEach((group) => {
+        const cards = group.querySelectorAll(".admin-user-card");
+        if (!query) {
+          group.hidden = false;
+          cards.forEach((card) => { card.hidden = false; });
+          group.open = Boolean(userOpened.get(group));
+          return;
         }
-        status.textContent = "Kaydedildi";
-        status.className = "quota-form-status quota-status-success";
-        setTimeout(() => window.location.reload(), 650);
-      } catch (error) {
-        status.textContent = error.message;
-        status.className = "quota-form-status quota-status-error";
-        submitButton.disabled = false;
-      }
+        const name = group.querySelector(".admin-team-summary").textContent.toLocaleLowerCase("tr-TR");
+        if (name.includes(query)) {
+          cards.forEach((card) => { card.hidden = false; });
+          group.hidden = false;
+          group.open = cards.length > 0;
+          return;
+        }
+        const matches = Array.from(cards).some((card) => !card.hidden);
+        group.hidden = !matches;
+        group.open = matches;
+      });
     });
   });
 }

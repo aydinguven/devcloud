@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 24
+CURRENT_SCHEMA_VERSION = 25
 
 
 class MigrationError(RuntimeError):
@@ -393,6 +393,73 @@ async def _add_directory_hierarchy_fields(conn) -> None:
                 "ADD COLUMN organization_unit_attribute "
                 "VARCHAR(128) NOT NULL DEFAULT ''"
             )
+        )
+
+
+_QUOTA_OVERRIDE_COLUMNS = {
+    "cpu_quota": "FLOAT",
+    "memory_mb_quota": "INTEGER",
+    "disk_mb_quota": "INTEGER",
+    "gpu_quota": "INTEGER",
+}
+
+
+async def _add_team_quota_groups(conn) -> None:
+    """Introduce override -> team group -> default quota resolution.
+
+    Every user keeps exactly the quota they had: a legacy value that differs
+    from the configured default becomes an explicit override, and the current
+    defaults seed the editable default group.
+    """
+    user_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("users")
+        }
+    )
+    for name, column_type in _QUOTA_OVERRIDE_COLUMNS.items():
+        if f"{name}_override" not in user_columns:
+            await conn.execute(
+                text(f"ALTER TABLE users ADD COLUMN {name}_override {column_type}")
+            )
+
+    defaults = {
+        "cpu_quota": float(settings.DEFAULT_USER_CPU_QUOTA),
+        "memory_mb_quota": int(settings.DEFAULT_USER_MEMORY_MB_QUOTA),
+        "disk_mb_quota": int(settings.DEFAULT_USER_DISK_MB_QUOTA),
+        "gpu_quota": int(settings.DEFAULT_USER_GPU_QUOTA),
+    }
+    existing_default = (
+        await conn.execute(
+            text("SELECT id FROM user_group_quotas WHERE group_key = ''")
+        )
+    ).first()
+    if existing_default is None:
+        now = datetime.now(timezone.utc)
+        await conn.execute(
+            text(
+                "INSERT INTO user_group_quotas (group_key, display_name, "
+                "cpu_quota, memory_mb_quota, disk_mb_quota, gpu_quota, "
+                "created_at, updated_at) VALUES ('', 'Varsayılan', :cpu, :mem, "
+                ":disk, :gpu, :now, :now)"
+            ),
+            {
+                "cpu": defaults["cpu_quota"],
+                "mem": defaults["memory_mb_quota"],
+                "disk": defaults["disk_mb_quota"],
+                "gpu": defaults["gpu_quota"],
+                "now": now,
+            },
+        )
+
+    legacy = [name for name in _QUOTA_OVERRIDE_COLUMNS if name in user_columns]
+    for name in legacy:
+        await conn.execute(
+            text(
+                f"UPDATE users SET {name}_override = {name} "
+                f"WHERE {name}_override IS NULL AND {name} IS NOT NULL "
+                f"AND {name} <> :default"
+            ),
+            {"default": defaults[name]},
         )
 
 
@@ -848,6 +915,10 @@ async def upgrade() -> None:
         if 24 not in applied:
             await _add_workspace_name_uniqueness(conn)
             await _record_version(conn, 24, "per-owner workspace names")
+        if 25 not in applied:
+            # init_db creates the portable user_group_quotas table.
+            await _add_team_quota_groups(conn)
+            await _record_version(conn, 25, "team quota groups and user overrides")
 
 
 async def current_version() -> int:

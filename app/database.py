@@ -281,6 +281,7 @@ async def init_db() -> None:
         OnboardingSettings,
     )
     from app.models.user import User  # noqa: F401
+    from app.models.user_group_quota import UserGroupQuota  # noqa: F401
     from app.models.workspace import Workspace  # noqa: F401
     from app.models.custom_template import CustomTemplate  # noqa: F401
     from app.models.directory_settings import DirectorySettings  # noqa: F401

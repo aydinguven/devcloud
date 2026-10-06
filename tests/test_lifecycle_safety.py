@@ -127,7 +127,7 @@ async def test_concurrent_admission_cannot_overbook(tmp_path, monkeypatch, backe
         await conn.run_sync(Base.metadata.create_all)
     async with sessions() as db:
         user = User(username="admission", email="admission@test.com", hashed_password="unused",
-                    cpu_quota=1 if limit == "user" else 10, memory_mb_quota=10240, disk_mb_quota=10240)
+                    cpu_quota_override=1 if limit == "user" else 10, memory_mb_quota_override=10240, disk_mb_quota_override=10240)
         node = Node(id="admission-worker", name="admission-worker", enabled=True, schedulable=True,
                     status=NodeStatus.ONLINE, cpu_total=1 if limit == "worker" else 10, memory_total_mb=10240)
         db.add_all([user, node]); await db.commit(); user_id = user.id

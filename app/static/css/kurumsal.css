@@ -949,6 +949,100 @@ code { color: #8d0022; }
 .admin-quota-form .quota-input-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .admin-quota-form .quota-field .form-input { min-width: 0; width: 100%; }
 .admin-quota-form .quota-actions { justify-content: flex-start; }
+.admin-quota-form h3 small,
+.admin-quota-source {
+  color: #8592a5;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-left: 0.3rem;
+  text-transform: none;
+}
+.admin-quota-source.is-user { color: #9a5b00; }
+.admin-quota-source.is-group { color: #1d4f91; }
+.admin-quota-form .form-input.is-override { border-color: #d39b2a; background: #fffaf0; }
+.admin-quota-form .form-input::placeholder,
+.group-quota-form .form-input::placeholder { color: #9aa6b6; }
+.badge-override { background: #fff4dd; border: 1px solid #f0d49b; color: #8a5600; }
+
+/* Admin users grouped by directory team */
+.admin-team-list { border-top: 1px solid #e1e7ef; }
+.admin-team-group + .admin-team-group { border-top: 1px solid #e1e7ef; }
+.admin-team-group[hidden] { display: none; }
+.admin-team-summary {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 0.5rem 1rem;
+  grid-template-columns: 14px minmax(180px, 1fr) auto minmax(260px, auto);
+  list-style: none;
+  padding: 0.9rem 1.4rem;
+}
+.admin-team-summary::-webkit-details-marker { display: none; }
+.admin-team-summary:hover { background: #f7f9fc; }
+.admin-team-group[open] > .admin-team-summary { background: var(--pale-blue); border-bottom: 1px solid #d4deeb; }
+.admin-team-group.is-default > .admin-team-summary { border-left: 3px solid var(--secondary); }
+.admin-team-chevron {
+  border-bottom: 2px solid #5d6a7d;
+  border-right: 2px solid #5d6a7d;
+  height: 7px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  width: 7px;
+}
+.admin-team-group[open] .admin-team-chevron { transform: rotate(45deg); }
+.admin-team-heading { display: flex; flex-direction: column; min-width: 0; }
+.admin-team-name { color: var(--heading); font-size: 0.9rem; }
+.admin-team-units { color: var(--text-muted); font-size: 0.68rem; margin-top: 0.1rem; overflow-wrap: anywhere; }
+.admin-team-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.admin-team-quota { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
+.admin-team-quota-item {
+  background: #fff;
+  border: 1px solid #d4deeb;
+  color: var(--heading);
+  font-size: 0.68rem;
+  padding: 0.18rem 0.45rem;
+  white-space: nowrap;
+}
+.admin-team-quota-item b { color: #5d6a7d; font-weight: 750; margin-right: 0.15rem; }
+.admin-team-quota-item.is-inherited { border-style: dashed; color: #8592a5; }
+.admin-team-totals {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  grid-column: 2 / -1;
+  text-align: right;
+}
+.admin-team-body { background: #fcfdfe; }
+.group-quota-form {
+  background: #f5f8fb;
+  border-bottom: 1px solid #e1e7ef;
+  padding: 1rem 1.4rem;
+}
+.group-quota-form h3 {
+  color: #5d6a7d;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  margin-bottom: 0.55rem;
+  text-transform: uppercase;
+}
+.group-quota-form .quota-input-grid { grid-template-columns: repeat(4, minmax(0, 160px)); }
+.group-quota-form .quota-actions { justify-content: flex-start; }
+.admin-team-body .admin-user-card { padding: 1rem 1.4rem 1rem 2.6rem; }
+.admin-team-empty { color: var(--text-muted); font-size: 0.75rem; padding: 1rem 1.4rem 1.1rem 2.6rem; }
+
+@media (max-width: 1050px) {
+  .admin-team-summary { grid-template-columns: 14px minmax(0, 1fr) auto; }
+  .admin-team-quota,
+  .admin-team-totals { grid-column: 2 / -1; justify-content: flex-start; text-align: left; }
+}
+@media (max-width: 620px) {
+  .admin-team-summary { grid-template-columns: 14px minmax(0, 1fr); padding: 0.85rem 1rem; }
+  .admin-team-badges { grid-column: 2; }
+  .group-quota-form { padding: 0.9rem 1rem; }
+  .group-quota-form .quota-input-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-team-body .admin-user-card { padding: 1rem; }
+}
 
 /* Footer */
 .site-footer {
