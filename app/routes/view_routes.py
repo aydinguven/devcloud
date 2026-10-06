@@ -24,6 +24,9 @@ from app.models.model_container_registry_settings import (
 from app.models.download_settings import DownloadSettings
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.genai_settings import GenAiSettings
+from app.genai import is_configured as genai_is_configured
+from app.integrations.litellm import parse_models as parse_genai_models
 from app.models.custom_template import CustomTemplate
 from app.jupyter_ai import default_model_catalog, parse_model_catalog
 from app.model_container_registry import (
@@ -279,6 +282,26 @@ async def profile_page(
         context={
             "app_name": settings.APP_NAME,
             "user": current_user,
+        },
+    )
+
+
+@view_router.get("/genai", response_class=HTMLResponse)
+async def genai_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    genai_settings = await db.get(GenAiSettings, 1)
+    return templates.TemplateResponse(
+        request=request,
+        name="genai.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "genai_configured": genai_is_configured(genai_settings),
         },
     )
 
@@ -621,6 +644,19 @@ async def admin_page(
             else default_model_catalog()
         )
         context["mlflow_server_settings"] = await db.get(MlflowServerSettings, 1)
+        genai_settings = await db.get(GenAiSettings, 1)
+        context["genai_settings"] = genai_settings
+        context["genai_models"] = (
+            "\n".join(parse_genai_models(genai_settings.models_json))
+            if genai_settings
+            else ""
+        )
+        # Until GenAI is saved, suggest the LiteLLM root already used by Jupyter AI.
+        context["genai_default_url"] = (
+            genai_settings.base_url
+            if genai_settings
+            else (jupyter_ai_settings.gateway_url if jupyter_ai_settings else "")
+        )
         registry_record = await db.get(ModelContainerRegistrySettings, 1)
         try:
             registry_config = await effective_model_container_registry_config(db)

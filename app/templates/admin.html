@@ -581,6 +581,7 @@ cd devcloud
   <a href="#workspace-ai-integration">Workspace AI</a>
   <a href="#container-registry-integration">Container Registry</a>
   <a href="#mlflow-integration">MLflow</a>
+  <a href="#genai-integration">GenAI</a>
 </nav>
 <section class="card admin-integration-card admin-integration-card--ai" id="workspace-ai-integration" style="margin-bottom: 2rem; border-top: 3px solid #8b5cf6;">
   <div class="card-header">
@@ -739,6 +740,48 @@ cd devcloud
     </div>
     <p class="text-muted">URL kullanıcılar tarafından değiştirilemez. Kullanıcı adları, parolalar ve token'lar ayrı kullanıcı kayıtlarında şifreli tutulur.</p>
     <div class="table-actions"><button id="btn-save-admin-mlflow" class="btn btn-primary" type="submit">MLflow Sunucusunu Kaydet</button><span id="admin-mlflow-form-status" class="quota-form-status" role="status"></span></div>
+  </form>
+</section>
+
+<section class="card admin-integration-card admin-integration-card--genai" id="genai-integration" style="margin-bottom: 2rem; border-top: 3px solid #d50032;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">GenAI · LiteLLM Kişisel API Anahtarları</h2>
+      <p class="admin-section-description">Kullanıcılar GenAI sekmesinden kendi LiteLLM kullanıcılarını ve API anahtarlarını oluşturur. LiteLLM çağrılarını yalnızca controller yapar.</p>
+    </div>
+    <span id="genai-status-badge" class="badge {% if genai_settings and genai_settings.enabled %}badge-running{% else %}badge-stopped{% endif %}">{{ 'Etkin' if genai_settings and genai_settings.enabled else 'Devre Dışı' }}</span>
+  </div>
+  <form id="genai-settings-form" autocomplete="off">
+    <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;"><input type="checkbox" name="enabled" {% if genai_settings and genai_settings.enabled %}checked{% endif %}><span>GenAI sekmesinden kendi kendine anahtar oluşturmayı etkinleştir</span></label>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;"><span class="form-label">LiteLLM kök URL</span><input class="form-input" name="base_url" type="url" value="{{ genai_default_url }}" placeholder="http://litellm.internal:4000"><small class="form-help"><code>/ui</code> olmadan, kullanıcıların da erişebildiği adres.</small></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Yönetici API anahtarı (proxy_admin)</span><input class="form-input" name="admin_key" type="password" autocomplete="new-password" placeholder="{% if genai_settings and genai_settings.encrypted_admin_key %}Kayıtlı anahtarı korumak için boş bırakın{% else %}aifactory kullanıcısının anahtarı{% endif %}"></label>
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="clear_admin_key"><span>Kayıtlı yönetici anahtarını temizle</span></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Zaman aşımı (sn)</span><input class="form-input" name="timeout_seconds" type="number" min="1" max="120" value="{{ genai_settings.timeout_seconds if genai_settings else 15 }}"></label>
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="validate_tls" {% if not genai_settings or genai_settings.validate_tls %}checked{% endif %}><span>TLS sertifikasını doğrula</span></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Controller özel CA dosyası (isteğe bağlı)</span><input class="form-input" name="ca_cert_file" value="{{ genai_settings.ca_cert_file if genai_settings else '' }}" placeholder="/etc/pki/ca-trust/source/anchors/litellm.pem"></label>
+    </div>
+    <h3 class="card-title" style="font-size:1rem;margin:1rem 0 .25rem;">Yeni kullanıcı ve anahtar varsayılanları</h3>
+    <p class="text-muted" style="margin:0 0 .75rem;">Boş bırakılan alanlarda LiteLLM'in kendi varsayılanları geçerlidir. Rol ve bütçe yeni oluşturulan LiteLLM kullanıcılarına, modeller ve süre yeni anahtarlara uygulanır; mevcut kayıtlar değişmez.</p>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;"><span class="form-label">LiteLLM kullanıcı rolü</span>
+        <select class="form-input" name="user_role">
+          <option value="" {% if not genai_settings or not genai_settings.user_role %}selected{% endif %}>LiteLLM varsayılanı</option>
+          <option value="internal_user" {% if genai_settings and genai_settings.user_role == 'internal_user' %}selected{% endif %}>internal_user</option>
+          <option value="internal_user_viewer" {% if genai_settings and genai_settings.user_role == 'internal_user_viewer' %}selected{% endif %}>internal_user_viewer</option>
+        </select>
+      </label>
+      <label class="form-group" style="margin:0;"><span class="form-label">İzin verilen modeller (her satıra bir tane)</span><textarea class="form-input" name="models" rows="3" placeholder="Boş: tüm modeller">{{ genai_models }}</textarea></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Kullanıcı başına bütçe (USD)</span><input class="form-input" name="max_budget" type="number" min="0" step="0.01" value="{{ genai_settings.max_budget if genai_settings and genai_settings.max_budget is not none else '' }}" placeholder="Sınırsız"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Bütçe sıfırlama süresi</span><input class="form-input" name="budget_duration" value="{{ genai_settings.budget_duration if genai_settings else '' }}" placeholder="30d"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Anahtar geçerlilik süresi</span><input class="form-input" name="key_duration" value="{{ genai_settings.key_duration if genai_settings else '' }}" placeholder="Süresiz"></label>
+    </div>
+    <p class="text-muted">Yönetici anahtarı controller veritabanında şifreli tutulur ve hiçbir API yanıtında döndürülmez. Kullanıcı anahtarları yalnızca bir kez gösterilir ve saklanmaz.</p>
+    <div class="table-actions">
+      <button id="btn-save-genai" class="btn btn-primary" type="submit">GenAI Ayarlarını Kaydet</button>
+      <button id="btn-test-genai" class="btn btn-secondary" type="button">Bağlantıyı Test Et</button>
+      <span id="genai-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
   </form>
 </section>
 {% endif %}

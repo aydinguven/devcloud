@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 25
+CURRENT_SCHEMA_VERSION = 26
 
 
 class MigrationError(RuntimeError):
@@ -919,6 +919,9 @@ async def upgrade() -> None:
             # init_db creates the portable user_group_quotas table.
             await _add_team_quota_groups(conn)
             await _record_version(conn, 25, "team quota groups and user overrides")
+        if 26 not in applied:
+            # init_db creates the portable genai_settings and genai_accounts tables.
+            await _record_version(conn, 26, "GenAI LiteLLM self-service keys")
 
 
 async def current_version() -> int:
