@@ -327,6 +327,13 @@ user's tier, add them to the new team in LiteLLM. Their next workspace picks up
 the new tier automatically, and the GenAI page asks them to rotate their
 personal key.
 
+**Usage statistics.** **GenAI > İstatistikler** shows request and token totals,
+a daily chart, user and AD department leaderboards, LiteLLM team rankings and
+the model split for 7, 30 or 90 days. **Admin > Kullanıcılar** adds 30-day LLM
+usage to every user card and department group. Spend (USD) is shown to admins
+only. The data comes from LiteLLM's `/user/daily/activity` and
+`/team/daily/activity` and is cached for 60 seconds.
+
 **Workspace AI with the user's own key.** Once a user has created GenAI access,
 each new or recreated Jupyter or VS Code workspace gets that user's own
 encrypted *workspace key* in place of the shared Workspace AI key. This key is

@@ -13,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | PR open | `feat/genai-workspace-keys` | 3.12.0: LiteLLM teams (default team + tier priority) and per-user workspace keys for Jupyter AI / Cline (schema v27) | Merge, tag `v3.12.0`, update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
+| Kiro | PR open | `feat/genai-workspace-keys` | 3.12.0: LiteLLM teams (default team + tier priority), per-user workspace keys for Jupyter AI / Cline (schema v27), GenAI > İstatistikler page and LLM usage in Admin > Kullanıcılar | Merge, tag `v3.12.0`, update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import genai
+from app.genai_stats import usage_stats
 from app.auth.dependencies import get_current_admin_user, get_current_user
 from app.database import get_db
 from app.integrations.litellm import (
@@ -17,7 +18,7 @@ from app.integrations.litellm import (
     parse_models,
 )
 from app.models.genai_settings import GenAiSettings
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.genai import (
     GenAiAccountStatus,
     GenAiIssuedKey,
@@ -92,6 +93,29 @@ async def get_usage(
 ):
     _no_store(response)
     return await genai.usage_history(db, current_user)
+
+
+def _without_spend(value):
+    if isinstance(value, dict):
+        return {k: _without_spend(v) for k, v in value.items() if k != "spend"}
+    if isinstance(value, list):
+        return [_without_spend(item) for item in value]
+    return value
+
+
+@genai_router.get("/stats")
+async def get_stats(
+    response: Response,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    days: int = 30,
+):
+    """Usage leaderboards and charts; spend (USD) is shown to admins only."""
+    _no_store(response)
+    stats = await usage_stats(db, days)
+    is_admin = current_user.role == UserRole.ADMIN
+    stats["show_spend"] = is_admin
+    return stats if is_admin else _without_spend(stats)
 
 
 def _settings_out(record: GenAiSettings | None) -> GenAiSettingsOut:

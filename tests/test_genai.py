@@ -24,6 +24,7 @@ class FakeLiteLLM:
         self.fail_delete = False
         self.unreachable = False
         self.counter = 0
+        self.analytics: dict[str, list | None] = {}
         self.teams = {
             "team-std": {"team_alias": "TCMB_Standard_User", "members": []},
             "team-ai": {"team_alias": "TCMB_AI_User", "members": []},
@@ -106,10 +107,19 @@ class FakeLiteLLM:
             return httpx.Response(200, json={"team_id": body["team_id"]})
         if path == "/key/info":
             return httpx.Response(200, json={"key": "hash-admin", "info": {"user_id": "aifactory"}})
-        if path == "/user/daily/activity":
+        if path == "/user/daily/activity" and request.url.params.get("user_id"):
             return httpx.Response(
                 200,
                 json={"results": [{"date": "2026-10-05", "metrics": {"spend": 0.5, "total_tokens": 1200, "api_requests": 3}}]},
+            )
+        if path in self.analytics:
+            pages = self.analytics[path]
+            if pages is None:
+                return httpx.Response(404, json={"detail": "Not Found"})
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(
+                200,
+                json={"results": pages[page - 1], "metadata": {"has_more": page < len(pages)}},
             )
         return httpx.Response(404, json={"detail": "unknown"})
 
@@ -124,6 +134,9 @@ def fake_litellm(monkeypatch):
         return real_client(*args, **kwargs)
 
     monkeypatch.setattr(litellm_module.httpx, "AsyncClient", client_factory)
+    from app import genai_stats
+
+    genai_stats._cache.clear()
     return fake
 
 
@@ -646,3 +659,147 @@ async def test_v26_genai_tables_receive_team_and_workspace_columns(tmp_path):
         "workspace_key_team", "encrypted_workspace_key",
     } <= columns["genai_accounts"]
     assert tuple(row) == ("", "")
+
+
+def _metrics(tokens, requests, spend, prompt=None):
+    prompt = tokens // 2 if prompt is None else prompt
+    return {
+        "total_tokens": tokens,
+        "prompt_tokens": prompt,
+        "completion_tokens": tokens - prompt,
+        "api_requests": requests,
+        "successful_requests": requests - 1 if requests else 0,
+        "failed_requests": 1 if requests else 0,
+        "spend": spend,
+    }
+
+
+def _day(day, entities, models=None, meta=None):
+    total = {"total_tokens": 0, "api_requests": 0, "spend": 0.0, "prompt_tokens": 0,
+             "completion_tokens": 0, "successful_requests": 0, "failed_requests": 0}
+    for metrics in entities.values():
+        for key in total:
+            total[key] += metrics[key]
+    return {
+        "date": day,
+        "metrics": total,
+        "breakdown": {
+            "entities": {
+                name: {"metrics": metrics, "metadata": (meta or {}).get(name, {})}
+                for name, metrics in entities.items()
+            },
+            "models": {name: {"metrics": metrics} for name, metrics in (models or {}).items()},
+        },
+    }
+
+
+def _seed_analytics(fake):
+    from datetime import date, timedelta
+
+    today = date.today()
+    d1, d0 = (today - timedelta(days=1)).isoformat(), today.isoformat()
+    fake.analytics["/user/daily/activity"] = [
+        # Page 1 and page 2 both contain rows for d0: they must be merged.
+        [
+            _day(d1, {"k015570": _metrics(1000, 10, 1.0), "k020000": _metrics(300, 3, 0.25)},
+                 models={"gpt-4o": _metrics(1300, 13, 1.25)}),
+            _day(d0, {"k015570": _metrics(500, 5, 0.5)}, models={"claude-sonnet": _metrics(500, 5, 0.5)}),
+        ],
+        [
+            _day(d0, {"k030000": _metrics(4000, 2, 3.0), "outsider": _metrics(100, 1, 0.1)},
+                 models={"claude-sonnet": _metrics(4100, 3, 3.1)}),
+        ],
+    ]
+    fake.analytics["/team/daily/activity"] = [
+        [
+            _day(d1, {"team-std": _metrics(1300, 13, 1.25)},
+                 meta={"team-std": {"team_alias": "TCMB_Standard_User"}}),
+            _day(d0, {"team-pro": _metrics(4000, 2, 3.0), "team-std": _metrics(600, 6, 0.6)},
+                 meta={"team-pro": {"team_alias": "TCMB_Pro_User"}, "team-std": {"team_alias": "TCMB_Standard_User"}}),
+        ]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_usage_stats_leaderboards_for_admin_and_users(client, db_session, fake_litellm):
+    admin = await _register(client, db_session, "genai-admin", admin=True)
+    assert (await _configure(client, admin)).status_code == 200
+    viewer = await _register(client, db_session, "k015570")
+    await _register(client, db_session, "k020000")
+    await _register(client, db_session, "k030000")
+    await db_session.execute(update(User).where(User.username == "k015570").values(team="Veri Bilimi"))
+    await db_session.execute(update(User).where(User.username == "k020000").values(team="veri  bilimi"))
+    await db_session.execute(update(User).where(User.username == "k030000").values(team="Risk"))
+    await db_session.commit()
+    _seed_analytics(fake_litellm)
+
+    response = await client.get("/api/genai/stats?days=7", headers=admin)
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    stats = response.json()
+    assert stats["available"] is True and stats["show_spend"] is True
+    assert stats["totals"]["total_tokens"] == 5900
+    assert stats["totals"]["api_requests"] == 21
+    assert stats["totals"]["active_users"] == 4
+    assert round(stats["totals"]["spend"], 2) == 4.85
+    assert len(stats["daily"]) == 7
+    assert stats["daily"][-1]["total_tokens"] == 4600  # merged across pages
+
+    users = {row["username"]: row for row in stats["users"]}
+    assert [row["username"] for row in stats["users"]][:2] == ["k030000", "k015570"]
+    assert users["k015570"]["total_tokens"] == 1500
+    assert users["k015570"]["daily_tokens"][-2:] == [1000, 500]
+    assert users["k015570"]["devcloud_user_id"] is not None
+    assert users["outsider"]["devcloud_user_id"] is None
+
+    groups = {row["name"]: row for row in stats["groups"]}
+    assert groups["Veri Bilimi"]["members"] == 2  # spacing/case variants merge
+    assert groups["Veri Bilimi"]["total_tokens"] == 1800
+    assert groups["Risk"]["total_tokens"] == 4000
+    assert groups["Takımsız"]["total_tokens"] == 100
+
+    teams = {row["name"]: row for row in stats["teams"]}
+    assert teams["TCMB_Pro_User"]["total_tokens"] == 4000
+    assert teams["TCMB_Standard_User"]["api_requests"] == 19
+    assert [series["name"] for series in stats["team_series"]] == ["TCMB_Pro_User", "TCMB_Standard_User"]
+    assert [row["model"] for row in stats["models"]] == ["claude-sonnet", "gpt-4o"]
+
+    # Non-admins see the same leaderboards without any USD figures.
+    plain = await client.get("/api/genai/stats?days=7", headers=viewer)
+    assert plain.status_code == 200
+    body = plain.json()
+    assert body["show_spend"] is False
+    assert '"spend"' not in plain.text
+    assert body["totals"]["total_tokens"] == 5900
+
+
+@pytest.mark.asyncio
+async def test_usage_stats_without_team_analytics_and_unconfigured(client, db_session, fake_litellm):
+    viewer = await _register(client, db_session, "k015570")
+    unconfigured = (await client.get("/api/genai/stats", headers=viewer)).json()
+    assert unconfigured["available"] is False
+
+    admin = await _register(client, db_session, "genai-admin", admin=True)
+    assert (await _configure(client, admin)).status_code == 200
+    _seed_analytics(fake_litellm)
+    fake_litellm.analytics["/team/daily/activity"] = None  # older LiteLLM
+    stats = (await client.get("/api/genai/stats", headers=admin)).json()
+    assert stats["available"] is True
+    assert stats["team_breakdown"] is False and stats["teams"] == []
+    assert stats["users"]
+
+
+@pytest.mark.asyncio
+async def test_stats_page_and_admin_user_usage_blocks_render(client, db_session, fake_litellm):
+    admin = await _register(client, db_session, "genai-admin", admin=True)
+    assert (await _configure(client, admin)).status_code == 200
+    page = await client.get("/genai/stats", headers=admin)
+    assert page.status_code == 200
+    assert "/static/js/genai_charts.js" in page.text and "/static/js/genai_stats.js" in page.text
+    assert 'href="/genai/stats"' in page.text
+
+    users_page = await client.get("/admin/users", headers=admin)
+    assert users_page.status_code == 200
+    assert "data-genai-user=" in users_page.text
+    assert "data-genai-group=" in users_page.text
+    assert "/static/js/genai_admin_usage.js" in users_page.text

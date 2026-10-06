@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}GenAI İstatistikleri - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <span class="page-kicker">LiteLLM</span>
+    <h1>GenAI İstatistikleri</h1>
+    <p>Kurum genelinde LLM istekleri, token kullanımı ve en aktif kullanıcılar ile takımlar.</p>
+  </div>
+</div>
+
+{% include "partials/genai_nav.html" %}
+
+{% if not genai_configured %}
+<section class="card">
+  <h2 class="card-title">Henüz yapılandırılmadı</h2>
+  <p class="text-muted">İstatistikler, bir yönetici LiteLLM bağlantısını tanımladığında görünür.</p>
+</section>
+{% else %}
+<div id="genai-stats" class="genai-stats">
+  <div class="genai-stats-toolbar">
+    <div class="genai-segmented" role="group" aria-label="Dönem">
+      <button type="button" data-days="7">7 gün</button>
+      <button type="button" data-days="30" class="active">30 gün</button>
+      <button type="button" data-days="90">90 gün</button>
+    </div>
+    <div class="genai-segmented" role="group" aria-label="Ölçüt" id="genai-metric-switch">
+      <button type="button" data-metric="total_tokens" class="active">Token</button>
+      <button type="button" data-metric="api_requests">İstek</button>
+      <button type="button" data-metric="spend" data-admin-only hidden>Harcama</button>
+    </div>
+    <span id="genai-stats-range" class="text-muted"></span>
+  </div>
+
+  <p id="genai-stats-status" class="text-muted" role="status">İstatistikler yükleniyor...</p>
+
+  <div id="genai-stats-body" hidden>
+    <section class="genai-kpis" aria-label="Özet">
+      <article class="genai-kpi"><span>İstek</span><strong id="kpi-requests">—</strong><small id="kpi-success"></small></article>
+      <article class="genai-kpi"><span>Token</span><strong id="kpi-tokens">—</strong><small id="kpi-tokens-split"></small></article>
+      <article class="genai-kpi"><span>Aktif kullanıcı</span><strong id="kpi-users">—</strong><small id="kpi-per-user"></small></article>
+      <article class="genai-kpi" data-admin-only hidden><span>Harcama</span><strong id="kpi-spend">—</strong><small id="kpi-spend-day"></small></article>
+    </section>
+
+    <section class="card genai-chart-card">
+      <div class="card-header"><h2 class="card-title">Günlük kullanım</h2><span class="text-muted" id="daily-legend"></span></div>
+      <div id="chart-daily" class="genai-chart" role="img" aria-label="Günlük kullanım grafiği"></div>
+    </section>
+
+    <section class="genai-grid">
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">🏆 Kullanıcı liderliği</h2><span class="badge badge-neutral" id="users-count"></span></div>
+        <ol id="board-users" class="genai-board"></ol>
+        <p id="board-users-empty" class="text-muted" hidden>Bu LiteLLM sürümü kullanıcı kırılımı döndürmüyor.</p>
+      </article>
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">🏢 Departman liderliği</h2><span class="text-muted">AD department</span></div>
+        <ol id="board-groups" class="genai-board"></ol>
+      </article>
+    </section>
+
+    <section class="genai-grid">
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">LiteLLM takımları</h2><span class="text-muted">Standard / AI / Pro</span></div>
+        <ol id="board-teams" class="genai-board"></ol>
+        <p id="board-teams-empty" class="text-muted" hidden>Takım verisi yok veya bu LiteLLM sürümü takım analitiği sunmuyor.</p>
+      </article>
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">Modeller</h2></div>
+        <div class="genai-donut-wrap">
+          <div id="chart-models" class="genai-donut" role="img" aria-label="Model dağılımı"></div>
+          <ul id="legend-models" class="genai-legend"></ul>
+        </div>
+      </article>
+    </section>
+
+    <section class="card genai-chart-card" id="teams-trend-card" hidden>
+      <div class="card-header"><h2 class="card-title">Takımlara göre günlük kullanım</h2><span class="text-muted" id="teams-legend"></span></div>
+      <div id="chart-teams" class="genai-chart" role="img" aria-label="Takımlara göre günlük kullanım"></div>
+    </section>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if genai_configured %}
+<script src="/static/js/genai_charts.js?v={{ static_version }}"></script>
+<script src="/static/js/genai_stats.js?v={{ static_version }}"></script>
+{% endif %}
+{% endblock %}
