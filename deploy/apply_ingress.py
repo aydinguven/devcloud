@@ -205,10 +205,15 @@ def main() -> int:
             check=False,
         ).returncode == 0
         if firewall and firewalld_active:
+            # Change the permanent and the runtime configuration directly.
+            # Never `--reload`: it discards netavark's runtime-only rules
+            # (container subnet in the trusted zone, DNS, port forwards), which
+            # breaks controller -> PostgreSQL name resolution and 127.0.0.1:8000.
             run([firewall, "--permanent", "--add-service=http"])
+            run([firewall, "--add-service=http"])
             if https_enabled:
                 run([firewall, "--permanent", "--add-service=https"])
-            run([firewall, "--reload"])
+                run([firewall, "--add-service=https"])
     except Exception:
         restore(NGINX_CONFIG, previous[NGINX_CONFIG], 0o644)
         restore(ACTIVE_CERTIFICATE, previous[ACTIVE_CERTIFICATE], 0o644)

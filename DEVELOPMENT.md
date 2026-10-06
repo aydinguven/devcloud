@@ -13,11 +13,15 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | Image-sync fix merged (PR #26), version 3.9.3 merged (PR #27); greenlet fix + 3.9.4 PR open | `fix/sqlalchemy-asyncio-greenlet` | Release 3.9.4: MLflow image-sync fix plus `sqlalchemy[asyncio]` so fresh installs get `greenlet` | After the PR merges and CI on `main` is green, push tag `v3.9.4` on the merged commit, watch `release-platform.yml`, then update the server and deploy a new model version on a worker |
+| Kiro | PR open | `fix/controller-db-dns-and-login-errors` | Release 3.9.5: controller DB access independent of Podman DNS, no `firewall-cmd --reload`, honest `/readyz`, login error hardening | After merge and green CI, tag `v3.9.5`, update IDMVAIFACT1, then delete the manual Quadlet drop-ins (see Latest handoff) |
+| Kiro | Not started | — | Admin users panel: collapsible AD groups with per-group quota, per-user override | Design after 3.9.5 ships |
 
 ## Decisions
 
 - 2026-09-29: The model-image scheduling wait follows real worker sync progress (stall limit 5 min, hard limit 30 min, 2 min once the image is on a worker but capacity is missing) instead of a fixed 2-minute window. Multi-GB images are pulled on a 30 s worker poll, then verified and `podman load`ed.
+
+- 2026-10-06: The bundled PostgreSQL gets a fixed IP (`broadcast - 5`, e.g. `10.89.0.250`) on the `devcloud` network and the controller resolves `devcloud-postgresql` through `AddHost`, so database access never depends on aardvark-dns. IPv6-only or unreadable networks keep the DNS-only behaviour.
+- 2026-10-06: Ingress changes firewalld permanently and at runtime; never `firewall-cmd --reload`, which discards netavark's runtime rules. The installer enables `netavark-firewalld-reload.service` when present.
 
 ## Known issues and risks
 
@@ -27,14 +31,22 @@
 
 ## Validation
 
+- 2026-10-06: Full suite 368 passed, 3 skipped. Scratch checks: installer renders `IP=10.89.0.250` / `AddHost=devcloud-postgresql:10.89.0.250` for an existing `10.89.0.0/24` network, creates the network first when missing, and skips pinning for IPv6-only; `/readyz` returns 503 `gaierror` for an unresolvable DB host; an unhandled `/api` error returns JSON 500; a fake AD rejecting the service bind now yields 503 with a readable message instead of "wrong password".
+- Still required for 3.9.5: an update on IDMVAIFACT1 confirming PostgreSQL comes up on the pinned IP and the controller is healthy.
+
 - 2026-09-29: MLflow, node and lifecycle test files pass: 57 passed, 2 skipped, 1 Windows-only failure (listed above).
 - 2026-09-29: A scratch smoke run confirmed the original code crashes on its second scheduling attempt (expired ORM row after rollback), while the fix retries, logs sync progress and returns a placement. The stall path raises a readable error.
 - Still required: a real deployment of a new model version on a worker.
 
 ## Latest handoff
 
+2026-10-06 production incident (IDMVAIFACT1, 3.9.4): logins returned intermittent HTTP 500 (`Unexpected token 'I'` on the login page), the dashboard 500'd and the worker tunnel flapped. Cause: `firewall-cmd --reload` (run by `apply_ingress.py` on every ingress apply, plus the `yum upgrade` of firewalld) removed netavark's runtime trusted-zone source `10.89.0.0/24`, so container DNS to `10.89.0.1:53` was dropped and `devcloud-postgresql` stopped resolving (`socket.gaierror`). The controller survived on one pooled connection, so `/readyz` stayed green. Restoring needed `podman network reload --all`, a restart, and manual drop-ins `/etc/containers/systemd/devcloud-postgresql.container.d/10-static-ip.conf` (`IP=10.89.0.250`) and `devcloud-controller.container.d/10-db-host.conf` (`AddHost=devcloud-postgresql:10.89.0.250`). 3.9.5 renders the same settings, so delete those two drop-ins after updating.
+
+Earlier handoff:
+
 `app/orchestrator/mlflow_deployment_service.py` `_reserve_when_image_synced`: the old retry loop reused `user` and `image` rows after `admission_transaction` rolled back the session. On AsyncSession that raises, so any deployment whose image was not already on a worker failed on the second attempt. A re-deploy worked because it reused the cached image that had synced by then. The fix reloads the rows each attempt, waits on worker progress and renews the deployment lease during the wait.
 
 ## Session log
 
+- 2026-10-06: Diagnosed the production login 500s down to firewalld reloads breaking Podman DNS (see Latest handoff); restored service manually; prepared 3.9.5 with the permanent fix and login error hardening.
 - 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; merged as PR #26. Prepared 3.9.3 (PR #27); its tag build failed on the SQLAlchemy 2.1 greenlet issue, so fixed that and prepared 3.9.4.

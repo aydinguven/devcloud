@@ -9,6 +9,7 @@ Image={{CONTROLLER_IMAGE}}
 ContainerName=devcloud-controller
 Pull=never
 Network=devcloud.network
+{{DATABASE_HOSTS}}
 EnvironmentFile=/etc/devcloud/controller.env
 PublishPort=127.0.0.1:8000:8000
 Volume=/var/lib/devcloud/database:/var/lib/devcloud/database:Z

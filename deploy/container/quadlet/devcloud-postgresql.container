@@ -8,6 +8,7 @@ Image={{POSTGRES_IMAGE}}
 ContainerName=devcloud-postgresql
 Pull=never
 Network=devcloud.network
+{{POSTGRES_STATIC_IP}}
 EnvironmentFile=/etc/devcloud/postgresql.env
 Volume=/var/lib/devcloud/postgresql:/var/lib/pgsql/data:Z
 HealthCmd=/usr/bin/pg_isready -U devcloud -d devcloud
