@@ -63,9 +63,16 @@ class InstallPlan:
         try:
             for step in self.steps:
                 step.apply()
-        except Exception:
+        except Exception as exc:
             if self.on_failure is not None:
-                self.on_failure()
+                try:
+                    self.on_failure()
+                except Exception as rollback_exc:
+                    # Report the original failure first; a rollback error alone
+                    # hides why the update stopped.
+                    raise InstallerError(
+                        f"{exc}\nAutomatic rollback also failed: {rollback_exc}"
+                    ) from exc
             raise
 
 
@@ -1871,6 +1878,60 @@ class InstallerEngine:
                         0o644,
                     )
         self.runner.run(["systemctl", "daemon-reload"])
+        if config.containerized_controller or config.containerized_worker:
+            self._verify_generated_units(config)
+
+    def _generated_unit_names(self, config: InstallConfig) -> list[str]:
+        names: list[str] = []
+        if config.containerized_controller:
+            if config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL:
+                names.append("devcloud-postgresql.service")
+            names.append("devcloud-controller.service")
+        if config.containerized_worker:
+            names.append("devcloud-worker.service")
+        return names
+
+    def _verify_generated_units(self, config: InstallConfig) -> None:
+        """Fail before any restart when Quadlet rejected a rendered unit.
+
+        The Podman generator skips a .container file it cannot convert, and
+        systemd later reports only "Unit ... not found". Surface the
+        generator's own explanation instead.
+        """
+        if self.runner.dry_run:
+            return
+        missing = []
+        for name in self._generated_unit_names(config):
+            result = self.runner.run(
+                ["systemctl", "show", "--property=LoadState", "--value", name],
+                capture_output=True,
+                check=False,
+            )
+            if (result.stdout or "").strip() != "loaded":
+                missing.append(name)
+        if not missing:
+            return
+        detail = ""
+        generator = self.host_path("/usr/libexec/podman/quadlet")
+        if generator.exists():
+            dry_run = self.runner.run(
+                [str(generator), "-dryrun"],
+                capture_output=True,
+                check=False,
+            )
+            lines = [
+                line
+                for line in (dry_run.stderr or "").splitlines()
+                if line.strip()
+            ]
+            detail = "\n".join(lines[-40:])
+        raise InstallerError(
+            "Podman Quadlet did not generate "
+            + ", ".join(missing)
+            + " from /etc/containers/systemd (including any *.container.d "
+            "drop-ins)."
+            + (f"\nQuadlet output:\n{detail}" if detail else "")
+        )
 
     def _configure_worker_storage(self, config: InstallConfig) -> None:
         if not config.installs_worker:
