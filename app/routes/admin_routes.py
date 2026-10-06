@@ -64,7 +64,17 @@ from app.models.flavor_settings import FlavorSettings
 from app.models.template_settings import TemplateSettings
 from app.orchestrator.admission import admission_transaction
 from app.agents.manager import agent_manager
-from app.schemas.user import UserOut, UserQuotaUpdate
+from app.schemas.user import GroupQuotaOut, GroupQuotaUpdate, UserOut, UserQuotaUpdate
+from app.models.user_group_quota import DEFAULT_GROUP_KEY, UserGroupQuota
+from app.quotas import (
+    DEFAULT_GROUP_LABEL,
+    QUOTA_FIELDS,
+    build_group_views,
+    load_quota_groups,
+    team_key,
+    user_out,
+    user_out_for,
+)
 from app.schemas.directory import (
     DirectorySettingsOut,
     DirectorySettingsUpdate,
@@ -1749,8 +1759,9 @@ async def list_all_users(
 ):
     """Admin: List all registered users."""
     stmt = select(User).order_by(User.id.asc())
-    result = await db.execute(stmt)
-    return [UserOut.model_validate(u) for u in result.scalars().all()]
+    users = (await db.execute(stmt)).scalars().all()
+    groups = await load_quota_groups(db)
+    return [user_out(u, groups.resolve(u)) for u in users]
 
 
 @admin_router.put("/users/{user_id}/quota", response_model=UserOut)
@@ -1760,19 +1771,92 @@ async def update_user_quota(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Admin: Update CPU, RAM, disk, and GPU-slot quota for one user."""
+    """Admin: set per-user quota overrides; ``null`` inherits the team quota."""
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
-    user.cpu_quota = quota.cpu_quota
-    user.memory_mb_quota = quota.memory_mb_quota
-    user.disk_mb_quota = quota.disk_mb_quota
-    if quota.gpu_quota is not None:
-        user.gpu_quota = quota.gpu_quota
+    for name in quota.model_fields_set:
+        setattr(user, f"{name}_override", getattr(quota, name))
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return UserOut.model_validate(user)
+    return await user_out_for(db, user)
+
+
+@admin_router.get("/user-groups", response_model=list[GroupQuotaOut])
+async def list_user_groups(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: directory teams with their per-member quota and member counts."""
+    users = (await db.execute(select(User))).scalars().all()
+    views = build_group_views(users, await load_quota_groups(db))
+    return [_group_quota_out(view) for view in views]
+
+
+@admin_router.put("/user-groups", response_model=GroupQuotaOut)
+async def upsert_user_group_quota(
+    payload: GroupQuotaUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: set the per-member quota of a team, or of the default group."""
+    key = team_key(payload.team)
+    values = {name: getattr(payload, name) for name in QUOTA_FIELDS}
+    if key == DEFAULT_GROUP_KEY and any(value is None for value in values.values()):
+        raise HTTPException(
+            status_code=422,
+            detail="Varsayılan grup için CPU, RAM, disk ve GPU değerlerinin tümü gereklidir.",
+        )
+    row = (
+        await db.execute(select(UserGroupQuota).where(UserGroupQuota.group_key == key))
+    ).scalar_one_or_none()
+    if row is None:
+        row = UserGroupQuota(
+            group_key=key,
+            display_name=(
+                DEFAULT_GROUP_LABEL if key == DEFAULT_GROUP_KEY
+                else " ".join(payload.team.split())
+            ),
+        )
+    for name, value in values.items():
+        setattr(row, name, value)
+    db.add(row)
+    await db.commit()
+    users = (await db.execute(select(User))).scalars().all()
+    views = build_group_views(users, await load_quota_groups(db))
+    return _group_quota_out(next(view for view in views if view["key"] == key))
+
+
+@admin_router.delete("/user-groups/{group_id}", status_code=204)
+async def delete_user_group_quota(
+    group_id: int,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: remove a team quota so its members fall back to the default group."""
+    row = await db.get(UserGroupQuota, group_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Grup kotası bulunamadı.")
+    if row.group_key == DEFAULT_GROUP_KEY:
+        raise HTTPException(status_code=400, detail="Varsayılan grup silinemez.")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=204)
+
+
+def _group_quota_out(view: dict) -> GroupQuotaOut:
+    return GroupQuotaOut(
+        id=view["id"],
+        key=view["key"],
+        display_name=view["display_name"],
+        is_default=view["is_default"],
+        configured=view["configured"],
+        inherited=view["inherited"],
+        member_count=view["member_count"],
+        override_count=view["override_count"],
+        **view["values"],
+    )
 
 
 @admin_router.get("/workspaces", response_model=list[WorkspaceOut])

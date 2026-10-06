@@ -402,9 +402,9 @@ async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
         select(User).where(User.username == "quota_workspace_tester")
     )
     user = result.scalar_one()
-    user.cpu_quota = 0.5
-    user.memory_mb_quota = 512
-    user.disk_mb_quota = 1024
+    user.cpu_quota_override = 0.5
+    user.memory_mb_quota_override = 512
+    user.disk_mb_quota_override = 1024
     db_session.add(user)
     await db_session.commit()
 
@@ -449,9 +449,9 @@ async def test_stopping_a_workspace_frees_cpu_and_ram_quota(
         select(User).where(User.username == "pause_quota_tester")
     )
     user = result.scalar_one()
-    user.cpu_quota = 0.5
-    user.memory_mb_quota = 512
-    user.disk_mb_quota = 1024
+    user.cpu_quota_override = 0.5
+    user.memory_mb_quota_override = 512
+    user.disk_mb_quota_override = 1024
     db_session.add(user)
     await db_session.commit()
 
@@ -501,9 +501,9 @@ async def test_resuming_a_workspace_rechecks_user_quota(
         select(User).where(User.username == "resume_quota_tester")
     )
     user = result.scalar_one()
-    user.cpu_quota = 0.5
-    user.memory_mb_quota = 512
-    user.disk_mb_quota = 1024
+    user.cpu_quota_override = 0.5
+    user.memory_mb_quota_override = 512
+    user.disk_mb_quota_override = 1024
     db_session.add(user)
     await db_session.commit()
 
@@ -549,8 +549,8 @@ async def test_resuming_is_not_blocked_by_a_full_disk_quota(
         select(User).where(User.username == "disk_resume_tester")
     )
     user = result.scalar_one()
-    user.cpu_quota = 4.0
-    user.memory_mb_quota = 4096
+    user.cpu_quota_override = 4.0
+    user.memory_mb_quota_override = 4096
     db_session.add(user)
     await db_session.commit()
 
@@ -568,7 +568,7 @@ async def test_resuming_is_not_blocked_by_a_full_disk_quota(
     workspace_id = created.json()["id"]
     assert (await client.post(f"/api/workspaces/{workspace_id}/stop", headers=headers)).status_code == 200
 
-    user.disk_mb_quota = 0
+    user.disk_mb_quota_override = 0
     db_session.add(user)
     await db_session.commit()
 
@@ -589,8 +589,8 @@ async def test_workspace_names_are_unique_per_owner_not_globally(
         user = (
             await db_session.execute(select(User).where(User.username == username))
         ).scalar_one()
-        user.cpu_quota = 8.0
-        user.memory_mb_quota = 8192
+        user.cpu_quota_override = 8.0
+        user.memory_mb_quota_override = 8192
         db_session.add(user)
     await db_session.commit()
 
@@ -702,8 +702,8 @@ async def test_terminal_workspace_deploys_and_is_proxied(
     user = (
         await db_session.execute(select(User).where(User.username == "terminal_tester"))
     ).scalar_one()
-    user.cpu_quota = 4.0
-    user.memory_mb_quota = 4096
+    user.cpu_quota_override = 4.0
+    user.memory_mb_quota_override = 4096
     db_session.add(user)
     await db_session.commit()
 

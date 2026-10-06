@@ -26,10 +26,16 @@ class UserOut(BaseModel):
     role: UserRole
     auth_source: str
     is_active: bool
+    # Effective quota (override -> team group -> default); see app/quotas.py.
     cpu_quota: float
     memory_mb_quota: int
     disk_mb_quota: int
     gpu_quota: int
+    cpu_quota_override: float | None = None
+    memory_mb_quota_override: int | None = None
+    disk_mb_quota_override: int | None = None
+    gpu_quota_override: int | None = None
+    quota_sources: dict[str, str] = Field(default_factory=dict)
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -42,7 +48,40 @@ class UserUpdate(BaseModel):
 
 
 class UserQuotaUpdate(BaseModel):
-    cpu_quota: float = Field(..., ge=0, le=256)
-    memory_mb_quota: int = Field(..., ge=0, le=1048576)
-    disk_mb_quota: int = Field(..., ge=0, le=1073741824)
+    """Per-user overrides. An explicit ``null`` inherits the team/default value;
+    an omitted field keeps the current override."""
+
+    cpu_quota: float | None = Field(default=None, ge=0, le=256)
+    memory_mb_quota: int | None = Field(default=None, ge=0, le=1048576)
+    disk_mb_quota: int | None = Field(default=None, ge=0, le=1073741824)
     gpu_quota: int | None = Field(default=None, ge=0, le=64)
+
+
+class GroupQuotaUpdate(BaseModel):
+    """Per-member quota for one team; ``team=""`` is the default group.
+
+    ``null`` inherits the default group's value (not allowed for the default).
+    """
+
+    team: str = Field(default="", max_length=255)
+    cpu_quota: float | None = Field(default=None, ge=0, le=256)
+    memory_mb_quota: int | None = Field(default=None, ge=0, le=1048576)
+    disk_mb_quota: int | None = Field(default=None, ge=0, le=1073741824)
+    gpu_quota: int | None = Field(default=None, ge=0, le=64)
+
+
+class GroupQuotaOut(BaseModel):
+    id: int | None = None
+    key: str
+    display_name: str
+    is_default: bool
+    configured: bool
+    # Raw group values; null inherits the default group.
+    cpu_quota: float | None = None
+    memory_mb_quota: int | None = None
+    disk_mb_quota: int | None = None
+    gpu_quota: int | None = None
+    # What a member without overrides receives.
+    inherited: dict[str, float | int]
+    member_count: int
+    override_count: int

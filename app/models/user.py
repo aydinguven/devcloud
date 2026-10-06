@@ -61,6 +61,13 @@ class User(Base):
         server_default=str(settings.DEFAULT_USER_GPU_QUOTA),
         nullable=False,
     )
+    # Legacy per-user columns above are no longer read for enforcement; the
+    # effective quota is override -> team group -> default group (app/quotas.py).
+    # NULL means "inherit".
+    cpu_quota_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_mb_quota_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disk_mb_quota_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gpu_quota_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         default=lambda: datetime.now(timezone.utc),

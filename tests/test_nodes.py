@@ -108,7 +108,7 @@ def test_gpu_slot_policy_auto_and_mig_isolation():
 @pytest.mark.asyncio
 async def test_gpu_scheduler_reserves_stopped_4090_slots(db_session, monkeypatch):
     user = User(
-        username="gpu_user", email="gpu@test.local", hashed_password="x", gpu_quota=3
+        username="gpu_user", email="gpu@test.local", hashed_password="x", gpu_quota_override=3
     )
     worker = Node(
         name="gpu-worker",

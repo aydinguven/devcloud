@@ -50,6 +50,7 @@ from app.orchestrator.scheduler import (
     select_workspace_placement,
 )
 from app.resource_usage import get_cluster_usage, get_user_usage, quota_violations
+from app.quotas import effective_quota
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import (
     FlavorInfo,
@@ -448,6 +449,7 @@ async def get_quota_error(
     if disk_used_bytes is None and include_disk:
         disk_usage = await get_workspace_disk_usage_by_user(workspaces)
         disk_used_bytes = disk_usage.get(user.id, 0)
+    quota = await effective_quota(db, user)
     violations = await asyncio.to_thread(
         quota_violations,
         user,
@@ -455,6 +457,7 @@ async def get_quota_error(
         flavor,
         disk_used_bytes=disk_used_bytes or 0,
         include_disk=include_disk,
+        quota=quota,
     )
     if not violations:
         return None
@@ -525,11 +528,13 @@ async def get_resource_usage(
     workspaces = result.scalars().all()
     nodes = (await db.execute(select(Node))).scalars().all()
     disk_usage = await get_workspace_disk_usage_by_user(workspaces)
+    quota = await effective_quota(db, current_user)
     user_usage = await asyncio.to_thread(
         get_user_usage,
         current_user,
         workspaces,
         disk_used_bytes=disk_usage.get(current_user.id, 0),
+        quota=quota,
     )
     return {
         "system": get_cluster_usage(nodes),

@@ -192,13 +192,19 @@ def get_user_usage(
     workspaces: Iterable[Workspace],
     *,
     disk_used_bytes: int | None = None,
+    quota: Any | None = None,
 ) -> dict[str, Any]:
     """Return a user's allocations, actual disk use, and remaining quota.
+
+    ``quota`` is the resolved effective quota (``app.quotas.EffectiveQuota``);
+    callers holding a database session must pass it. Without it the limits are
+    read from ``user`` itself (plain objects in unit tests).
 
     ``cpu`` and ``memory`` report what quota actually charges, which is only
     the workspaces currently holding compute. ``allocated`` reports the same
     metrics across every workspace so the UI can explain the difference.
     """
+    limits = quota if quota is not None else user
     workspaces = list(workspaces)
     cpu_used, memory_mb_used, running_count = workspace_allocations(workspaces)
     cpu_allocated, memory_mb_allocated, workspace_count = workspace_allocations(
@@ -211,23 +217,23 @@ def get_user_usage(
         else max(int(disk_used_bytes), 0)
     )
     return {
-        "cpu": _metric(cpu_used, user.cpu_quota, format_cpu),
+        "cpu": _metric(cpu_used, limits.cpu_quota, format_cpu),
         "memory": _metric(
             memory_mb_used * BYTES_PER_MB,
-            user.memory_mb_quota * BYTES_PER_MB,
+            limits.memory_mb_quota * BYTES_PER_MB,
             format_bytes,
         ),
         "disk": _metric(
             disk_used,
-            user.disk_mb_quota * BYTES_PER_MB,
+            limits.disk_mb_quota * BYTES_PER_MB,
             format_bytes,
         ),
-        "gpu": _metric(gpu_used, getattr(user, "gpu_quota", 0), format_gpu),
+        "gpu": _metric(gpu_used, getattr(limits, "gpu_quota", 0), format_gpu),
         "allocated": {
-            "cpu": _metric(cpu_allocated, user.cpu_quota, format_cpu),
+            "cpu": _metric(cpu_allocated, limits.cpu_quota, format_cpu),
             "memory": _metric(
                 memory_mb_allocated * BYTES_PER_MB,
-                user.memory_mb_quota * BYTES_PER_MB,
+                limits.memory_mb_quota * BYTES_PER_MB,
                 format_bytes,
             ),
         },
@@ -241,6 +247,7 @@ def get_all_user_usage(
     workspaces: Iterable[Workspace],
     *,
     disk_usage_by_user: dict[int, int] | None = None,
+    quotas: dict[int, Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Build per-user summaries while grouping workspace allocations once."""
     grouped: dict[int, list[Workspace]] = {}
@@ -255,6 +262,7 @@ def get_all_user_usage(
                 if disk_usage_by_user is not None
                 else None
             ),
+            quota=quotas.get(user.id) if quotas is not None else None,
         )
         for user in users
     }
@@ -267,6 +275,7 @@ def quota_violations(
     *,
     disk_used_bytes: int | None = None,
     include_disk: bool = True,
+    quota: Any | None = None,
 ) -> list[str]:
     """Describe quota limits a new workspace allocation would exceed.
 
@@ -275,22 +284,23 @@ def quota_violations(
     space, and so the caller never has to measure disk under the admission
     lock.
     """
+    limits = quota if quota is not None else user
     usage = get_user_usage(
-        user, workspaces, disk_used_bytes=disk_used_bytes
+        user, workspaces, disk_used_bytes=disk_used_bytes, quota=quota
     )
     violations = []
     requested_cpu = usage["cpu"]["used"] + requested_flavor.cpus
     requested_memory_mb = usage["memory"]["used"] / BYTES_PER_MB + requested_flavor.memory_mb
     requested_gpu = usage["gpu"]["used"] + requested_flavor.accelerator_count
-    if requested_cpu > user.cpu_quota:
+    if requested_cpu > limits.cpu_quota:
         violations.append(
-            f"CPU {requested_cpu:.1f}/{user.cpu_quota:.1f} olacak"
+            f"CPU {requested_cpu:.1f}/{limits.cpu_quota:.1f} olacak"
         )
-    if requested_memory_mb > user.memory_mb_quota:
+    if requested_memory_mb > limits.memory_mb_quota:
         violations.append(
-            f"RAM {requested_memory_mb:.0f}/{user.memory_mb_quota} MB olacak"
+            f"RAM {requested_memory_mb:.0f}/{limits.memory_mb_quota} MB olacak"
         )
-    gpu_quota = int(getattr(user, "gpu_quota", 0) or 0)
+    gpu_quota = int(getattr(limits, "gpu_quota", 0) or 0)
     if requested_gpu > gpu_quota:
         violations.append(
             f"GPU {requested_gpu:.0f}/{gpu_quota} slot olacak"
