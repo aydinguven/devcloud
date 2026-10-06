@@ -39,8 +39,11 @@ def test_platform_release_builds_and_verifies_every_distribution_artifact():
     ).read_text(encoding="utf-8")
 
     assert "deploy/ci/build-release-assets.sh" in workflow_content
-    assert "driver = \"vfs\"" in builder
-    assert "python -m pytest -q" in builder
+    # Native overlay on the runner disk, vfs only as a fallback.
+    assert "storage_driver=overlay" in builder
+    assert "falling back to vfs" in builder
+    # CI is the test gate; the release build no longer runs pytest again.
+    assert "python -m pytest" not in builder
     assert "deploy/container/build-controller-image.sh" in builder
     assert "deploy/container/build-worker-image.sh" in builder
     assert "deploy/build_platform_update.py" in builder
@@ -121,7 +124,7 @@ def test_formal_release_exports_python_workspace_archives():
     content = workflow("release-platform.yml")
 
     assert "Export offline workspace archive" in content
-    assert 'docker save "${local_image}" | gzip -6' in content
+    assert 'docker save "${local_image}" | pigz -6' in content
     assert "2147483648" in content
     assert "actions/upload-artifact@v4" in content
     assert "actions/download-artifact@v4" in content
