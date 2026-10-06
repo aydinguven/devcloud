@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text, update
 
@@ -149,10 +150,49 @@ async def healthcheck():
 
 @app.get("/readyz", include_in_schema=False)
 async def readiness_check():
-    """Readiness requires the controller to reach its configured database."""
-    async with AsyncSessionLocal() as db:
-        await db.execute(text("SELECT 1"))
+    """Readiness requires the controller to reach its configured database.
+
+    A pooled connection can keep `SELECT 1` succeeding while new connections
+    fail, so the database host must also still resolve.
+    """
+    import asyncio
+
+    from sqlalchemy.engine import make_url
+
+    try:
+        url = make_url(settings.DATABASE_URL)
+        if url.host:
+            await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(url.host, url.port or 5432),
+                timeout=3,
+            )
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 - any failure means "not ready"
+        logger.warning("Readiness check failed: %s: %s", type(exc).__name__, exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "reason": type(exc).__name__,
+                "version": settings.APP_VERSION,
+            },
+        )
     return {"status": "ready", "version": settings.APP_VERSION}
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Keep API errors machine-readable; the traceback is still logged by Starlette."""
+    logger.error(
+        "Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path
+    )
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Beklenmeyen sunucu hatası. Ayrıntılar sunucu günlüğünde."},
+        )
+    return PlainTextResponse("Internal Server Error", status_code=500)
+
 
 # CORS middleware
 app.add_middleware(

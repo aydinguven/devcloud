@@ -1633,6 +1633,44 @@ class InstallerEngine:
     def _postgresql_image() -> str:
         return "localhost/devcloud-postgresql:16"
 
+    def _bundled_postgresql_ip(self) -> str:
+        """Return a fixed address for the bundled database on the devcloud network.
+
+        The controller reaches PostgreSQL through an /etc/hosts entry pinned to
+        this address, so database access never depends on aardvark-dns (which
+        silently stops answering when firewalld drops netavark's runtime rules).
+        An empty result keeps the previous DNS-only behaviour.
+        """
+        exists = self.runner.run(
+            ["podman", "network", "exists", "devcloud"], check=False
+        )
+        if exists.returncode != 0:
+            # Let netavark pick a free subnet exactly as Quadlet would; the
+            # Quadlet network unit later adopts it via `network create --ignore`.
+            self.runner.run(["podman", "network", "create", "devcloud"], check=False)
+        inspect = self.runner.run(
+            [
+                "podman",
+                "network",
+                "inspect",
+                "devcloud",
+                "--format",
+                "{{range .Subnets}}{{.Subnet}} {{end}}",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        for candidate in (inspect.stdout or "").split():
+            try:
+                subnet = ipaddress.ip_network(candidate, strict=False)
+            except ValueError:
+                continue
+            if subnet.version != 4 or subnet.num_addresses < 16:
+                continue
+            # Stay clear of the gateway (.1) and of IPAM's low dynamic range.
+            return str(subnet.broadcast_address - 5)
+        return ""
+
     @staticmethod
     def _postgresql_source_image() -> str:
         return os.environ.get(
@@ -1785,6 +1823,12 @@ class InstallerEngine:
                 quadlets.append(
                     ("devcloud-worker.container", "devcloud-worker.container")
                 )
+            database_ip = (
+                self._bundled_postgresql_ip()
+                if config.containerized_controller
+                and config.database_mode == DatabaseMode.BUNDLED_POSTGRESQL
+                else ""
+            )
             for source_name, target_name in quadlets:
                 source = (
                     self.project_root
@@ -1808,6 +1852,13 @@ class InstallerEngine:
                 )
                 rendered = rendered.replace(
                     "{{DATABASE_DEPENDENCIES}}", dependencies
+                )
+                rendered = rendered.replace(
+                    "{{POSTGRES_STATIC_IP}}",
+                    f"IP={database_ip}" if database_ip else "",
+                ).replace(
+                    "{{DATABASE_HOSTS}}",
+                    f"AddHost=devcloud-postgresql:{database_ip}" if database_ip else "",
                 )
                 if self.runner.dry_run:
                     self.runner.run(
@@ -1905,7 +1956,21 @@ class InstallerEngine:
             },
         )
 
+    def _enable_container_firewall_recovery(self, config: InstallConfig) -> None:
+        """Re-apply netavark rules whenever firewalld reloads (shipped by netavark >= 1.12)."""
+        if not (config.containerized_controller or config.containerized_worker):
+            return
+        unit = "netavark-firewalld-reload.service"
+        present = self.runner.run(
+            ["systemctl", "list-unit-files", "--no-legend", unit],
+            capture_output=True,
+            check=False,
+        )
+        if self.runner.dry_run or unit in (present.stdout or ""):
+            self.runner.run(["systemctl", "enable", "--now", unit], check=False)
+
     def _start_services(self, config: InstallConfig) -> None:
+        self._enable_container_firewall_recovery(config)
         self.runner.run(
             ["systemctl", "enable", "--now", "devcloud-update.path"]
         )
@@ -1932,6 +1997,7 @@ class InstallerEngine:
         self._verify_services(config)
 
     def _restart_services(self, config: InstallConfig) -> None:
+        self._enable_container_firewall_recovery(config)
         self.runner.run(
             ["systemctl", "enable", "--now", "devcloud-update.path"]
         )

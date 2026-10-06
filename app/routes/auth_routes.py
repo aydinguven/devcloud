@@ -15,6 +15,7 @@ from app.session_settings import session_timeout_minutes
 from app.database import get_db
 from app.models.user import User
 from app.models.directory_settings import DirectorySettings
+from app.auth.ldap import DirectoryLoginRejected, DirectoryUnavailableError
 from app.schemas.auth import TokenResponse
 from app.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
 
@@ -108,7 +109,23 @@ async def login_user(
     auth_provider: Annotated[AuthProvider, Depends(get_auth_provider)],
 ):
     """Authenticate user and return JWT access token."""
-    user = await auth_provider.authenticate(login_data.username, login_data.password, db)
+    try:
+        user = await auth_provider.authenticate(
+            login_data.username, login_data.password, db
+        )
+    except DirectoryLoginRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+    except DirectoryUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Kurumsal dizine şu anda ulaşılamıyor veya servis hesabı "
+                "doğrulanamadı. Yöneticinize başvurun; yerel yönetici hesabıyla "
+                "giriş yapılabilir."
+            ),
+        ) from exc
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

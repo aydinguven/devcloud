@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import re
 import secrets
 import ssl
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,44 @@ class DirectoryConfigurationError(ValueError):
 
 class DirectoryConnectionError(RuntimeError):
     pass
+
+
+class DirectoryUnavailableError(RuntimeError):
+    """The directory could not be queried (network, TLS or service-bind failure)."""
+
+
+class DirectoryLoginRejected(RuntimeError):
+    """The directory recognised the user but refused the login for a known reason."""
+
+
+# Active Directory reports the reason of a failed simple bind as an
+# "AcceptSecurityContext error, data <code>" sub-code.
+_AD_BIND_REASONS = {
+    "530": "Bu saatte oturum açma izniniz yok.",
+    "531": "Bu bilgisayardan oturum açma izniniz yok.",
+    "532": "Kurumsal dizin parolanızın süresi dolmuş. Parolanızı yenileyip tekrar deneyin.",
+    "533": "Kurumsal dizin hesabınız devre dışı.",
+    "701": "Kurumsal dizin hesabınızın süresi dolmuş.",
+    "773": "Kurumsal dizin parolanızı değiştirmeniz gerekiyor. Parolanızı yenileyip tekrar deneyin.",
+    "775": "Kurumsal dizin hesabınız kilitlendi. Kilit açıldıktan sonra yeni parolanızla deneyin.",
+}
+_AD_DATA_CODE = re.compile(r"\bdata\s+([0-9a-fA-F]{3,4})\b")
+
+
+def ad_bind_reason(message: str) -> tuple[str, str | None]:
+    """Return the AD sub-code and user-facing reason embedded in a bind error."""
+    match = _AD_DATA_CODE.search(message or "")
+    if not match:
+        return "", None
+    code = match.group(1).lower()
+    return code, _AD_BIND_REASONS.get(code)
+
+
+def _safe_unbind(connection) -> None:
+    try:
+        connection.unbind()
+    except Exception:  # noqa: BLE001 - closing a broken socket must not mask the bind error
+        logger.debug("Ignoring LDAP unbind failure", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -180,19 +219,22 @@ def _server_for(config: DirectoryConfig):
 
 def _bound_connection(config: DirectoryConfig, user: str, password: str):
     ldap3, LDAPException, _ = _ldap3()
-    connection = ldap3.Connection(
-        _server_for(config),
-        user=user,
-        password=password,
-        receive_timeout=config.connect_timeout_seconds,
-        raise_exceptions=True,
-    )
+    try:
+        connection = ldap3.Connection(
+            _server_for(config),
+            user=user,
+            password=password,
+            receive_timeout=config.connect_timeout_seconds,
+            raise_exceptions=True,
+        )
+    except (LDAPException, OSError, ValueError) as exc:
+        raise DirectoryConnectionError(str(exc)) from exc
     try:
         connection.open()
         connection.bind()
         return connection
-    except LDAPException as exc:
-        connection.unbind()
+    except (LDAPException, OSError) as exc:
+        _safe_unbind(connection)
         raise DirectoryConnectionError(str(exc)) from exc
 
 
@@ -281,9 +323,22 @@ def authenticate_directory_user(
         return None
 
     ldap3, LDAPException, escape_filter_chars = _ldap3()
-    service_connection = _bound_connection(
-        config, config.bind_dn, config.bind_password
-    )
+    try:
+        service_connection = _bound_connection(
+            config, config.bind_dn, config.bind_password
+        )
+    except DirectoryConnectionError as exc:
+        code, _ = ad_bind_reason(str(exc))
+        logger.error(
+            "LDAP service bind as %s failed (AD code %s): %s. If this is a "
+            "personal account whose password changed, update the bind password "
+            "in Admin > Directory; every login retries the stale password and "
+            "can lock the account.",
+            config.bind_dn,
+            code or "-",
+            exc,
+        )
+        raise DirectoryUnavailableError(str(exc)) from exc
     try:
         search_filter = config.user_filter.replace(
             "{username}", escape_filter_chars(username.strip())
@@ -339,17 +394,23 @@ def authenticate_directory_user(
             groups,
             config.admin_group_dn,
         )
-    except LDAPException as exc:
-        logger.warning("LDAP user lookup failed: %s", exc)
-        return None
+    except (LDAPException, OSError) as exc:
+        logger.error("LDAP user lookup failed: %s", exc)
+        raise DirectoryUnavailableError(str(exc)) from exc
     finally:
-        service_connection.unbind()
+        _safe_unbind(service_connection)
 
     try:
         user_connection = _bound_connection(config, user_dn, password)
-    except DirectoryConnectionError:
+    except DirectoryConnectionError as exc:
+        code, reason = ad_bind_reason(str(exc))
+        logger.info(
+            "LDAP bind rejected for %s (AD code %s)", user_dn, code or "-"
+        )
+        if reason:
+            raise DirectoryLoginRejected(reason) from exc
         return None
-    user_connection.unbind()
+    _safe_unbind(user_connection)
 
     return DirectoryIdentity(
         username=directory_username,
@@ -361,6 +422,24 @@ def authenticate_directory_user(
         user_dn=user_dn,
         groups=tuple(groups),
         is_admin=is_admin,
+    )
+
+
+def _fit_identity_to_columns(identity: DirectoryIdentity) -> DirectoryIdentity:
+    """Clip directory attributes to the user columns; PostgreSQL rejects overflow."""
+    columns = User.__table__.columns
+
+    def clip(value: str, column: str) -> str:
+        return (value or "")[: columns[column].type.length]
+
+    return replace(
+        identity,
+        username=clip(identity.username, "username"),
+        email=clip(identity.email, "email"),
+        full_name=clip(identity.full_name, "full_name"),
+        team=clip(identity.team, "team"),
+        directorate=clip(identity.directorate, "directorate"),
+        organization_unit=clip(identity.organization_unit, "organization_unit"),
     )
 
 
@@ -390,11 +469,21 @@ class HybridAuthProvider(AuthProvider):
             identity = await asyncio.to_thread(
                 authenticate_directory_user, config, username, password
             )
-        except (DirectoryConfigurationError, DirectoryConnectionError) as exc:
+        except DirectoryLoginRejected:
+            raise
+        except (
+            DirectoryConfigurationError,
+            DirectoryConnectionError,
+            DirectoryUnavailableError,
+        ) as exc:
             logger.error("LDAP authentication unavailable: %s", exc)
-            return None
+            raise DirectoryUnavailableError(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - never turn a login into a bare 500
+            logger.exception("Unexpected LDAP authentication failure")
+            raise DirectoryUnavailableError(str(exc)) from exc
         if not identity:
             return None
+        identity = _fit_identity_to_columns(identity)
 
         existing = (
             await db.execute(

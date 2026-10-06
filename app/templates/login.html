@@ -58,8 +58,14 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      errorBox.textContent = data.detail || "Kimlik doğrulama başarısız.";
+      const data = await res.json().catch(() => ({}));
+      const detail = Array.isArray(data.detail)
+        ? data.detail.map((item) => item.msg).join(" ")
+        : data.detail;
+      errorBox.textContent = detail
+        || (res.status >= 500
+          ? `Sunucu hatası (HTTP ${res.status}). Lütfen yöneticinize başvurun.`
+          : "Kimlik doğrulama başarısız.");
       errorBox.style.display = "block";
       return;
     }

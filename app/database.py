@@ -10,6 +10,9 @@ from app.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
+    # Replace pooled connections that died (database restart, network reset)
+    # instead of failing the request that happens to check them out.
+    pool_pre_ping=True,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
 
