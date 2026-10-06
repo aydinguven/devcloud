@@ -13,8 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | PR open | `fix/update-template-compat` | 3.11.1: updates from older installers render the Quadlet templates correctly; future updates run the target release's installer | Merge, tag `v3.11.1`, update IDMVAIFACT1 (3.9.4), run `sudo bash /opt/devcloud/current/deploy/devcloud-setup.sh --yes repair` so 3.11.1 code writes `IP=`/`AddHost=`, then delete the two manual drop-ins |
-| Kiro | Phase 1 merged (PR #32) | — | GenAI tab: self-service LiteLLM user + personal key | Configure on IDMVAIFACT1 after the update; phase 2 (per-user workspace key) |
+| Kiro | PR open | `feat/genai-workspace-keys` | 3.12.0: LiteLLM teams (default team + tier priority) and per-user workspace keys for Jupyter AI / Cline (schema v27) | Merge, tag `v3.12.0`, update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
 
@@ -24,6 +23,8 @@
 - 2026-10-06: Ingress changes firewalld permanently and at runtime; never `firewall-cmd --reload`, which discards netavark's runtime rules. The installer enables `netavark-firewalld-reload.service` when present.
 
 - 2026-10-06: Quotas resolve per field as user override -> team group (`users.team`, AD `department`, normalized by `app.quotas.team_key`) -> default group (`user_group_quotas.group_key = ''`). A team quota applies to each member individually, not as a shared budget. Enforcement reads only `app/quotas.py`; the legacy `users.*_quota` columns are no longer read. Migration 25 turns every legacy value that differs from the configured default into an override, so effective quotas do not change on upgrade.
+
+- 2026-10-06: Workspace AI uses the owner's own LiteLLM *workspace key* (separate from the personal key, encrypted, never shown) only when the owner opted in on the GenAI tab and GenAI and Workspace AI point at the same LiteLLM; otherwise the shared key. Keys bind to the first team in the admin priority list the user belongs to; new users join the default team.
 
 ## Known issues and risks
 

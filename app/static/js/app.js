@@ -2012,6 +2012,8 @@ function initAdminGenAiSettings() {
       max_budget: budget === "" ? null : Number(budget),
       budget_duration: String(data.get("budget_duration") || "").trim(),
       key_duration: String(data.get("key_duration") || "").trim(),
+      default_team: String(data.get("default_team") || "").trim(),
+      team_priority: String(data.get("team_priority") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
     };
     saveButton.disabled = true;
     showStatus("Kaydediliyor...");

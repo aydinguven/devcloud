@@ -651,6 +651,11 @@ async def admin_page(
             if genai_settings
             else ""
         )
+        context["genai_team_priority"] = (
+            "\n".join(parse_genai_models(genai_settings.team_priority_json))
+            if genai_settings
+            else ""
+        )
         # Until GenAI is saved, suggest the LiteLLM root already used by Jupyter AI.
         context["genai_default_url"] = (
             genai_settings.base_url

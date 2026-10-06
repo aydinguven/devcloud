@@ -40,6 +40,8 @@ class LiteLLMConfig:
     max_budget: float | None = None
     budget_duration: str = ""
     key_duration: str = ""
+    default_team: str = ""
+    team_priority: list[str] = field(default_factory=list)
 
 
 def parse_models(models_json: str) -> list[str]:
@@ -71,7 +73,24 @@ def config_from_record(record: GenAiSettings) -> LiteLLMConfig:
         max_budget=record.max_budget,
         budget_duration=record.budget_duration,
         key_duration=record.key_duration,
+        default_team=record.default_team,
+        team_priority=parse_models(record.team_priority_json),
     )
+
+
+def user_team_ids(user_payload: dict | None) -> list[str]:
+    """Team ids from a ``/user/info`` payload (user_info.teams or teams[])."""
+    if not user_payload:
+        return []
+    ids: list[str] = []
+    info = user_payload.get("user_info") if isinstance(user_payload.get("user_info"), dict) else {}
+    for value in info.get("teams") or []:
+        if isinstance(value, str) and value not in ids:
+            ids.append(value)
+    for team in user_payload.get("teams") or []:
+        if isinstance(team, dict) and team.get("team_id") and team["team_id"] not in ids:
+            ids.append(str(team["team_id"]))
+    return ids
 
 
 def validate_config(config: LiteLLMConfig) -> None:
@@ -141,7 +160,8 @@ class LiteLLMClient:
         *,
         params: dict | None = None,
         json: dict | None = None,
-    ) -> dict:
+        allow_list: bool = False,
+    ) -> dict | list:
         try:
             async with self._client() as client:
                 # A relative target keeps an optional reverse-proxy prefix.
@@ -161,7 +181,7 @@ class LiteLLMClient:
             raise LiteLLMConnectionError(
                 f"LiteLLM'e bağlanılamadı: {message or type(exc).__name__}"
             ) from exc
-        if not isinstance(payload, dict):
+        if not isinstance(payload, dict) and not (allow_list and isinstance(payload, list)):
             raise LiteLLMConnectionError("LiteLLM beklenmeyen bir yanıt döndürdü.")
         return payload
 
@@ -202,12 +222,17 @@ class LiteLLMClient:
             body["budget_duration"] = self.config.budget_duration
         return await self._request("POST", "/user/new", json=body)
 
-    async def generate_key(self, user_id: str, key_alias: str, purpose: str) -> dict:
+    async def generate_key(
+        self, user_id: str, key_alias: str, purpose: str, team_id: str = ""
+    ) -> dict:
         body: dict = {
             "user_id": user_id,
             "key_alias": key_alias,
             "metadata": {"source": "devcloud", "purpose": purpose},
         }
+        if team_id:
+            # Team model access, budgets and limits apply only to team keys.
+            body["team_id"] = team_id
         if self.config.models:
             body["models"] = list(self.config.models)
         if self.config.key_duration:
@@ -226,6 +251,22 @@ class LiteLLMClient:
         else:
             raise LiteLLMConfigurationError("Silinecek anahtar belirtilmedi.")
         await self._request("POST", "/key/delete", json=body)
+
+    async def list_teams(self) -> list[dict]:
+        payload = await self._request("GET", "/team/list", allow_list=True)
+        teams = payload.get("teams") if isinstance(payload, dict) else payload
+        return [team for team in teams or [] if isinstance(team, dict) and team.get("team_id")]
+
+    async def add_team_member(self, team_id: str, user_id: str) -> None:
+        try:
+            await self._request(
+                "POST",
+                "/team/member_add",
+                json={"team_id": team_id, "member": {"role": "user", "user_id": user_id}},
+            )
+        except LiteLLMConnectionError as exc:
+            if "already" not in str(exc).lower():
+                raise
 
     async def whoami(self) -> dict:
         """Describe the admin key: its owner and that owner's LiteLLM role."""

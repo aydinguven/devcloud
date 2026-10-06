@@ -29,6 +29,7 @@ from app.models.workspace import (
 from app.models.workspace_image import WorkspaceImage
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
+from app.genai import workspace_gateway_token
 from app.models.mlflow_deployment import MlflowDeployment, MlflowDeploymentStatus
 from app.integrations.mlflow import (
     MlflowConfigurationError,
@@ -622,6 +623,7 @@ async def create_workspace(
             image_ref=image_ref,
             image_sha256=image_sha256,
             mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
+            ai_gateway_token=await workspace_gateway_token(db, current_user.id),
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
@@ -738,6 +740,7 @@ async def deploy_workspace_stream(
                 image_ref=image_ref,
                 image_sha256=image_sha256,
                 mlflow_environment=await _workspace_mlflow_environment(db, current_user.id),
+                ai_gateway_token=await workspace_gateway_token(db, current_user.id),
                 progress_callback=emit_log,
             )
 
@@ -884,6 +887,11 @@ async def start_workspace_endpoint(
                     else await _workspace_mlflow_environment(db, workspace.user_id)
                 ),
                 service_environment=await _workspace_service_environment(db, workspace),
+                ai_gateway_token=(
+                    ""
+                    if workspace.template_id == "mlflow-serving"
+                    else await workspace_gateway_token(db, workspace.user_id)
+                ),
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path

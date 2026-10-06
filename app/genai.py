@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,9 +15,11 @@ from app.integrations.litellm import (
     LiteLLMConfigurationError,
     LiteLLMConnectionError,
     config_from_record,
+    user_team_ids,
 )
 from app.models.genai_account import GenAiAccount
 from app.models.genai_settings import GenAiSettings
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.user import User
 from app.schemas.genai import (
     GenAiAccountStatus,
@@ -25,6 +28,7 @@ from app.schemas.genai import (
     GenAiUsage,
     GenAiUsageHistory,
 )
+from app.security.secrets import SecretDecryptionError, decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("devcloud.genai")
 
@@ -119,6 +123,55 @@ def _key_active(payload: dict, token: str) -> bool | None:
     return False
 
 
+class _Teams:
+    """LiteLLM team lookups for one operation (one ``/team/list`` call)."""
+
+    def __init__(self, client: LiteLLMClient):
+        self.client = client
+        self._by_ref: dict[str, dict] | None = None
+
+    async def _load(self) -> dict[str, dict]:
+        if self._by_ref is None:
+            self._by_ref = {}
+            for team in await self.client.list_teams():
+                self._by_ref[str(team["team_id"])] = team
+                if team.get("team_alias"):
+                    self._by_ref.setdefault(str(team["team_alias"]), team)
+        return self._by_ref
+
+    async def resolve(self, ref: str) -> dict | None:
+        if not ref:
+            return None
+        return (await self._load()).get(ref)
+
+    async def alias(self, team_id: str) -> str:
+        """Display name for a team id; falls back to the id on any lookup error."""
+        if not team_id:
+            return ""
+        try:
+            team = (await self._load()).get(team_id)
+        except LiteLLMConnectionError:
+            return team_id
+        return str((team or {}).get("team_alias") or team_id)
+
+    async def for_keys(self, user_payload: dict | None) -> str:
+        """Pick the team new keys bind to: highest configured tier first."""
+        member_of = user_team_ids(user_payload)
+        if not member_of:
+            return ""
+        config = self.client.config
+        for ref in config.team_priority:
+            team = await self.resolve(ref)
+            if team and str(team["team_id"]) in member_of:
+                return str(team["team_id"])
+        if len(member_of) == 1:
+            return member_of[0]
+        default = await self.resolve(config.default_team)
+        if default and str(default["team_id"]) in member_of:
+            return str(default["team_id"])
+        return ""
+
+
 async def account_status(db: AsyncSession, user: User) -> GenAiAccountStatus:
     record = await _settings(db)
     if not is_configured(record):
@@ -131,6 +184,7 @@ async def account_status(db: AsyncSession, user: User) -> GenAiAccountStatus:
         key_alias=account.personal_key_alias if account else "",
         created_at=account.created_at if account else None,
         rotated_at=account.rotated_at if account else None,
+        workspace_key=bool(account and account.encrypted_workspace_key),
     )
     try:
         status.litellm_user_id = (
@@ -138,6 +192,13 @@ async def account_status(db: AsyncSession, user: User) -> GenAiAccountStatus:
         )
         client, _record = await _client(db)
         payload = await client.get_user(status.litellm_user_id)
+        teams = _Teams(client)
+        if payload is not None:
+            current = await teams.for_keys(payload)
+            status.team = await teams.alias(current)
+            if account and account.personal_key_alias:
+                status.key_team = await teams.alias(account.personal_key_team)
+                status.key_team_current = account.personal_key_team == current
     except (GenAiUnavailable, GenAiConflict, LiteLLMConnectionError) as exc:
         status.error = str(exc)
         return status
@@ -150,21 +211,44 @@ async def account_status(db: AsyncSession, user: User) -> GenAiAccountStatus:
 
 
 async def _ensure_litellm_user(
-    client: LiteLLMClient, user_id: str, email: str | None
-) -> None:
-    if await client.get_user(user_id) is not None:
-        return
-    try:
-        await client.create_user(user_id, email)
-    except LiteLLMConnectionError as exc:
-        # A concurrent or manual creation is fine; adopt the existing user.
-        if await client.get_user(user_id) is not None:
-            return
-        if email and "email" in str(exc).lower():
-            # The e-mail belongs to another LiteLLM user (e.g. a UI login).
-            await client.create_user(user_id, None)
-            return
-        raise
+    client: LiteLLMClient, teams: _Teams, user_id: str, email: str | None
+) -> dict:
+    """Return the LiteLLM user, creating it (in the default team) if needed."""
+    payload = await client.get_user(user_id)
+    if payload is None:
+        try:
+            await client.create_user(user_id, email)
+        except LiteLLMConnectionError as exc:
+            # A concurrent or manual creation is fine; adopt the existing user.
+            if await client.get_user(user_id) is None:
+                if not (email and "email" in str(exc).lower()):
+                    raise
+                # The e-mail belongs to another LiteLLM user (e.g. a UI login).
+                await client.create_user(user_id, None)
+        payload = await client.get_user(user_id)
+    if not user_team_ids(payload) and client.config.default_team:
+        # New users, and adopted users without any team, join the default tier.
+        team = await teams.resolve(client.config.default_team)
+        if team is None:
+            raise GenAiConflict(
+                f"Varsayılan LiteLLM takımı bulunamadı: {client.config.default_team}"
+            )
+        await client.add_team_member(str(team["team_id"]), user_id)
+        payload = await client.get_user(user_id)
+    if payload is None:
+        raise LiteLLMConnectionError("LiteLLM kullanıcısı oluşturulamadı.")
+    return payload
+
+
+async def _issue(
+    client: LiteLLMClient, teams: _Teams, user_payload: dict, user_id: str, purpose: str
+) -> tuple[dict, str]:
+    team_id = await teams.for_keys(user_payload)
+    suffix = "-workspace" if purpose == "workspace" else ""
+    issued = await client.generate_key(
+        user_id, _key_alias(user_id) + suffix, purpose, team_id=team_id
+    )
+    return issued, team_id
 
 
 async def provision(db: AsyncSession, user: User) -> GenAiIssuedKey:
@@ -177,14 +261,15 @@ async def provision(db: AsyncSession, user: User) -> GenAiIssuedKey:
                 "GenAI erişiminiz zaten etkin. Yeni anahtar için anahtarı yenileyin."
             )
         user_id = account.litellm_user_id if account else litellm_user_id(user)
-        await _ensure_litellm_user(client, user_id, user.email)
-        alias = _key_alias(user_id)
-        issued = await client.generate_key(user_id, alias, "personal")
+        teams = _Teams(client)
+        payload = await _ensure_litellm_user(client, teams, user_id, user.email)
+        issued, team_id = await _issue(client, teams, payload, user_id, "personal")
         token = _token_of(issued)
         if account is None:
             account = GenAiAccount(user_id=user.id, litellm_user_id=user_id)
-        account.personal_key_alias = str(issued.get("key_alias") or alias)
+        account.personal_key_alias = str(issued.get("key_alias") or "")
         account.personal_key_token = token
+        account.personal_key_team = team_id
         db.add(account)
         try:
             await db.commit()
@@ -202,26 +287,28 @@ async def provision(db: AsyncSession, user: User) -> GenAiIssuedKey:
             key_alias=account.personal_key_alias,
             base_url=record.base_url,
             litellm_user_id=user_id,
+            team=await teams.alias(team_id),
         )
 
 
 async def rotate(db: AsyncSession, user: User) -> GenAiIssuedKey:
-    """Issue a new personal key, then delete the previous one."""
+    """Issue a new personal key (bound to the current team), then delete the old one."""
     async with _lock_for(user.id):
         client, record = await _client(db)
         account = await _account(db, user)
         if account is None:
             raise GenAiConflict("Önce GenAI erişimi oluşturun.")
         user_id = account.litellm_user_id
+        teams = _Teams(client)
         # The LiteLLM user may have been removed manually since provisioning.
-        await _ensure_litellm_user(client, user_id, user.email)
+        payload = await _ensure_litellm_user(client, teams, user_id, user.email)
         previous_token = account.personal_key_token
         previous_alias = account.personal_key_alias
-        alias = _key_alias(user_id)
-        issued = await client.generate_key(user_id, alias, "personal")
+        issued, team_id = await _issue(client, teams, payload, user_id, "personal")
         token = _token_of(issued)
-        account.personal_key_alias = str(issued.get("key_alias") or alias)
+        account.personal_key_alias = str(issued.get("key_alias") or "")
         account.personal_key_token = token
+        account.personal_key_team = team_id
         account.rotated_at = datetime.now(timezone.utc)
         db.add(account)
         try:
@@ -242,7 +329,90 @@ async def rotate(db: AsyncSession, user: User) -> GenAiIssuedKey:
             base_url=record.base_url,
             litellm_user_id=user_id,
             warning=warning,
+            team=await teams.alias(team_id),
         )
+
+
+def _same_gateway(left: str, right: str) -> bool:
+    def normalize(value: str) -> tuple[str, str, int | None, str]:
+        parsed = urlsplit((value or "").strip())
+        port = parsed.port or {"http": 80, "https": 443}.get(parsed.scheme)
+        return (parsed.scheme, (parsed.hostname or "").lower(), port, parsed.path.rstrip("/"))
+
+    return bool(left and right) and normalize(left) == normalize(right)
+
+
+async def workspace_gateway_token(db: AsyncSession, user_id: int) -> str:
+    """Return the user's own LiteLLM key for a new workspace, or "" for the shared key.
+
+    Only users who opted in on the GenAI tab get a personal workspace key, and
+    only when GenAI and Workspace AI point at the same LiteLLM. Any failure
+    falls back to the shared key; workspace creation never fails here.
+    """
+    try:
+        record = await _settings(db)
+        if not is_configured(record):
+            return ""
+        account = (
+            await db.execute(select(GenAiAccount).where(GenAiAccount.user_id == user_id))
+        ).scalar_one_or_none()
+        if account is None or not account.personal_key_alias:
+            return ""
+        workspace_ai = await db.get(JupyterAiSettings, 1)
+        if not workspace_ai or not workspace_ai.enabled:
+            return ""
+        if not _same_gateway(workspace_ai.gateway_url, record.base_url):
+            logger.warning(
+                "GenAI and Workspace AI use different LiteLLM URLs; using the shared key."
+            )
+            return ""
+        async with _lock_for(user_id):
+            return await _ensure_workspace_key(db, record, account)
+    except Exception as exc:  # noqa: BLE001 - never block workspace creation
+        logger.warning("Per-user workspace key unavailable, using the shared key: %s", exc)
+        return ""
+
+
+async def _ensure_workspace_key(
+    db: AsyncSession, record: GenAiSettings, account: GenAiAccount
+) -> str:
+    stored = ""
+    if account.encrypted_workspace_key:
+        try:
+            stored = decrypt_secret(account.encrypted_workspace_key)
+        except SecretDecryptionError:
+            stored = ""
+    client = LiteLLMClient(config_from_record(record))
+    teams = _Teams(client)
+    try:
+        payload = await client.get_user(account.litellm_user_id)
+    except LiteLLMConnectionError:
+        # LiteLLM is down: keep using the stored key rather than the shared one.
+        return stored
+    if payload is None:
+        return ""
+    team_id = await teams.for_keys(payload)
+    active = _key_active(payload, account.workspace_key_token)
+    if stored and account.workspace_key_team == team_id and active is not False:
+        return stored
+    # Missing, unreadable, deleted in LiteLLM, or bound to an old tier.
+    issued, team_id = await _issue(client, teams, payload, account.litellm_user_id, "workspace")
+    previous = (account.workspace_key_token, account.workspace_key_alias)
+    account.workspace_key_alias = str(issued.get("key_alias") or "")
+    account.workspace_key_token = _token_of(issued)
+    account.workspace_key_team = team_id
+    account.encrypted_workspace_key = encrypt_secret(issued["key"])
+    db.add(account)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await _discard_key(client, _token_of(issued) or issued["key"])
+        raise
+    if any(previous):
+        await _discard_key(client, *previous)
+    logger.info("Issued LiteLLM workspace key %s", account.workspace_key_alias)
+    return issued["key"]
 
 
 async def usage_history(db: AsyncSession, user: User, days: int = 30) -> GenAiUsageHistory:

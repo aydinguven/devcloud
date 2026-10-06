@@ -123,6 +123,8 @@ def _settings_out(record: GenAiSettings | None) -> GenAiSettingsOut:
         max_budget=record.max_budget,
         budget_duration=record.budget_duration,
         key_duration=record.key_duration,
+        default_team=record.default_team,
+        team_priority=parse_models(record.team_priority_json),
         updated_at=record.updated_at,
     )
 
@@ -163,6 +165,8 @@ async def update_genai_settings(
     record.max_budget = update.max_budget
     record.budget_duration = update.budget_duration
     record.key_duration = update.key_duration
+    record.default_team = update.default_team
+    record.team_priority_json = json.dumps(update.team_priority, ensure_ascii=False)
     if update.admin_key is not None:
         record.encrypted_admin_key = encrypt_secret(update.admin_key)
     record.updated_at = datetime.now(timezone.utc)
@@ -189,13 +193,31 @@ async def test_genai_settings(
         return GenAiTestResult(ok=False, message=str(exc))
     latency_ms = int((time.monotonic() - started) * 1000)
     is_admin = identity["user_role"] == "proxy_admin"
+    missing_teams: list[str] = []
+    refs = [record.default_team, *parse_models(record.team_priority_json)]
+    refs = [ref for ref in dict.fromkeys(refs) if ref]
+    if is_admin:
+        if refs:
+            try:
+                teams = await client.list_teams()
+            except LiteLLMConnectionError as exc:
+                return GenAiTestResult(ok=False, message=f"Takımlar okunamadı: {exc}")
+            known = {str(t["team_id"]) for t in teams} | {
+                str(t["team_alias"]) for t in teams if t.get("team_alias")
+            }
+            missing_teams = [ref for ref in refs if ref not in known]
+    ok = is_admin and not missing_teams
+    if not is_admin:
+        message = "Bağlantı başarılı ancak anahtarın sahibi proxy_admin rolünde değil."
+    elif missing_teams:
+        message = "LiteLLM'de bulunamayan takımlar: " + ", ".join(missing_teams)
+    elif refs:
+        message = "LiteLLM bağlantısı, yönetici yetkisi ve takımlar doğrulandı."
+    else:
+        message = "LiteLLM bağlantısı ve yönetici yetkisi doğrulandı."
     return GenAiTestResult(
-        ok=is_admin,
-        message=(
-            "LiteLLM bağlantısı ve yönetici yetkisi doğrulandı."
-            if is_admin
-            else "Bağlantı başarılı ancak anahtarın sahibi proxy_admin rolünde değil."
-        ),
+        ok=ok,
+        message=message,
         admin_user_id=identity["user_id"],
         admin_role=identity["user_role"],
         latency_ms=latency_ms,

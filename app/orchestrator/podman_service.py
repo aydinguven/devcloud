@@ -279,6 +279,7 @@ class PodmanService:
         image_sha256: str = "",
         mlflow_environment: dict[str, str] | None = None,
         service_environment: dict[str, str] | None = None,
+        ai_gateway_token: str = "",
         progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
@@ -386,6 +387,9 @@ class PodmanService:
             ])
 
         # Injected environment variables for auth & config
+        # A per-user LiteLLM key from the controller replaces the worker's
+        # shared gateway token for this container only.
+        gateway_token = str(ai_gateway_token or "") or settings.JUPYTER_AI_GATEWAY_TOKEN
         cline_files: dict[str, str] = {}
         if is_vscode:
             cmd_args.extend([
@@ -400,7 +404,7 @@ class PodmanService:
             ])
             cline_files = managed_cline_files(
                 settings.JUPYTER_AI_GATEWAY_URL,
-                settings.JUPYTER_AI_GATEWAY_TOKEN,
+                gateway_token,
                 settings.JUPYTER_AI_MODEL,
             )
             if cline_files:
@@ -434,10 +438,10 @@ class PodmanService:
                 cmd_args.extend([
                     "-e", f"ANTHROPIC_BASE_URL={settings.JUPYTER_AI_GATEWAY_URL}",
                 ])
-            if settings.JUPYTER_AI_GATEWAY_TOKEN:
+            if gateway_token:
                 cmd_args.extend([
                     "-e",
-                    f"ANTHROPIC_AUTH_TOKEN={settings.JUPYTER_AI_GATEWAY_TOKEN}",
+                    f"ANTHROPIC_AUTH_TOKEN={gateway_token}",
                 ])
             for key, value in model_environment(
                 settings.JUPYTER_AI_MODEL,
