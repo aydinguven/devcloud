@@ -281,7 +281,12 @@ jobs:
           image="${{ matrix.image }}"
           local_image="localhost/devcloud-${image}:${DEVCLOUD_VERSION}"
           archive="${RUNNER_TEMP}/devcloud-workspace-${image}-v${DEVCLOUD_VERSION}-${SHORT_SHA}.tar.gz"
-          docker save "${local_image}" | gzip -6 > "${archive}"
+          # pigz writes standard gzip using every runner core.
+          if ! command -v pigz >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq pigz
+          fi
+          docker save "${local_image}" | pigz -6 > "${archive}"
           archive_size="$(stat --format=%s "${archive}")"
           if (( archive_size >= 2147483648 )); then
             echo "Workspace archive exceeds GitHub's 2 GiB release-asset limit." >&2
@@ -302,16 +307,17 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  release:
+  # Runs in parallel with the workspace image jobs; only publication waits for
+  # both sides.
+  platform:
     name: Build and publish Rocky 10 platform
-    needs: [release_scope, workspace_images]
-    if: >-
-      always() &&
-      needs.release_scope.result == 'success' &&
-      (needs.workspace_images.result == 'success' || needs.workspace_images.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     environment: release
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      short_sha: ${{ steps.metadata.outputs.short_sha }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
     env:
       IMAGE_REGISTRY: ghcr.io
       IMAGE_REPOSITORY: ${{ github.repository }}
@@ -326,7 +332,6 @@ jobs:
       PUBLISH_QUAY: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_quay) }}
       # Signing stays opt-in while existing hosts transition to trusted keyrings.
       SIGN_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_release }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out release source
@@ -335,6 +340,7 @@ jobs:
           fetch-depth: 0
 
       - name: Resolve immutable release metadata
+        id: metadata
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -378,14 +384,11 @@ jobs:
             echo "PLATFORM_FILENAME=${platform_filename}"
             echo "ASSET_BASE_URL=${asset_base_url}"
           } >> "${GITHUB_ENV}"
-
-      - name: Collect offline workspace archives
-        if: github.event_name == 'push'
-        uses: actions/download-artifact@v4
-        with:
-          pattern: devcloud-workspace-image-*
-          path: ${{ runner.temp }}/devcloud-release-assets
-          merge-multiple: true
+          {
+            echo "version=${version}"
+            echo "short_sha=${short_sha}"
+            echo "release_tag=${release_tag}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Check hosted runner capacity
         shell: bash
@@ -403,9 +406,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          # Host-disk image store so Podman can use native overlay instead of
+          # vfs inside the container (overlay cannot sit on Docker's overlay).
+          storage_dir="${RUNNER_TEMP}/devcloud-containers-storage"
+          install -d -m 0700 "${storage_dir}"
           docker run --privileged --rm \
             --volume "${GITHUB_WORKSPACE}:/workspace" \
             --volume "${ASSET_DIR}:/release-assets" \
+            --volume "${storage_dir}:/var/lib/containers" \
             --env GITHUB_SHA \
             --env DEVCLOUD_VERSION \
             --env SHORT_SHA \
@@ -426,6 +434,53 @@ jobs:
             rockylinux/rockylinux:10.2 \
             bash /workspace/deploy/ci/build-release-assets.sh
 
+      - name: Stage platform release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: devcloud-platform-assets
+          path: ${{ runner.temp }}/devcloud-release-assets
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    needs: [release_scope, workspace_images, platform]
+    if: >-
+      always() &&
+      needs.release_scope.result == 'success' &&
+      needs.platform.result == 'success' &&
+      (needs.workspace_images.result == 'success' || needs.workspace_images.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEVCLOUD_VERSION: ${{ needs.platform.outputs.version }}
+      SHORT_SHA: ${{ needs.platform.outputs.short_sha }}
+      RELEASE_TAG: ${{ needs.platform.outputs.release_tag }}
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Prepare release asset directory
+        shell: bash
+        run: echo "ASSET_DIR=${RUNNER_TEMP}/devcloud-release-assets" >> "${GITHUB_ENV}"
+
+      - name: Collect platform release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: devcloud-platform-assets
+          path: ${{ runner.temp }}/devcloud-release-assets
+
+      - name: Collect offline workspace archives
+        if: github.event_name == 'push'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: devcloud-workspace-image-*
+          path: ${{ runner.temp }}/devcloud-release-assets
+          merge-multiple: true
+
       - name: Create or update GitHub Release
         shell: bash
         run: |
@@ -437,6 +492,11 @@ jobs:
             echo "No release assets were generated." >&2
             exit 1
           }
+          [[ -f "${ASSET_DIR}/devcloud-update-channel.json" ]] || {
+            echo "Release channel descriptor is missing." >&2
+            exit 1
+          }
+          sha256sum "${release_assets[@]}"
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" --clobber "${release_assets[@]}"
