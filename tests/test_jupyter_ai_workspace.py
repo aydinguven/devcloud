@@ -105,7 +105,7 @@ def test_release_publishes_versioned_changed_workspace_images():
     )
     assert "rebuild_jupyter" in workflow
     assert "needs: release_scope" in workflow
-    assert "needs: [release_scope, workspace_images]" in workflow
+    assert "needs: [release_scope, workspace_images, platform]" in workflow
     assert "needs.workspace_images.result == 'skipped'" in workflow
 
 
