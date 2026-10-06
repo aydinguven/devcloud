@@ -23,8 +23,16 @@ The release workflow deliberately does not run for pull requests.
 No self-hosted runner registration is required. GitHub creates a fresh
 `ubuntu-24.04` runner for each release job. The workflow starts
 `rockylinux/rockylinux:10.2` with Docker's `--privileged` option, installs the Rocky build
-dependencies there, and runs Podman with the `vfs` storage driver. GitHub CLI
-and Git operations that publish the finished artifacts remain on the host.
+dependencies there, and runs Podman with the native `overlay` storage driver
+on an image store bind-mounted from the runner disk. If overlay is unavailable,
+the build falls back to the much slower `vfs` driver. GitHub CLI and Git
+operations that publish the finished artifacts remain on the host.
+
+The platform build runs in parallel with the workspace image jobs. A final
+`publish` job waits for both, collects their staged artifacts, creates or
+updates the GitHub Release, and advances `stable`. The release build does not
+rerun the test suite; that gate is the CI workflow on `main`, so tag a commit
+only after its CI run has passed.
 
 The standard GitHub-hosted runner has limited temporary storage. The workflow
 requires at least 8 GiB free before starting. If future platform images make
@@ -118,8 +126,8 @@ This keeps a no-op release from spending hours rebuilding two large images. If
 the previous image can no longer be pulled, the job logs a warning and falls
 back to a full rebuild and smoke test.
 
-The two offline workspace archives are staged between jobs with short-lived
-GitHub Actions artifacts and then attached permanently to the GitHub Release.
+The two offline workspace archives (compressed with `pigz`) and the platform
+assets are staged between jobs with short-lived GitHub Actions artifacts and then attached permanently to the GitHub Release.
 Each archive is checked against GitHub's 2 GiB per-asset limit before upload.
 After downloading, verify the adjacent `.sha256` file, decompress the
 `.tar.gz`, and upload the resulting Docker `.tar` under

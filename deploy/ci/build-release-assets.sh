@@ -43,12 +43,33 @@ dnf install -y \
   python3-pip \
   tar
 
-cat > "${CONTAINER_STORAGE_CONF}" <<'EOF'
+write_storage_conf() {
+  cat > "${CONTAINER_STORAGE_CONF}" <<EOF
 [storage]
-driver = "vfs"
+driver = "$1"
 runroot = "/run/containers/storage"
 graphroot = "/var/lib/containers/storage"
 EOF
+}
+
+# vfs copies the full root filesystem for every build step, which made image
+# builds, pushes and teardown dominate the release. Native overlay needs a
+# graphroot that is not itself on overlayfs, so the workflow bind-mounts
+# /var/lib/containers from the runner disk. Fall back to vfs when that mount
+# or kernel overlay support is missing.
+install -d -m 0700 /var/lib/containers
+storage_driver=vfs
+if [[ "$(stat -f -c %T /var/lib/containers)" != "overlayfs" ]] && grep -qw overlay /proc/filesystems; then
+  storage_driver=overlay
+fi
+write_storage_conf "${storage_driver}"
+if [[ "${storage_driver}" == "overlay" ]] && ! podman info >/dev/null 2>&1; then
+  echo "Podman overlay storage is unavailable; falling back to vfs." >&2
+  rm -rf -- /var/lib/containers/storage
+  storage_driver=vfs
+  write_storage_conf "${storage_driver}"
+fi
+echo "Podman storage driver: ${storage_driver}"
 
 dnf download --help >/dev/null
 podman info >/dev/null
@@ -63,7 +84,8 @@ python3 -m venv "${RELEASE_VENV}"
 "${RELEASE_VENV}/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
 export PATH="${RELEASE_VENV}/bin:${PATH}"
 
-python -m pytest -q -p no:cacheprovider
+# The test suite is gated by the CI workflow; the bundle verification below
+# still imports the application and checks the packaged wheels.
 
 signing_key=""
 if [[ "${SIGN_RELEASE}" == "true" ]]; then

@@ -27,7 +27,7 @@
 
 ## Known issues and risks
 
-- `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
+- `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step (since removed; CI is the test gate) on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
 - The deployment background worker processes jobs one at a time, so a long image-sync wait delays other queued deployments. This was already the case during image builds.
 - `tests/test_mlflow_model_build.py::test_worker_unit_exposes_the_virtualenv_console_scripts_on_path` fails on Windows only (it asserts `os.sep` inside a Linux unit file).
 
