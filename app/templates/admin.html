@@ -775,6 +775,8 @@ cd devcloud
       <label class="form-group" style="margin:0;"><span class="form-label">Kullanıcı başına bütçe (USD)</span><input class="form-input" name="max_budget" type="number" min="0" step="0.01" value="{{ genai_settings.max_budget if genai_settings and genai_settings.max_budget is not none else '' }}" placeholder="Sınırsız"></label>
       <label class="form-group" style="margin:0;"><span class="form-label">Bütçe sıfırlama süresi</span><input class="form-input" name="budget_duration" value="{{ genai_settings.budget_duration if genai_settings else '' }}" placeholder="30d"></label>
       <label class="form-group" style="margin:0;"><span class="form-label">Anahtar geçerlilik süresi</span><input class="form-input" name="key_duration" value="{{ genai_settings.key_duration if genai_settings else '' }}" placeholder="Süresiz"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Varsayılan LiteLLM takımı</span><input class="form-input" name="default_team" value="{{ genai_settings.default_team if genai_settings else '' }}" placeholder="TCMB_Standard_User"><small class="form-help">Yeni oluşturulan (ve hiçbir takımda olmayan) kullanıcılar bu takıma eklenir. Takım adı veya id.</small></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Takım önceliği (en yüksek üstte)</span><textarea class="form-input" name="team_priority" rows="3" placeholder="TCMB_Pro_User&#10;TCMB_AI_User&#10;TCMB_Standard_User">{{ genai_team_priority }}</textarea><small class="form-help">Anahtarlar kullanıcının üyesi olduğu en üstteki takıma bağlanır; takım limitleri ve model erişimi böylece uygulanır.</small></label>
     </div>
     <p class="text-muted">Yönetici anahtarı controller veritabanında şifreli tutulur ve hiçbir API yanıtında döndürülmez. Kullanıcı anahtarları yalnızca bir kez gösterilir ve saklanmaz.</p>
     <div class="table-actions">
@@ -963,6 +965,7 @@ cd devcloud
               <span class="admin-team-quota-item{% if not group.is_default and group.inherited_sources[key] == 'default' %} is-inherited{% endif %}"><b>{{ label }}</b> {{ value }}</span>
             {% endfor %}
           </span>
+          <span class="admin-team-llm" data-genai-group="{{ group.key }}" title="Son 30 günde LiteLLM kullanımı" hidden></span>
           <span class="admin-team-totals" title="Üyelerin şu an ayırdığı toplam kaynak">
             Ayrılan: {{ '%.1f'|format(group.totals.cpu) }} CPU · {{ '%.1f'|format(group.totals.memory / 1073741824) }} GB · {{ group.totals.gpu|int }} GPU · {{ group.totals.running }} çalışan
           </span>
@@ -1035,6 +1038,18 @@ cd devcloud
                         <div class="admin-quota-track"><span style="width: {{ metric.percent }}%;"></span></div>
                       </div>
                     {% endfor %}
+                  </section>
+
+                  <section class="admin-user-llm" data-genai-user="{{ u.id }}" aria-label="{{ u.username }} LLM kullanımı" hidden>
+                    <h3>LLM Kullanımı <small>son 30 gün</small></h3>
+                    <div class="admin-llm-metrics">
+                      <div><span>İstek</span><strong data-llm="api_requests">0</strong></div>
+                      <div><span>Token</span><strong data-llm="total_tokens">0</strong></div>
+                      <div><span>Girdi / Çıktı</span><strong data-llm="split">0 / 0</strong></div>
+                      <div data-llm-spend hidden><span>Harcama</span><strong data-llm="spend">$0.00</strong></div>
+                      <div><span>Sıra</span><strong data-llm="rank">—</strong></div>
+                    </div>
+                    <div class="admin-llm-spark" data-llm="spark"></div>
                   </section>
 
                   <form class="quota-form admin-quota-form" data-user-id="{{ u.id }}">
@@ -1295,4 +1310,11 @@ USER coder" required></textarea>
 {% endif %}
   </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if admin_section == 'users' %}
+<script src="/static/js/genai_charts.js?v={{ static_version }}"></script>
+<script src="/static/js/genai_admin_usage.js?v={{ static_version }}"></script>
+{% endif %}
 {% endblock %}

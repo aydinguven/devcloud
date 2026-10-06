@@ -647,9 +647,16 @@ class WorkerAgent:
                 "workspace_id", "user_id", "container_name", "template_id",
                 "flavor_id", "host_port", "workspace_token",
                 "accelerator_cdi_name", "image_ref", "image_sha256",
-                "mlflow_environment", "service_environment",
+                "mlflow_environment", "service_environment", "ai_gateway_token",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
+            token = args.get("ai_gateway_token")
+            if token is not None and (
+                not isinstance(token, str)
+                or len(token) > 4096
+                or any(character.isspace() or ord(character) < 32 for character in token)
+            ):
+                args.pop("ai_gateway_token")
             async with self.registry_lock:
                 existing = self.registry.get(args["container_name"])
                 if isinstance(existing, dict):

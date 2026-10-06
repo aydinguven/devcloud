@@ -51,6 +51,15 @@
       $("genai-base-url").textContent = status.base_url;
       $("genai-created").textContent = when(status.created_at);
       $("genai-rotated").textContent = when(status.rotated_at);
+      $("genai-team").textContent = status.team || "—";
+      $("genai-workspace-key").textContent = status.workspace_key
+        ? "Kişisel (yeni workspace'lerde kullanılır)"
+        : "Henüz yok; ilk yeni workspace'te oluşturulur";
+      const teamChanged = status.key_team_current === false;
+      $("genai-team-changed").textContent = teamChanged
+        ? `Takımınız ${status.key_team || "—"} → ${status.team || "—"} olarak değişti. Yeni takımın limitleri için anahtarınızı yenileyin; yeni workspace'ler otomatik olarak yeni takımı kullanır.`
+        : "";
+      $("genai-team-changed").hidden = !teamChanged;
       const missing = status.key_active === false || status.litellm_user_exists === false;
       $("genai-key-missing").hidden = !missing;
       $("genai-key-badge").className = `badge ${missing ? "badge-stopped" : "badge-running"}`;

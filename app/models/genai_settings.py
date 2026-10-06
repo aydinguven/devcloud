@@ -27,6 +27,11 @@ class GenAiSettings(Base):
     max_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     budget_duration: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     key_duration: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    # LiteLLM team alias or id every newly created user joins.
+    default_team: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    # Team aliases/ids, highest tier first; keys bind to the first one the
+    # user belongs to.
+    team_priority_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

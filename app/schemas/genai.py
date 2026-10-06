@@ -21,9 +21,12 @@ class GenAiSettingsUpdate(BaseModel):
     max_budget: float | None = Field(default=None, ge=0)
     budget_duration: str = ""
     key_duration: str = ""
+    default_team: str = Field(default="", max_length=255)
+    team_priority: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator(
         "base_url", "ca_cert_file", "user_role", "budget_duration", "key_duration",
+        "default_team",
         mode="after",
     )
     @classmethod
@@ -64,7 +67,14 @@ class GenAiSettingsUpdate(BaseModel):
             raise ValueError("Süre 30d, 12h, 45m veya 30s biçiminde olmalıdır.")
         return value
 
-    @field_validator("models", mode="after")
+    @field_validator("default_team", mode="after")
+    @classmethod
+    def validate_team(cls, value: str) -> str:
+        if any(ord(ch) < 32 for ch in value):
+            raise ValueError("Takım adı kontrol karakteri içeremez.")
+        return value
+
+    @field_validator("models", "team_priority", mode="after")
     @classmethod
     def validate_models(cls, values: list[str]) -> list[str]:
         cleaned: list[str] = []
@@ -73,7 +83,7 @@ class GenAiSettingsUpdate(BaseModel):
             if not value:
                 continue
             if len(value) > 255 or any(ch.isspace() or ord(ch) < 32 for ch in value):
-                raise ValueError("Model adları boşluk içeremez ve en fazla 255 karakter olabilir.")
+                raise ValueError("Model ve takım adları boşluk içeremez ve en fazla 255 karakter olabilir.")
             if value not in cleaned:
                 cleaned.append(value)
         return cleaned
@@ -100,6 +110,8 @@ class GenAiSettingsOut(BaseModel):
     max_budget: float | None
     budget_duration: str
     key_duration: str
+    default_team: str = ""
+    team_priority: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
 
 
@@ -129,6 +141,10 @@ class GenAiAccountStatus(BaseModel):
     created_at: datetime | None = None
     rotated_at: datetime | None = None
     usage: GenAiUsage | None = None
+    team: str = ""
+    key_team: str = ""
+    key_team_current: bool | None = None
+    workspace_key: bool = False
     error: str | None = None
 
 
@@ -137,6 +153,7 @@ class GenAiIssuedKey(BaseModel):
     key_alias: str
     base_url: str
     litellm_user_id: str
+    team: str = ""
     warning: str | None = None
 
 

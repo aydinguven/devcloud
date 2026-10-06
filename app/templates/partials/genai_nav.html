@@ -1,0 +1,4 @@
+<nav class="genai-subnav" aria-label="GenAI bölümleri">
+  <a href="/genai" class="{% if request.url.path == '/genai' %}active{% endif %}">Erişimim</a>
+  <a href="/genai/stats" class="{% if request.url.path.startswith('/genai/stats') %}active{% endif %}">İstatistikler</a>
+</nav>

@@ -18,7 +18,12 @@ Changes from the design:
 
 ## Phase 2 — per-user workspace key
 
-- [ ] 10. `ensure_workspace_key(user)` plus the columns `workspace_key_alias`, `encrypted_workspace_key`, `workspace_key_token` (migration v27).
-- [ ] 11. Pass `ai_gateway_token` at the three `create_workspace_container` call sites in `workspace_routes.py`, falling back to the shared token if anything fails.
-- [ ] 12. Worker: add the field to the allowed list, and use it in `podman_service` for `ANTHROPIC_AUTH_TOKEN` and the Cline config.
-- [ ] 13. Tests: env injection with and without the key, the fallback when LiteLLM is down, and the old-worker case.
+- [x] 10. `ensure_workspace_key(user)` plus the columns `workspace_key_alias`, `encrypted_workspace_key`, `workspace_key_token` (migration v27).
+- [x] 11. Pass `ai_gateway_token` at the three `create_workspace_container` call sites in `workspace_routes.py`, falling back to the shared token if anything fails.
+- [x] 12. Worker: add the field to the allowed list, and use it in `podman_service` for `ANTHROPIC_AUTH_TOKEN` and the Cline config.
+- [x] 13. Tests: env injection with and without the key, the fallback when LiteLLM is down, and the old-worker case.
+
+Phase 2 notes (3.12.0):
+- Only users who created GenAI access get a workspace key. Everyone else keeps the shared key, and the shared key stays as the fallback.
+- LiteLLM teams: a default team for new users, and a priority list that decides which team each key binds to. The workspace key is reissued when the user's team changes.
+- A per-user key is injected only when the GenAI base URL and the Workspace AI gateway URL point to the same LiteLLM.

@@ -306,6 +306,25 @@ async def genai_page(
     )
 
 
+@view_router.get("/genai/stats", response_class=HTMLResponse)
+async def genai_stats_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="genai_stats.html",
+        context={
+            "app_name": settings.APP_NAME,
+            "user": current_user,
+            "genai_configured": genai_is_configured(await db.get(GenAiSettings, 1)),
+        },
+    )
+
+
 @view_router.get("/mlflow", response_class=HTMLResponse)
 async def mlflow_dashboard_page(
     request: Request,
@@ -648,6 +667,11 @@ async def admin_page(
         context["genai_settings"] = genai_settings
         context["genai_models"] = (
             "\n".join(parse_genai_models(genai_settings.models_json))
+            if genai_settings
+            else ""
+        )
+        context["genai_team_priority"] = (
+            "\n".join(parse_genai_models(genai_settings.team_priority_json))
             if genai_settings
             else ""
         )

@@ -318,6 +318,31 @@ hash, so it can delete the old key on **Anahtarı yenile**. Spend is tracked per
 LiteLLM user, so usage history survives key rotation. If a LiteLLM user with
 the same id already exists, DevCloud adopts it instead of creating a new one.
 
+**Teams.** Set **Varsayılan LiteLLM takımı** (for example `TCMB_Standard_User`).
+New users, and adopted users who are in no team yet, join that team. **Takım
+önceliği** lists the tier teams with the highest first (`TCMB_Pro_User`,
+`TCMB_AI_User`, `TCMB_Standard_User`). Each key is bound to the first team the
+user belongs to, so that team's model access and limits apply. To change a
+user's tier, add them to the new team in LiteLLM. Their next workspace picks up
+the new tier automatically, and the GenAI page asks them to rotate their
+personal key.
+
+**Usage statistics.** **GenAI > İstatistikler** shows request and token totals,
+a daily chart, user and AD department leaderboards, LiteLLM team rankings and
+the model split for 7, 30 or 90 days. **Admin > Kullanıcılar** adds 30-day LLM
+usage to every user card and department group. Spend (USD) is shown to admins
+only. The data comes from LiteLLM's `/user/daily/activity` and
+`/team/daily/activity` and is cached for 60 seconds.
+
+**Workspace AI with the user's own key.** Once a user has created GenAI access,
+each new or recreated Jupyter or VS Code workspace gets that user's own
+encrypted *workspace key* in place of the shared Workspace AI key. This key is
+used for `ANTHROPIC_AUTH_TOKEN` and for the Cline config. Usage is then counted
+under the user in LiteLLM. Users without GenAI access, older workers, a GenAI URL
+that differs from the Workspace AI gateway URL, or an unreachable LiteLLM all
+keep the shared key, so workspace creation never fails because of this. Running
+workspaces keep the key they were created with until they are recreated.
+
 #### Step 4: Configure Systemd Service
 Copy and edit `deploy/devcloud.service` into `/etc/systemd/system/`:
 ```bash

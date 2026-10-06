@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 26
+CURRENT_SCHEMA_VERSION = 27
 
 
 class MigrationError(RuntimeError):
@@ -613,6 +613,34 @@ async def _add_jupyter_ai_model_catalog(conn) -> None:
         )
 
 
+async def _add_genai_teams_and_workspace_keys(conn) -> None:
+    """Add LiteLLM team settings and per-user workspace key columns."""
+    wanted = {
+        "genai_settings": {
+            "default_team": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "team_priority_json": "TEXT NOT NULL DEFAULT '[]'",
+        },
+        "genai_accounts": {
+            "personal_key_team": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "workspace_key_alias": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "workspace_key_token": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "workspace_key_team": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "encrypted_workspace_key": "TEXT NOT NULL DEFAULT ''",
+        },
+    }
+    for table, columns in wanted.items():
+        existing = await conn.run_sync(
+            lambda sync_conn, table=table: {
+                column["name"] for column in inspect(sync_conn).get_columns(table)
+            }
+        )
+        for name, definition in columns.items():
+            if name not in existing:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                )
+
+
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
     """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
@@ -922,6 +950,9 @@ async def upgrade() -> None:
         if 26 not in applied:
             # init_db creates the portable genai_settings and genai_accounts tables.
             await _record_version(conn, 26, "GenAI LiteLLM self-service keys")
+        if 27 not in applied:
+            await _add_genai_teams_and_workspace_keys(conn)
+            await _record_version(conn, 27, "GenAI teams and per-user workspace keys")
 
 
 async def current_version() -> int:

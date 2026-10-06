@@ -11,6 +11,8 @@
   </div>
 </div>
 
+{% include "partials/genai_nav.html" %}
+
 {% if not genai_configured %}
 <section class="card">
   <h2 class="card-title">Henüz yapılandırılmadı</h2>
@@ -55,7 +57,10 @@
       <div><dt class="text-muted">Gateway adresi</dt><dd id="genai-base-url" style="margin:0;font-family:monospace;"></dd></div>
       <div><dt class="text-muted">Oluşturulma</dt><dd id="genai-created" style="margin:0;"></dd></div>
       <div><dt class="text-muted">Son yenileme</dt><dd id="genai-rotated" style="margin:0;"></dd></div>
+      <div><dt class="text-muted">LiteLLM takımı</dt><dd id="genai-team" style="margin:0;"></dd></div>
+      <div><dt class="text-muted">Workspace AI anahtarı</dt><dd id="genai-workspace-key" style="margin:0;"></dd></div>
     </dl>
+    <p id="genai-team-changed" class="text-destructive" hidden></p>
     <p id="genai-key-missing" class="text-destructive" hidden>Bu anahtar LiteLLM'de artık bulunmuyor. Yeni bir anahtar oluşturun.</p>
     <div class="table-actions">
       <button id="btn-genai-rotate" type="button" class="btn btn-secondary">Anahtarı yenile</button>
