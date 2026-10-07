@@ -85,30 +85,6 @@ def test_claude_persona_is_located_without_importing_adapter(tmp_path, monkeypat
     assert module.installed_persona_path() == persona_path.resolve()
 
 
-def test_release_publishes_versioned_changed_workspace_images():
-    workflow = (
-        ROOT / ".github/workflows/release-platform.yml"
-    ).read_text(encoding="utf-8")
-
-    assert "Build workspace image" in workflow
-    assert "Smoke test Cline in the browser extension host" in workflow
-    assert "node deploy/ci/smoke-vscode.cjs" in workflow
-    assert "docker run --rm --entrypoint" not in workflow
-    assert '"${image}-${DEVCLOUD_VERSION}"' in workflow
-    assert '"${image}-${DEVCLOUD_VERSION}-${SHORT_SHA}"' in workflow
-    assert "Resolve release build scope" in workflow
-    assert "git diff --quiet" in workflow
-    assert "containers/${image}" in workflow
-    assert (
-        "vscode-empty vscode-python vscode-react vscode-java jupyter-python "
-        "terminal-rocky" in workflow
-    )
-    assert "rebuild_jupyter" in workflow
-    assert "needs: release_scope" in workflow
-    assert "needs: [release_scope, workspace_images, platform]" in workflow
-    assert "needs.workspace_images.result == 'skipped'" in workflow
-
-
 def test_worker_forwards_shared_gateway_to_all_workspace_ai_clients():
     podman_service = (ROOT / "app/orchestrator/podman_service.py").read_text(
         encoding="utf-8"

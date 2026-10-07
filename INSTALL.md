@@ -245,10 +245,13 @@ The current maintained workspace image is
 **Admin > Workspace Image'ları** as the source for the `jupyter-python`
 template. Enrolled workers then receive the controller-managed archive
 automatically. A future platform release publishes a new Jupyter tag only when
-the image definition, bundled dependencies, or release infrastructure changes.
+its image definition (`containers/jupyter-python`) changes, or when a manual
+release forces it with `rebuild_workspaces`.
 
-When the target cannot reach an OCI registry, formal GitHub Releases also
-contain `vscode-python` and `jupyter-python` workspace archives:
+When the target cannot reach an OCI registry, use the `vscode-python` and
+`jupyter-python` workspace archives attached to the most recent GitHub Release
+that rebuilt that image (releases that did not change a workspace do not carry
+its archive):
 
 ```bash
 sha256sum --check devcloud-workspace-TEMPLATE-vVERSION-SHORT_SHA.tar.gz.sha256

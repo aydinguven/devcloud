@@ -28,11 +28,16 @@ on an image store bind-mounted from the runner disk. If overlay is unavailable,
 the build falls back to the much slower `vfs` driver. GitHub CLI and Git
 operations that publish the finished artifacts remain on the host.
 
-The platform build runs in parallel with the workspace image jobs. A final
-`publish` job waits for both, collects their staged artifacts, creates or
-updates the GitHub Release, and advances `stable`. The release build does not
-rerun the test suite; that gate is the CI workflow on `main`, so tag a commit
-only after its CI run has passed.
+A `release_scope` job validates the version, decides which workspace images
+need a build and creates a draft GitHub Release. The platform build and any
+workspace image jobs then run in parallel and upload their assets straight to
+that draft, so no multi-GB artifacts are staged between jobs. A final
+`publish` job waits for both sides, publishes the draft and advances `stable`.
+Inside the platform build, the controller and worker images are built in
+parallel, and the registry pushes run alongside the bundle packaging.
+The release build does not rerun the test suite; that gate is the CI workflow
+on `main` (skipped for Markdown-only changes), so tag a commit only after its
+CI run has passed.
 
 The standard GitHub-hosted runner has limited temporary storage. The workflow
 requires at least 8 GiB free before starting. If future platform images make
@@ -96,46 +101,45 @@ The workflow rejects a version tag that does not match `app.__version__`.
 
 The workflow publishes:
 
-- immutable and versioned controller and worker tags to GHCR;
-- for every maintained workspace build context changed since the previous
-  platform tag, an immutable, smoke-tested workspace image to GHCR as
-  `TEMPLATE-VERSION` and `TEMPLATE-VERSION-SHORT_SHA`;
-- gzip-compressed Docker archives and SHA-256 sidecars for `vscode-python`
-  and `jupyter-python` on every formal version tag;
+- immutable and versioned controller and worker tags to GHCR, on every
+  release;
 - one controller-managed platform update bundle;
 - one complete server offline bundle;
 - one complete worker offline bundle;
 - SHA-256 sidecars;
 - the release channel descriptor;
-- the public GPG keyring when signing is enabled.
+- the public GPG keyring when signing is enabled;
+- only for workspace images whose build context (`containers/TEMPLATE`)
+  changed since the last published version release: an immutable,
+  smoke-tested image to GHCR as `TEMPLATE-VERSION` and
+  `TEMPLATE-VERSION-SHORT_SHA`, plus gzip-compressed Docker archives and
+  SHA-256 sidecars for `vscode-python` and `jupyter-python`.
 
 Workspace images have an independent lifecycle and are not embedded in platform
-bundles. Releases therefore skip every workspace image whose build context and
-release infrastructure are unchanged. A manual workflow dispatch can select
-`rebuild_jupyter` to force the Jupyter image. Formal version tags mirror
-release images to Quay automatically. For manual workflow runs, Quay mirroring
-remains an explicit opt-in.
+bundles. A release where no workspace build context changed builds and ships
+only the controller and worker. To force a rebuild (for example to pick up
+base-image security updates), run the workflow manually and set
+`rebuild_workspaces` to `all` or to space-separated template names. Formal
+version tags mirror release images to Quay automatically. For manual workflow
+runs, Quay mirroring remains an explicit opt-in.
 
-`vscode-python` and `jupyter-python` are the exception, because every formal
-version tag has to ship their offline archives. When their build context is
-unchanged, the workflow pulls the image published by the previous version tag,
-republishes it under the new version tags, and exports the archive from it.
-Those workspaces contain no platform code, so an unchanged build context yields
-an equivalent image, and the rebuild plus its Cline smoke test are skipped.
-This keeps a no-op release from spending hours rebuilding two large images. If
-the previous image can no longer be pulled, the job logs a warning and falls
-back to a full rebuild and smoke test.
+Because unchanged workspaces are no longer republished, a workspace's newest
+GHCR tag and offline archive belong to the last release that changed it, not
+necessarily the latest release. The comparison base is the newest `vX.Y.Z`
+tag whose GitHub Release was published, so a tag whose release run failed
+never hides a change.
 
-The two offline workspace archives (compressed with `pigz`) and the platform
-assets are staged between jobs with short-lived GitHub Actions artifacts and then attached permanently to the GitHub Release.
-Each archive is checked against GitHub's 2 GiB per-asset limit before upload.
+Each offline workspace archive (compressed with `pigz`) is checked against
+GitHub's 2 GiB per-asset limit before upload.
 After downloading, verify the adjacent `.sha256` file, decompress the
 `.tar.gz`, and upload the resulting Docker `.tar` under
 **Admin > Workspace Image'ları**.
 
-Each generated archive is verified before publication. The `stable` branch is
-owned by the workflow and contains only `devcloud-update-channel.json`. Do not
-edit that branch manually.
+Each generated archive is verified before publication: the platform bundle is
+opened through the real updater code path, and the offline bundles are
+verified while staged and integrity-checked once compressed. The `stable`
+branch is owned by the workflow and contains only
+`devcloud-update-channel.json`. Do not edit that branch manually.
 
 ## Updating a controller
 
@@ -180,9 +184,10 @@ not need direct GitHub access.
 ## Failed or repeated runs
 
 The release upload is rerunnable. Existing assets for the same release tag are
-replaced, and `stable` advances only after all builds and verification steps
-succeed. If bundle publication succeeds but the channel update fails, rerun the
-same workflow after correcting branch permissions.
+replaced. The release stays a draft, and `stable` does not move, until all
+builds and verification steps succeed; a failed run leaves the draft behind
+for the next run to reuse. If bundle publication succeeds but the channel
+update fails, rerun the same workflow after correcting branch permissions.
 
 Each GitHub-hosted run starts clean, so there is no persistent Podman image
 store or release workspace to maintain.
