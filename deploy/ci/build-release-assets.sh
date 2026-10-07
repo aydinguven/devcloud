@@ -122,13 +122,39 @@ cleanup() {
 }
 trap cleanup EXIT
 
-bash deploy/container/build-controller-image.sh
-bash deploy/container/build-worker-image.sh
+# Independent steps below run side by side. Prefix every output line so the
+# interleaved log stays readable, and fail when any background step failed.
+export PYTHONUNBUFFERED=1
+labeled() {
+  local label="$1"
+  shift
+  "$@" > >(sed -u "s/^/[${label}] /") 2>&1
+}
+wait_all() {
+  local pid status=0
+  for pid in "$@"; do
+    wait "${pid}" || status=1
+  done
+  return "${status}"
+}
 
-if ! podman image exists localhost/devcloud-postgresql:16; then
-  podman pull quay.io/sclorg/postgresql-16-c10s:latest
-  podman tag quay.io/sclorg/postgresql-16-c10s:latest localhost/devcloud-postgresql:16
-fi
+pull_postgresql() {
+  if ! podman image exists localhost/devcloud-postgresql:16; then
+    podman pull quay.io/sclorg/postgresql-16-c10s:latest
+    podman tag quay.io/sclorg/postgresql-16-c10s:latest localhost/devcloud-postgresql:16
+  fi
+}
+
+# Both runtime images share one base; pull it once before building them in
+# parallel.
+podman pull "${DEVCLOUD_PYTHON_IMAGE:-registry.access.redhat.com/ubi10/python-312-minimal:latest}"
+labeled controller bash deploy/container/build-controller-image.sh &
+controller_build=$!
+labeled worker bash deploy/container/build-worker-image.sh &
+worker_build=$!
+labeled postgresql pull_postgresql &
+postgresql_pull=$!
+wait_all "${controller_build}" "${worker_build}" "${postgresql_pull}"
 
 [[ -n "${IMAGE_USERNAME:-}" && -n "${IMAGE_PASSWORD:-}" ]] || {
   echo "GHCR publishing requires IMAGE_USERNAME and IMAGE_PASSWORD." >&2
@@ -139,15 +165,6 @@ printf '%s' "${IMAGE_PASSWORD}" |
   podman login --username "${IMAGE_USERNAME}" --password-stdin "${IMAGE_REGISTRY}"
 image_logged_in=true
 
-for role in controller worker; do
-  local_image="localhost/devcloud-${role}:${DEVCLOUD_VERSION}"
-  for remote_tag in "${role}-${DEVCLOUD_VERSION}" "${role}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
-    remote_image="${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${remote_tag}"
-    podman tag "${local_image}" "${remote_image}"
-    podman push "${remote_image}"
-  done
-done
-
 if [[ "${PUBLISH_QUAY}" == "true" ]]; then
   [[ -n "${QUAY_USERNAME:-}" && -n "${QUAY_PASSWORD:-}" ]] || {
     echo "Quay mirroring requires QUAY_USERNAME and QUAY_PASSWORD." >&2
@@ -157,16 +174,25 @@ if [[ "${PUBLISH_QUAY}" == "true" ]]; then
   printf '%s' "${QUAY_PASSWORD}" |
     podman login --username "${QUAY_USERNAME}" --password-stdin "${QUAY_REGISTRY}"
   quay_logged_in=true
+fi
 
-  for role in controller worker; do
-    local_image="localhost/devcloud-${role}:${DEVCLOUD_VERSION}"
-    for remote_tag in "${role}-${DEVCLOUD_VERSION}" "${role}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
-      remote_image="${QUAY_REGISTRY}/${QUAY_REPOSITORY}:${remote_tag}"
-      podman tag "${local_image}" "${remote_image}"
-      podman push "${remote_image}"
+push_runtime_images() {
+  local registries=("${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}")
+  if [[ "${PUBLISH_QUAY}" == "true" ]]; then
+    registries+=("${QUAY_REGISTRY}/${QUAY_REPOSITORY}")
+  fi
+  local repository role local_image remote_tag remote_image
+  for repository in "${registries[@]}"; do
+    for role in controller worker; do
+      local_image="localhost/devcloud-${role}:${DEVCLOUD_VERSION}"
+      for remote_tag in "${role}-${DEVCLOUD_VERSION}" "${role}-${DEVCLOUD_VERSION}-${SHORT_SHA}"; do
+        remote_image="${repository}:${remote_tag}"
+        podman tag "${local_image}" "${remote_image}"
+        podman push "${remote_image}"
+      done
     done
   done
-fi
+}
 
 signing_arguments=()
 if [[ -n "${signing_key}" ]]; then
@@ -183,23 +209,35 @@ build_arguments=(
 if [[ -n "${signing_key}" ]]; then
   build_arguments+=(--release-keyring "${ASSET_DIR}/devcloud-release-keyring.gpg")
 fi
-python deploy/build_platform_update.py "${build_arguments[@]}" "${signing_arguments[@]}"
 
 offline_keyring_arguments=()
 if [[ -n "${signing_key}" ]]; then
   offline_keyring_arguments=(--release-keyring "${ASSET_DIR}/devcloud-release-keyring.gpg")
 fi
-python deploy/package_offline.py \
-  --bundle-role server \
-  --output-dir "${ASSET_DIR}" \
-  --skip-image-build \
-  "${offline_keyring_arguments[@]}"
-python deploy/package_offline.py \
-  --bundle-role worker \
-  --output-dir "${ASSET_DIR}" \
-  --skip-image-build \
-  "${offline_keyring_arguments[@]}"
+# The two offline bundles each run dnf download, so they stay sequential with
+# each other; they run in parallel with the platform bundle and the pushes.
+build_offline_bundles() {
+  local role
+  for role in server worker; do
+    python deploy/package_offline.py \
+      --bundle-role "${role}" \
+      --output-dir "${ASSET_DIR}" \
+      --skip-image-build \
+      "${offline_keyring_arguments[@]}"
+  done
+}
 
+labeled push push_runtime_images &
+image_push=$!
+labeled platform python deploy/build_platform_update.py "${build_arguments[@]}" "${signing_arguments[@]}" &
+platform_bundle=$!
+labeled offline build_offline_bundles &
+offline_bundles=$!
+wait_all "${image_push}" "${platform_bundle}" "${offline_bundles}"
+
+# Exercise the real updater path once on the finished platform bundle. The
+# offline bundles were verified while staged, so only their compressed
+# archives are integrity-checked here.
 python - "${ASSET_DIR}/${PLATFORM_FILENAME}" "${signing_key}" <<'PY'
 import os
 import subprocess
@@ -260,15 +298,11 @@ for role in server worker; do
     echo "Missing ${role} offline bundle." >&2
     exit 1
   }
-  verify_root="/tmp/verify-${role}"
-  rm -rf -- "${verify_root}"
-  install -d -m 0755 "${verify_root}"
-  tar -xf "${bundle}" -C "${verify_root}"
-  extracted="$(find "${verify_root}" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-  python deploy/package_offline.py \
-    --verify "${extracted}" \
-    --expected-role "${role}" \
-    --check-runtime
+  if (( "$(stat --format=%s "${bundle}")" >= 2147483648 )); then
+    echo "The ${role} offline bundle exceeds GitHub's 2 GiB release-asset limit." >&2
+    exit 1
+  fi
+  pigz --test "${bundle}"
 done
 
 find "${ASSET_DIR}" -maxdepth 1 -type f -print0 |
