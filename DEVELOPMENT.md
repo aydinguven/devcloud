@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.14.0`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.15.0`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,12 +13,15 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Aydin | Pending | `main` | 3.14.0 rollout | Update IDMVAIFACT1 and workers, run **Admin > Kullanıcılar > AD'den senkronize et** once, then review "Müdürlüğü belirlenemeyen takımlar" and the users AD did not return |
+| Aydin | Pending | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
+| Aydin | Superseded | `main` | 3.14.0 rollout | Update IDMVAIFACT1 and workers, run **Admin > Kullanıcılar > AD'den senkronize et** once, then review "Müdürlüğü belirlenemeyen takımlar" and the users AD did not return |
 | Aydin | Pending | `main` | 3.13.0 rollout | Update IDMVAIFACT1 and workers, check Admin > Dizin has `manager` / `title` / `MÜDÜR`, then log in as Kemal (K014810): Admin > Kullanıcılar nests Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler and GenAI > İstatistikler shows Müdürlüğüm |
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
 
+- 2026-10-08: Update progress is a best-effort JSON file next to the queue (`app/installer/progress.py`, stdlib only): the root updater resets it and passes `DEVCLOUD_UPDATE_PROGRESS_FILE`; the installed CLI reports download bytes and verification; the target engine reports each plan step, the controller health wait and rollback (it falls back to `/var/lib/devcloud/update-queue/progress.json` when the variable is missing, so a 3.14 updater still gets step progress). Output streams to `output.log` instead of `capture_output`. Readers ignore a progress file older than the current request. `running.json` is always reported as `running` (older updaters left `"queued"` in it). The worker agent sends heartbeats every 3 s while an upgrade runs and immediately on status changes.
+- 2026-10-08: The bulk AD sync runs automatically ~60 s after startup and every `DIRECTORY_SYNC_INTERVAL_HOURS` (default 6). Managers outside the sync search are read by DN (up to 2000) to finish chains but are not placed or counted; a blank `division` no longer ends a chain.
 - 2026-10-08: **AD'den senkronize et** reads every person under `user_base_dn` (login filter with `{username}` -> `*`, paged by 500) and stores one `directory_teams` row per AD `department`: the müdürlük is the majority of its members' chains, `division` when a chain reaches a Genel Müdür title (`GENEL MÜDÜR`) first, otherwise `unassigned` with the chain reason. Members with a broken chain fall back to the team's müdürlük (also at login). Only existing `active_directory` users are refreshed (team, directorate, müdürlük, managed unit, name); nobody is created or deactivated. Rows are replaced on every sync. 3.13.0 released 2026-10-08 (first leaner pipeline run: ~9 min, no workspace jobs).
 - 2026-10-08: AD has no müdürlük attribute. When `organization_unit_attribute` is empty, login derives `users.organization_unit` from the `manager` chain: the `department` of the nearest person (the user included) whose `title` is a unit-head title (`MÜDÜR` by default, Turkish-i-insensitive), stopping at another `division`, a missing manager, a loop or depth 12. Unit heads get `users.managed_unit`. Profiles sync only at login.
 - 2026-10-08: Quotas resolve per field as user override -> team -> müdürlük -> default. Müdürlük rows live in `user_group_quotas` with the `unit:` key prefix (`app.quotas.unit_key`), so a müdürlük never clashes with its own team of the same name. A team sits under the müdürlük most of its members belong to; each member still resolves through their own müdürlük. Limits stay per member, not a shared pool.
@@ -43,6 +46,7 @@
 
 ## Validation
 
+- 2026-10-08 (`feat/update-progress`, 3.15.0): suite 389 passed, 3 skipped. A queued_update test checks running state, live output and the progress env; an engine test checks step progress, rollback, the running-state fix and stale-progress filtering. ldap3 mock: a filter that excludes the müdür and a müdür without `division` still place İşletim Sistemi Yönetimi under Altyapı Yönetimi. Headless Chromium with a simulated queue: download bytes, step 7/11, restart (status endpoint unreachable), done, and three worker rows (downloading, step 4/9, failed). Not yet validated: a real root update on IDMVAIFACT1 and a real worker OTA.
 - 2026-10-08 (`feat/directory-sync`): suite 388 passed, 3 skipped. `fetch_directory_entries` against an ldap3 mock directory (paged search) and `build_org_snapshot` place Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler (head Kemal), a stale-manager member through the team, BİLGİ TEKNOLOJİLERİ as a Genel Müdürlük team (Mehmet) and a manager-less team as `no_manager`. v28 -> v29 SQLite upgrade OK. Headless Chromium: sync button, compact tree at 1440 and 900 px, search incl. section hiding, no console errors. Not yet validated: a real AD (page size, bind account reading all users) and PostgreSQL for migration 29.
 - 2026-10-08 (PR #38, 3.13.0): suite 387 passed, 3 skipped; CI green on the merge commit. `authenticate_directory_user` against an ldap3 mock directory with the K015570 -> K014810 -> K012950 -> K016972 chain gives Aydın müdürlük YENİLİKÇİ TEKNOLOJİLER, Kemal the same plus `managed_unit`, Mehmet (GENEL MÜDÜR) neither; a stale manager DN still logs in. A v27 SQLite DB upgrades to v28. A seeded org with a fake LiteLLM was checked in headless Chromium as admin, Kemal and Aydın (nested admin list, quota sources, search, Takımım/Müdürlüğüm, hidden `default_user_id`/`Takımsız`); no console errors. Not yet validated: a real AD login on IDMVAIFACT1 and PostgreSQL for migration 28.
 
@@ -56,6 +60,8 @@
 - Still required: a real deployment of a new model version on a worker.
 
 ## Latest handoff
+
+2026-10-08 3.15.0: live update progress (controller panel and worker rows) and automatic AD sync. On the 3.14.0 -> 3.15.0 update the old updater/UI run until the controller restarts, so the bar appears only after the restart; download bytes and live output need the next update. Workers show step progress once they run the 3.15.0 agent.
 
 2026-10-08 3.14.0 (PR #40): migration 29 adds `directory_teams` and `directory_settings.division_head_titles` / `last_sync_at` / `last_sync_summary`. After updating, one click on **AD'den senkronize et** places every AD team and refreshes the existing directory users without waiting for logins. The sync reads everyone under `user_base_dn` with the login filter (`{username}` -> `*`); if the panel shows far fewer people than expected, check the bind account's read access and the AD page size. Periodic sync is not implemented (manual button only).
 
@@ -73,6 +79,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-08: Released 3.14.0. Added live update progress for controller and workers, automatic AD sync and out-of-scope manager lookups; released 3.15.0.
 - 2026-10-08: Released 3.13.0. Added the bulk AD sync with team müdürlük placement and the compact users panel (PR #40); prepared 3.14.0.
 - 2026-10-08: Built the müdürlük hierarchy from the AD manager chain, quota inheritance through the müdürlük, the nested admin users panel and team/müdürlük GenAI stats (PR #38); prepared 3.13.0.
 - 2026-10-07: Profiled the v3.12.0 release run and slimmed the release pipeline (see Latest handoff).

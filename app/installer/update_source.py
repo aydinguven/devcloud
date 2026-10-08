@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 from app.installer.platform import CommandRunner, InstallerError
+from app.installer.progress import ProgressReporter
 from app.platform_release import sha256_file
 
 
@@ -90,15 +91,19 @@ def read_channel(repository: Path) -> ReleaseChannel:
 
 
 def _copy_and_verify(source, target: Path, channel: ReleaseChannel) -> None:
+    progress = ProgressReporter.from_environment()
     digest = hashlib.sha256()
     size = 0
     with target.open("xb") as destination:
         while chunk := source.read(1024 * 1024):
             size += len(chunk)
+            if size == len(chunk) or size % (16 * 1024 * 1024) < len(chunk):
+                progress.download(size, channel.size)
             if size > channel.size or size > MAX_UPDATE_BYTES:
                 raise InstallerError("Downloaded update exceeds its declared size")
             digest.update(chunk)
             destination.write(chunk)
+    progress.download(size, channel.size)
     if size != channel.size or digest.hexdigest() != channel.sha256:
         target.unlink(missing_ok=True)
         raise InstallerError("Downloaded update checksum verification failed")

@@ -26,6 +26,7 @@ from app.installer.models import (
     UpdateSourceType,
 )
 from app.installer.backup import create_backup, restore_backup
+from app.installer.progress import DEFAULT_QUEUE_ROOT, ProgressReporter
 from app.installer.platform import (
     CommandRunner,
     InstallerError,
@@ -50,10 +51,12 @@ class InstallPlan:
         steps: list[PlanStep],
         *,
         on_failure: Callable[[], None] | None = None,
+        progress: ProgressReporter | None = None,
     ):
         self.title = title
         self.steps = steps
         self.on_failure = on_failure
+        self.progress = progress or ProgressReporter(None)
 
     @property
     def descriptions(self) -> list[str]:
@@ -61,10 +64,12 @@ class InstallPlan:
 
     def execute(self) -> None:
         try:
-            for step in self.steps:
+            for index, step in enumerate(self.steps):
+                self.progress.step(index, len(self.steps), step.key, step.description)
                 step.apply()
         except Exception as exc:
             if self.on_failure is not None:
+                self.progress.rollback(str(exc))
                 try:
                     self.on_failure()
                 except Exception as rollback_exc:
@@ -373,6 +378,10 @@ class InstallerEngine:
 
     def build_update_plan(self, config: InstallConfig) -> InstallPlan:
         self._validate_config(config)
+        # The admin panel and worker heartbeats read the step progress.
+        self.progress = ProgressReporter.from_environment(
+            None if self.runner.dry_run else self.host_path(DEFAULT_QUEUE_ROOT)
+        )
         backup_step = []
         if config.installs_controller:
             state = self.current_state(config.state_root)
@@ -462,6 +471,7 @@ class InstallerEngine:
                 ),
             ],
             on_failure=lambda: self._rollback_update(config),
+            progress=self.progress,
         )
 
     def build_uninstall_plan(
@@ -1123,6 +1133,11 @@ class InstallerEngine:
         relative_target = os.path.relpath(self.previous_release, start=install_root)
         temporary.symlink_to(relative_target, target_is_directory=True)
         os.replace(temporary, current)
+
+    def _report_detail(self, text: str) -> None:
+        progress = getattr(self, "progress", None)
+        if progress is not None:
+            progress.detail(text)
 
     def _rollback_update(self, config: InstallConfig) -> None:
         """Restore the previous release link and its rendered service units."""
@@ -2132,6 +2147,7 @@ class InstallerEngine:
                 self.runner.run(inspect, capture_output=True)
             else:
                 for attempt in range(45):
+                    self._report_detail(f"Controller sağlık kontrolü ({attempt + 1}/45)")
                     health = self.runner.run(
                         inspect,
                         capture_output=True,

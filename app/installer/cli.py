@@ -15,6 +15,7 @@ from app.installer.models import (
     WorkerRuntime,
 )
 from app.installer.platform import CommandRunner, InstallerError
+from app.installer.progress import ProgressReporter
 from app.installer.release import prepare_release
 from app.installer.ui import InstallerUI
 from app.installer.update_source import resolve_update_bundle
@@ -412,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
                 runner=runner,
                 token_file=token_file,
             ) as resolved_bundle:
+                ProgressReporter.from_environment().verify()
                 with prepare_release(
                     resolved_bundle,
                     runner=runner,
@@ -419,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
                     require_signature=not allow_unsigned,
                 ) as prepared:
                     _verify_offline_release(prepared.root)
+                    ProgressReporter.from_environment().verify("Bundle doğrulandı")
                     platform_release = (
                         load_platform_release(prepared.root)
                         if (prepared.root / "platform-release.json").is_file()

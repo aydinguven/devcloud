@@ -27,6 +27,7 @@ import websockets
 
 from app import __version__
 from app.config import settings
+from app.installer.progress import live_details
 from app.worker_transfers import WorkerTransfers
 from app.agents.transfers import CHUNK_BYTES
 from app.agents.manager import STREAM_WINDOW, MAX_STREAM_FRAME_BYTES, MAX_STREAMS
@@ -42,6 +43,19 @@ from app.schemas.jupyter_ai_settings import JupyterAiModel
 from app.worker_gpu import discover_nvidia_capabilities
 
 logger = logging.getLogger("devcloud.worker")
+
+
+def _download_progress(done: int, total: int) -> dict:
+    """Same shape as the root updater's progress file (app/installer/progress.py)."""
+    share = min(1.0, done / total) if total else 0.0
+    return {
+        "phase": "download",
+        "label": "Bundle indiriliyor",
+        "bytes_done": done,
+        "bytes_total": total,
+        "percent": round(10.0 * share, 1),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _unsigned_ota_approved(metadata: dict) -> bool:
@@ -132,11 +146,13 @@ class WorkerAgent:
         self.image_state_path = Path(settings.STORAGE_ROOT) / ".devcloud-image-state.json"
         self.image_state = self._load_image_state()
         self.image_progress: dict[str, dict] = {}
-        self.upgrade_status: dict[str, str] = {
+        self.upgrade_status: dict = {
             "state": "idle",
             "target_version": "",
             "message": "",
         }
+        # Set to send the next heartbeat right away (upgrade progress).
+        self.heartbeat_wakeup = asyncio.Event()
 
     def _load_registry(self) -> dict:
         try:
@@ -178,6 +194,7 @@ class WorkerAgent:
         *,
         target_version: str = "",
         message: str = "",
+        progress: dict | None = None,
     ) -> None:
         self.upgrade_status = {
             "state": state,
@@ -185,8 +202,11 @@ class WorkerAgent:
             "message": message,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if progress is not None:
+            self.upgrade_status["progress"] = progress
+        self.heartbeat_wakeup.set()
 
-    def _reported_upgrade_status(self) -> dict[str, str]:
+    def _reported_upgrade_status(self) -> dict:
         if self.upgrade_status.get("state") in {"preparing", "downloading", "failed"}:
             return dict(self.upgrade_status)
         queue_root = Path(settings.UPDATE_QUEUE_ROOT).resolve()
@@ -203,7 +223,12 @@ class WorkerAgent:
                 continue
             if not isinstance(value, dict):
                 continue
-            state = str(value.get("state") or fallback_state)
+            # running.json is the moved request and may still say "queued".
+            state = (
+                "running"
+                if filename == "running.json"
+                else str(value.get("state") or fallback_state)
+            )
             target_version = str(value.get("target_version") or "")
             message = str(value.get("error") or value.get("message") or "").strip()
             if not message and state == "failed":
@@ -225,10 +250,12 @@ class WorkerAgent:
                     f"Worker zaten hedef sürümde (v{__version__}). "
                     "Önceki aynı-sürüm güncelleme hatası kapatıldı."
                 )
+            progress = live_details(queue_root, queue_root / filename, value).get("progress")
             return {
                 "state": state,
                 "target_version": target_version,
                 "message": message,
+                **({"progress": progress} if progress else {}),
                 "return_code": str(value.get("return_code") or ""),
                 "updated_at": str(
                     value.get("finished_at")
@@ -601,7 +628,18 @@ class WorkerAgent:
                     },
                 }
             )
-            await asyncio.sleep(20)
+            # Report every 3 s while an upgrade runs, otherwise every 20 s or
+            # right after a status change.
+            active = self._reported_upgrade_status().get("state") in {
+                "preparing", "downloading", "queued", "running",
+            }
+            self.heartbeat_wakeup.clear()
+            try:
+                await asyncio.wait_for(
+                    self.heartbeat_wakeup.wait(), timeout=3 if active else 20
+                )
+            except asyncio.TimeoutError:
+                pass
 
     def _registered_storage(self, container_name: str) -> str:
         entry = self._registered_entry(container_name)
@@ -1340,6 +1378,8 @@ class WorkerAgent:
                     )
                 digest = hashlib.sha256()
                 size = 0
+                total = int(metadata.get("size") or 0)
+                reported = 0
                 async with client.stream(
                     "GET", download_url, headers=headers
                 ) as response:
@@ -1351,6 +1391,14 @@ class WorkerAgent:
                                 raise RuntimeError("Worker release boyut sınırını aşıyor.")
                             digest.update(chunk)
                             handle.write(chunk)
+                            if size - reported >= 8 * 1024 * 1024:
+                                reported = size
+                                self._set_upgrade_status(
+                                    "downloading",
+                                    target_version=target_version,
+                                    message="Platform bundle indiriliyor.",
+                                    progress=_download_progress(size, total),
+                                )
                         handle.flush()
                         os.fsync(handle.fileno())
                 if digest.hexdigest() != metadata["sha256"]:

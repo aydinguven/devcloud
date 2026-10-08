@@ -8,6 +8,13 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.installer.progress import (
+    OUTPUT_FILENAME,
+    PROGRESS_FILE_ENV,
+    PROGRESS_FILENAME,
+    ProgressReporter,
+    read_output_tail,
+)
 from app.installer.update_source import validate_git_source
 
 
@@ -28,6 +35,19 @@ def _write_json(path: Path, value: dict) -> None:
     os.replace(temporary, path)
 
 
+def _open_output(path: Path):
+    """A fresh live output log readable by the queue directory's owner."""
+    handle = path.open("w", encoding="utf-8")
+    if hasattr(os, "chown"):
+        owner = path.parent.stat()
+        try:
+            os.chown(path, owner.st_uid, owner.st_gid)
+        except PermissionError:
+            pass
+    os.chmod(path, 0o600)
+    return handle
+
+
 def main() -> int:
     root = Path(
         os.environ.get("UPDATE_QUEUE_ROOT", "/var/lib/devcloud/update-queue")
@@ -35,6 +55,8 @@ def main() -> int:
     pending = root / "pending.json"
     running = root / "running.json"
     status = root / "status.json"
+    output = root / OUTPUT_FILENAME
+    progress = ProgressReporter(root / PROGRESS_FILENAME)
     if running.is_file():
         # Resume the same idempotent release request after a reboot or abrupt
         # termination. Immutable release staging makes replay safe.
@@ -71,33 +93,46 @@ def main() -> int:
             raise RuntimeError("Queued update source type is unsupported")
         if request.get("allow_unsigned") is True:
             command.append("--allow-unsigned")
+        started_at = datetime.now(timezone.utc).isoformat()
+        running_request = {**request, "state": "running", "started_at": started_at}
+        _write_json(running, running_request)
         _write_json(
             status,
             {
                 "state": "running",
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": started_at,
                 "filename": request.get("filename"),
                 "source_type": source_type,
                 "target_version": request.get("target_version"),
             },
         )
-        result = subprocess.run(command, text=True, capture_output=True)
+        progress.reset(started_at=started_at, target_version=request.get("target_version"))
+        # Output goes to a file while the update runs, so the admin panel can
+        # show it live; the installers report step progress to progress.json.
+        env = {**os.environ, PROGRESS_FILE_ENV: str(progress.path), "PYTHONUNBUFFERED": "1"}
+        with _open_output(output) as log:
+            returncode = subprocess.run(
+                command, text=True, stdout=log, stderr=subprocess.STDOUT, env=env
+            ).returncode
+        progress.finish(returncode == 0)
         _write_json(
             status,
             {
-                "state": "succeeded" if result.returncode == 0 else "failed",
+                "state": "succeeded" if returncode == 0 else "failed",
+                "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
                 "source_type": source_type,
                 "target_version": request.get("target_version"),
-                "return_code": result.returncode,
-                "output": (result.stdout + "\n" + result.stderr)[-20000:],
+                "return_code": returncode,
+                "output": read_output_tail(output),
             },
         )
-        if result.returncode == 0 and source_type == "bundle":
+        if returncode == 0 and source_type == "bundle":
             bundle.unlink(missing_ok=True)
-        return result.returncode
+        return returncode
     except Exception as exc:
+        progress.finish(False)
         _write_json(
             status,
             {

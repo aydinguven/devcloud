@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     UPDATE_SOURCE: str = ""
     UPDATE_REF: str = "stable"
     UPDATE_QUEUE_ROOT: str = "/var/lib/devcloud/update-queue"
+    # Bulk AD sync shortly after startup and then every N hours; 0 disables.
+    DIRECTORY_SYNC_INTERVAL_HOURS: float = 6
     UPDATE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024 * 1024
     # Temporary, deployment-scoped compatibility switch. Keep disabled unless
     # the operator explicitly accepts checksum-only worker OTA verification.

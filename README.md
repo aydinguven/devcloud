@@ -149,10 +149,33 @@ before enabling directory login.
   Genel Müdürlük; the remaining teams are listed with the reason. The sync
   refreshes the team, directorate, müdürlük, unit head and name of existing
   directory users; it never creates or deactivates accounts.
+- The sync also runs automatically about a minute after the controller starts
+  and then every `DIRECTORY_SYNC_INTERVAL_HOURS` (default 6, `0` disables), so a
+  team gets its müdürlük even when nobody from it, or its müdür, has logged
+  in. Managers outside the sync search (another OU, or a filter that only
+  returns DevCloud users) are read by DN to complete the chain, and a blank
+  `division` on a manager no longer ends it.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 
 ---
+
+## Update progress
+
+During a controller update, **Admin > Sistem > Platform Güncelleme** shows a
+live progress bar (download bytes, the current installer step such as "Adım
+7/11 · Servis tanımları yazılıyor", the controller health check, rollback) and
+streams the updater output. The root updater writes
+`update-queue/progress.json` and `update-queue/output.log`; the panel polls
+them every 2 s and shows "Controller yeniden başlatılıyor" while the
+controller restarts. Worker OTA reports the same progress through its
+heartbeat, every 3 s while an update runs, and **Admin > Worker'lar** shows a
+bar per worker.
+
+Download progress and live output come from the *installed* updater and the
+step progress from the *target* release, so the first update after 3.15.0
+already shows the step bar once the new controller is up; the full view
+(download and live output from the start) appears from the update after that.
 
 ## Production Deployment on Linux VM
 

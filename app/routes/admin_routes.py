@@ -33,19 +33,13 @@ from app.auth.ldap import (
     DirectoryConfigurationError,
     DirectoryConnectionError,
     DirectoryUnavailableError,
-    config_from_record,
     config_from_update,
     encrypt_directory_secret,
     test_directory_configuration,
     validate_directory_config,
 )
 from app.database import get_db
-from app.directory_sync import (
-    apply_snapshot,
-    build_org_snapshot,
-    directory_teams_by_key,
-    fetch_directory_entries,
-)
+from app.directory_sync import DirectorySyncDisabled, directory_teams_by_key, run_directory_sync
 from app.models.session_settings import SessionSettings
 from app.schemas.session_settings import SessionSettingsUpdate
 from app.session_settings import session_timeout_minutes
@@ -136,6 +130,7 @@ from app.security.secrets import (
     encrypt_secret,
 )
 from app.installer.platform import InstallerError
+from app.installer.progress import live_details
 from app.installer.update_source import (
     CHANNEL_FILENAME,
     parse_channel,
@@ -242,7 +237,10 @@ def _read_update_status() -> dict:
                     if name == "pending.json":
                         value.setdefault("state", "queued")
                     elif name == "running.json":
-                        value.setdefault("state", "running")
+                        # running.json is the moved request, which still says
+                        # "queued" when an older updater wrote it.
+                        value["state"] = "running"
+                    value.update(live_details(root, path, value))
                     return value
             except (OSError, json.JSONDecodeError):
                 return {
@@ -1773,24 +1771,14 @@ async def sync_directory(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Admin: read every AD person, place teams under müdürlüks, refresh users."""
-    record = await db.get(DirectorySettings, 1)
-    if record is None or not record.enabled:
-        raise HTTPException(status_code=409, detail="Önce LDAP / Active Directory girişini etkinleştirin.")
     try:
-        config = config_from_record(record)
-        entries = await asyncio.to_thread(fetch_directory_entries, config)
+        return await run_directory_sync(db, trigger="manual")
+    except DirectorySyncDisabled as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except DirectoryConfigurationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DirectoryUnavailableError as exc:
         raise HTTPException(status_code=503, detail=f"Dizin okunamadı: {exc}") from exc
-    snapshot = build_org_snapshot(
-        entries,
-        config.unit_head_titles,
-        config.division_head_titles,
-        use_unit_attribute=bool(config.organization_unit_attribute),
-    )
-    # Service and room accounts have no department and are not counted.
-    return await apply_snapshot(db, snapshot, ad_people=sum(1 for e in entries if e.team))
 
 
 @admin_router.get("/users", response_model=list[UserOut])

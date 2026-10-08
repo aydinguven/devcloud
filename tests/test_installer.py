@@ -1,6 +1,8 @@
 import io
 import hashlib
 import json
+import os
+import time
 import re
 import sqlite3
 import subprocess
@@ -87,9 +89,16 @@ def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
     )
     captured = {}
 
-    def fake_run(command, *, text, capture_output):
+    def fake_run(command, *, text, stdout, stderr, env):
         captured["command"] = command
-        return subprocess.CompletedProcess(command, 0, "updated", "")
+        # While the installer runs, the queue says "running" and its output
+        # and step progress are readable live.
+        captured["running"] = json.loads((queue / "running.json").read_text(encoding="utf-8"))
+        stdout.write("updated\n")
+        stdout.flush()
+        captured["live_output"] = (queue / "output.log").read_text(encoding="utf-8")
+        captured["progress_env"] = env["DEVCLOUD_UPDATE_PROGRESS_FILE"]
+        return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setenv("UPDATE_QUEUE_ROOT", str(queue))
     monkeypatch.setattr(queued_update.subprocess, "run", fake_run)
@@ -97,8 +106,14 @@ def test_root_queued_updater_passes_explicit_unsigned_flag_for_git(
     assert queued_update.main() == 0
     assert captured["command"][-1] == "--allow-unsigned"
     assert "--source-type" in captured["command"]
+    assert captured["running"]["state"] == "running"
+    assert captured["live_output"] == "updated\n"
+    assert captured["progress_env"] == str(queue / "progress.json")
     status = json.loads((queue / "status.json").read_text(encoding="utf-8"))
     assert status["target_version"] == "3.4.5"
+    assert status["output"].strip() == "updated" and status["started_at"]
+    progress = json.loads((queue / "progress.json").read_text(encoding="utf-8"))
+    assert (progress["phase"], progress["percent"]) == ("done", 100)
 
 
 def test_root_updater_status_keeps_queue_directory_owner(tmp_path, monkeypatch):
@@ -1148,3 +1163,50 @@ def test_release_builder_produces_a_manifest_verified_archive(tmp_path):
         assert prepared.version == "3.0.0"
         assert prepared.manifest is not None
         assert prepared.manifest["source_commit"]
+
+
+def test_update_progress_follows_plan_steps_and_rollback(tmp_path, monkeypatch):
+    from app.installer.engine import InstallPlan, PlanStep
+    from app.installer.progress import ProgressReporter
+    from app.routes import admin_routes
+
+    queue = tmp_path / "update-queue"
+    queue.mkdir()
+    progress_file = queue / "progress.json"
+    seen = []
+
+    def snapshot():
+        seen.append(json.loads(progress_file.read_text(encoding="utf-8")))
+
+    def fail():
+        snapshot()
+        raise InstallerError("unit render failed")
+
+    rolled_back = []
+    plan = InstallPlan(
+        "Update",
+        [PlanStep("preflight", "p", snapshot), PlanStep("services", "s", fail), PlanStep("state", "x", snapshot)],
+        on_failure=lambda: rolled_back.append(True),
+        progress=ProgressReporter(progress_file),
+    )
+    # An older root updater moved the request without changing its state.
+    (queue / "running.json").write_text(json.dumps({"state": "queued", "target_version": "3.15.0"}), encoding="utf-8")
+    with pytest.raises(InstallerError):
+        plan.execute()
+
+    assert [(item["step_index"], item["step_total"], item["step_key"]) for item in seen] == [
+        (1, 3, "preflight"), (2, 3, "services"),
+    ]
+    assert seen[0]["percent"] < seen[1]["percent"] and seen[1]["label"] == "Servis tanımları yazılıyor"
+    assert rolled_back == [True]
+
+    monkeypatch.setattr(admin_routes.settings, "UPDATE_QUEUE_ROOT", str(queue))
+    status = admin_routes._read_update_status()
+    assert status["state"] == "running"
+    assert status["progress"]["phase"] == "rollback"
+    assert "unit render failed" in status["progress"]["detail"]
+
+    # A progress file from an earlier update is not shown for a new request.
+    old = time.time() - 600
+    os.utime(progress_file, (old, old))
+    assert "progress" not in admin_routes._read_update_status()

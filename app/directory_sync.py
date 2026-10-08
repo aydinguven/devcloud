@@ -24,13 +24,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.ldap import (
     CHAIN_DIVISION_HEAD,
     CHAIN_UNIT,
+    MAX_MANAGER_CHAIN_DEPTH,
     DirectoryConfig,
+    DirectoryConfigurationError,
     DirectoryConnectionError,
     DirectoryPerson,
     DirectoryUnavailableError,
     _bound_connection,
     _ldap3,
     _safe_unbind,
+    config_from_record,
     fold_directory_text,
     parse_unit_head_titles,
     validate_directory_config,
@@ -50,6 +53,8 @@ from app.quotas import clean_name, team_key
 logger = logging.getLogger("devcloud.directory_sync")
 
 PAGE_SIZE = 500
+# Cap on managers read by DN outside the sync search.
+MAX_CHAIN_LOOKUPS = 2000
 DIRECTORY_AUTH_SOURCE = "active_directory"
 SYNCED_USER_FIELDS = ("team", "directorate", "organization_unit", "managed_unit", "full_name")
 
@@ -67,6 +72,9 @@ class DirectoryEntry:
     manager_dn: str
     # Value of the configured müdürlük attribute, if any.
     organization_unit: str = ""
+    # False for managers read only to complete a chain: they sit outside the
+    # sync search (another OU or filtered out) and are not placed themselves.
+    in_scope: bool = True
 
     def as_person(self) -> DirectoryPerson:
         return DirectoryPerson(
@@ -139,6 +147,8 @@ def build_org_snapshot(
     member_counts: Counter = Counter()
 
     for dn_key, entry in by_dn.items():
+        if not entry.in_scope:
+            continue
         tkey = team_key(entry.team)
         chain = walk_manager_chain(people[dn_key], lookup, head_titles, division_titles)
         if use_unit_attribute:
@@ -192,7 +202,7 @@ def build_org_snapshot(
 
     for dn_key, entry in by_dn.items():
         key = username_key(entry.username)
-        if not key:
+        if not key or not entry.in_scope:
             continue
         team = snapshot.teams.get(team_key(entry.team))
         # A broken personal chain falls back to the team's müdürlük.
@@ -237,10 +247,30 @@ def fetch_directory_entries(config: DirectoryConfig) -> list[DirectoryEntry]:
         if attribute
     ]
 
+    def to_entry(dn: str, found: dict, *, in_scope: bool) -> DirectoryEntry:
+        return DirectoryEntry(
+            dn=dn,
+            username=value(found, config.username_attribute),
+            full_name=value(found, config.display_name_attribute),
+            team=value(found, config.team_attribute),
+            title=value(found, config.title_attribute),
+            directorate=value(found, config.directorate_attribute),
+            manager_dn=value(found, config.manager_attribute),
+            organization_unit=value(found, config.organization_unit_attribute),
+            in_scope=in_scope,
+        )
+
     def value(attributes_map: dict, name: str) -> str:
         if not name:
             return ""
         raw = attributes_map.get(name)
+        if raw is None:
+            # Servers may return attribute names in another case.
+            folded = name.casefold()
+            raw = next(
+                (item for key, item in attributes_map.items() if str(key).casefold() == folded),
+                None,
+            )
         if isinstance(raw, list):
             raw = raw[0] if raw else ""
         return str(raw or "").strip()
@@ -258,21 +288,42 @@ def fetch_directory_entries(config: DirectoryConfig) -> list[DirectoryEntry]:
             if item.get("type") != "searchResEntry":
                 continue
             found = item.get("attributes") or {}
-            username = value(found, config.username_attribute)
-            if not username:
+            if not value(found, config.username_attribute):
                 continue
-            entries.append(
-                DirectoryEntry(
-                    dn=str(item.get("dn") or ""),
-                    username=username,
-                    full_name=value(found, config.display_name_attribute),
-                    team=value(found, config.team_attribute),
-                    title=value(found, config.title_attribute),
-                    directorate=value(found, config.directorate_attribute),
-                    manager_dn=value(found, config.manager_attribute),
-                    organization_unit=value(found, config.organization_unit_attribute),
-                )
-            )
+            entries.append(to_entry(str(item.get("dn") or ""), found, in_scope=True))
+
+        # Managers outside the search (another OU, or a filter that only
+        # returns DevCloud users) are read by DN so their reports' chains
+        # still reach the müdür.
+        known = {entry.dn.strip().casefold() for entry in entries}
+        looked_up = 0
+        frontier = {entry.manager_dn for entry in entries if entry.manager_dn}
+        for _ in range(MAX_MANAGER_CHAIN_DEPTH):
+            missing = sorted(dn for dn in frontier if dn.strip().casefold() not in known)
+            if not missing or looked_up >= MAX_CHAIN_LOOKUPS:
+                break
+            frontier = set()
+            for dn in missing[: MAX_CHAIN_LOOKUPS - looked_up]:
+                looked_up += 1
+                known.add(dn.strip().casefold())
+                try:
+                    connection.search(
+                        search_base=dn,
+                        search_filter="(objectClass=*)",
+                        search_scope=ldap3.BASE,
+                        attributes=attributes,
+                        size_limit=1,
+                    )
+                except LDAPException as exc:
+                    logger.info("Manager lookup for %s failed: %s", dn, exc)
+                    continue
+                if not connection.entries:
+                    continue
+                raw = connection.entries[0].entry_attributes_as_dict
+                entry = to_entry(connection.entries[0].entry_dn, raw, in_scope=False)
+                entries.append(entry)
+                if entry.manager_dn:
+                    frontier.add(entry.manager_dn)
     except (LDAPException, OSError) as exc:
         logger.error("Bulk directory search failed: %s", exc)
         raise DirectoryUnavailableError(str(exc)) from exc
@@ -285,7 +336,9 @@ def _clip(value: str, column: str) -> str:
     return (value or "")[: User.__table__.columns[column].type.length]
 
 
-async def apply_snapshot(db: AsyncSession, snapshot: OrgSnapshot, ad_people: int) -> dict:
+async def apply_snapshot(
+    db: AsyncSession, snapshot: OrgSnapshot, ad_people: int, trigger: str = "manual"
+) -> dict:
     """Store the team placements and refresh existing directory users."""
     now = datetime.now(timezone.utc)
     await db.execute(delete(DirectoryTeam))
@@ -333,6 +386,7 @@ async def apply_snapshot(db: AsyncSession, snapshot: OrgSnapshot, ad_people: int
     )
     summary = {
         "synced_at": now.isoformat(),
+        "trigger": trigger,
         "ad_people": ad_people,
         "teams": len(teams),
         "units": len({team_key(team.organization_unit) for team in teams if team.organization_unit}),
@@ -367,3 +421,60 @@ def parse_summary(record: DirectorySettings | None) -> dict | None:
 
 async def directory_teams_by_key(db: AsyncSession) -> dict[str, DirectoryTeam]:
     return {row.team_key: row for row in (await db.execute(select(DirectoryTeam))).scalars()}
+
+
+class DirectorySyncDisabled(RuntimeError):
+    """Directory login is not enabled, so there is nothing to sync."""
+
+
+async def run_directory_sync(db: AsyncSession, *, trigger: str = "manual") -> dict:
+    """Read the directory, place every team and refresh the directory users.
+
+    Raises DirectorySyncDisabled, DirectoryConfigurationError or
+    DirectoryUnavailableError.
+    """
+    import asyncio
+
+    record = await db.get(DirectorySettings, 1)
+    if record is None or not record.enabled:
+        raise DirectorySyncDisabled("Önce LDAP / Active Directory girişini etkinleştirin.")
+    config = config_from_record(record)
+    entries = await asyncio.to_thread(fetch_directory_entries, config)
+    snapshot = build_org_snapshot(
+        entries,
+        config.unit_head_titles,
+        config.division_head_titles,
+        use_unit_attribute=bool(config.organization_unit_attribute),
+    )
+    # Service and room accounts have no department and are not counted.
+    people = sum(1 for entry in entries if entry.in_scope and entry.team)
+    return await apply_snapshot(db, snapshot, ad_people=people, trigger=trigger)
+
+
+async def directory_sync_background_worker(
+    session_factory, *, interval_hours: float, initial_delay_seconds: float = 60
+) -> None:
+    """Sync the directory shortly after startup and then every ``interval_hours``.
+
+    Teams are placed even when nobody from them, or their müdür, has logged in.
+    """
+    import asyncio
+
+    if interval_hours <= 0:
+        return
+    await asyncio.sleep(initial_delay_seconds)
+    while True:
+        try:
+            async with session_factory() as db:
+                summary = await run_directory_sync(db, trigger="automatic")
+            logger.info(
+                "Automatic directory sync: %s people, %s teams, %s units, %s users updated",
+                summary["ad_people"], summary["teams"], summary["units"], summary["updated_users"],
+            )
+        except DirectorySyncDisabled:
+            pass
+        except (DirectoryConfigurationError, DirectoryUnavailableError) as exc:
+            logger.warning("Automatic directory sync failed: %s", exc)
+        except Exception:  # noqa: BLE001 - keep the schedule alive
+            logger.exception("Automatic directory sync failed")
+        await asyncio.sleep(interval_hours * 3600)
