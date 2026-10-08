@@ -1,7 +1,9 @@
-"""Effective per-user quota: user override -> team group -> default group.
+"""Effective per-user quota: user override -> team -> müdürlük -> default group.
 
 Teams come from the directory ``department`` attribute synced to
-``User.team``. A group quota applies to each member individually.
+``User.team``, müdürlüks from ``User.organization_unit``. A group quota applies
+to each member individually. A NULL team field inherits the müdürlük value and
+a NULL müdürlük field inherits the default group.
 """
 
 from __future__ import annotations
@@ -20,12 +22,38 @@ from app.models.user_group_quota import DEFAULT_GROUP_KEY, UserGroupQuota
 QUOTA_FIELDS = ("cpu_quota", "memory_mb_quota", "disk_mb_quota", "gpu_quota")
 SOURCE_USER = "user"
 SOURCE_GROUP = "group"
+SOURCE_UNIT = "unit"
 SOURCE_DEFAULT = "default"
+
+# Müdürlük quotas share the user_group_quotas table with teams. The prefix
+# keeps a müdürlük apart from its own team, which usually has the same name.
+UNIT_KEY_PREFIX = "unit:"
 
 
 def team_key(team: str | None) -> str:
     """Normalize a directory team name so spacing/case variants share a group."""
     return " ".join((team or "").split()).casefold()
+
+
+def unit_key(unit: str | None) -> str:
+    """Group key of a müdürlük quota; empty when the user has no müdürlük."""
+    key = team_key(unit)
+    return f"{UNIT_KEY_PREFIX}{key}" if key else ""
+
+
+def is_unit_key(key: str) -> bool:
+    return key.startswith(UNIT_KEY_PREFIX)
+
+
+def clean_name(value: str | None) -> str:
+    return " ".join((value or "").split())
+
+
+def _most_common(values: Iterable[str]) -> str:
+    counts = Counter(value for value in values if value)
+    if not counts:
+        return ""
+    return max(counts.items(), key=lambda item: (item[1], item[0]))[0]
 
 
 def settings_default_quota() -> dict[str, float | int]:
@@ -56,23 +84,40 @@ class QuotaGroups:
     by_key: dict[str, UserGroupQuota]
     default_row: UserGroupQuota | None = None
 
-    def inherited_for(self, team: str | None) -> tuple[dict[str, float | int], dict[str, str]]:
-        """Values (and their source) a member of ``team`` gets without overrides."""
-        group = self.by_key.get(team_key(team)) if team_key(team) else None
+    def unit_inherited(
+        self, unit: str | None
+    ) -> tuple[dict[str, float | int], dict[str, str]]:
+        """Values (and their source) a team in ``unit`` gets without its own quota."""
+        key = unit_key(unit)
+        row = self.by_key.get(key) if key else None
         values: dict[str, float | int] = {}
         sources: dict[str, str] = {}
         for name in QUOTA_FIELDS:
-            group_value = getattr(group, name) if group is not None else None
-            if group_value is not None:
-                values[name] = group_value
-                sources[name] = SOURCE_GROUP
+            unit_value = getattr(row, name) if row is not None else None
+            if unit_value is not None:
+                values[name] = unit_value
+                sources[name] = SOURCE_UNIT
             else:
                 values[name] = self.default[name]
                 sources[name] = SOURCE_DEFAULT
         return values, sources
 
+    def inherited_for(
+        self, team: str | None, unit: str | None = ""
+    ) -> tuple[dict[str, float | int], dict[str, str]]:
+        """Values (and their source) a member of ``team`` gets without overrides."""
+        values, sources = self.unit_inherited(unit)
+        key = team_key(team)
+        group = self.by_key.get(key) if key else None
+        for name in QUOTA_FIELDS:
+            group_value = getattr(group, name) if group is not None else None
+            if group_value is not None:
+                values[name] = group_value
+                sources[name] = SOURCE_GROUP
+        return values, sources
+
     def resolve(self, user: User) -> EffectiveQuota:
-        values, sources = self.inherited_for(user.team)
+        values, sources = self.inherited_for(user.team, user.organization_unit)
         for name in QUOTA_FIELDS:
             override = getattr(user, f"{name}_override", None)
             if override is not None:
@@ -132,6 +177,14 @@ def has_override(user: User) -> bool:
     return any(getattr(user, f"{name}_override", None) is not None for name in QUOTA_FIELDS)
 
 
+def _raw_values(row: UserGroupQuota | None) -> dict[str, float | int | None]:
+    return {name: (getattr(row, name) if row is not None else None) for name in QUOTA_FIELDS}
+
+
+def _empty_totals() -> dict[str, float]:
+    return {"cpu": 0.0, "memory": 0.0, "gpu": 0.0, "running": 0}
+
+
 def build_group_views(
     users: Iterable[User],
     groups: QuotaGroups,
@@ -141,18 +194,18 @@ def build_group_views(
 
     The default group (users without a team) comes first, then teams sorted by
     name. Configured groups without members are kept so an admin can see and
-    remove quotas of teams that were renamed in the directory.
+    remove quotas of teams that were renamed in the directory. Each team is
+    placed in the müdürlük most of its members belong to.
     """
-    buckets: dict[str, dict] = {DEFAULT_GROUP_KEY: {"names": {}, "members": []}}
+    buckets: dict[str, dict] = {DEFAULT_GROUP_KEY: {"names": [], "members": []}}
     for key in groups.by_key:
-        buckets.setdefault(key, {"names": {}, "members": []})
+        if not is_unit_key(key):
+            buckets.setdefault(key, {"names": [], "members": []})
     for user in users:
         key = team_key(user.team)
-        bucket = buckets.setdefault(key, {"names": {}, "members": []})
+        bucket = buckets.setdefault(key, {"names": [], "members": []})
         bucket["members"].append(user)
-        raw = " ".join((user.team or "").split())
-        if raw:
-            bucket["names"][raw] = bucket["names"].get(raw, 0) + 1
+        bucket["names"].append(clean_name(user.team))
 
     views = []
     for key, bucket in buckets.items():
@@ -162,13 +215,15 @@ def build_group_views(
             display_name = DEFAULT_GROUP_LABEL
         elif row is not None and row.display_name:
             display_name = row.display_name
-        elif bucket["names"]:
-            display_name = max(bucket["names"].items(), key=lambda item: (item[1], item[0]))[0]
         else:
-            display_name = key
-        inherited, inherited_sources = groups.inherited_for(key)
+            display_name = _most_common(bucket["names"]) or key
         members = sorted(bucket["members"], key=lambda user: user.username.casefold())
-        totals = {"cpu": 0.0, "memory": 0.0, "gpu": 0.0, "running": 0}
+        organization_unit = (
+            "" if is_default else _most_common(clean_name(m.organization_unit) for m in members)
+        )
+        inherited, inherited_sources = groups.inherited_for(key, organization_unit)
+        parent_inherited, parent_sources = groups.unit_inherited(organization_unit)
+        totals = _empty_totals()
         for member in members:
             usage = (usage_by_user or {}).get(member.id)
             if usage:
@@ -176,18 +231,6 @@ def build_group_views(
                 totals["memory"] += usage["memory"]["used"]
                 totals["gpu"] += usage["gpu"]["used"]
                 totals["running"] += usage.get("running_workspace_count", 0)
-        # The müdürlük most members belong to places the team in the hierarchy.
-        unit_counts = Counter(
-            " ".join(m.organization_unit.split()) for m in members if m.organization_unit
-        )
-        organization_unit = (
-            max(unit_counts.items(), key=lambda item: (item[1], item[0]))[0]
-            if unit_counts
-            else ""
-        )
-        if is_default:
-            organization_unit = ""
-        is_unit = bool(organization_unit) and team_key(organization_unit) == key
         # Directorate/müdürlük context shown under the team name; a müdürlük's
         # own team does not repeat its name.
         units = sorted(
@@ -195,13 +238,12 @@ def build_group_views(
                 " · ".join(
                     part
                     for part in (
-                        "" if team_key(m.organization_unit) == key else m.organization_unit,
-                        m.directorate,
+                        "" if team_key(m.organization_unit) == key else clean_name(m.organization_unit),
+                        clean_name(m.directorate),
                     )
                     if part
                 )
                 for m in members
-                if (m.organization_unit or m.directorate)
             }
             - {""}
         )
@@ -209,35 +251,90 @@ def build_group_views(
             {
                 "id": row.id if row is not None else None,
                 "key": key,
+                "kind": "default" if is_default else "team",
                 "display_name": display_name,
                 "is_default": is_default,
                 "configured": row is not None,
-                "values": {
-                    name: (getattr(row, name) if row is not None else None)
-                    for name in QUOTA_FIELDS
-                },
+                "values": _raw_values(row),
                 "inherited": inherited,
                 "inherited_sources": inherited_sources,
+                # What a blank team field falls back to: müdürlük, then default.
+                "parent_inherited": parent_inherited,
+                "parent_sources": parent_sources,
                 "members": members,
                 "member_count": len(members),
                 "override_count": sum(1 for member in members if has_override(member)),
                 "totals": totals,
                 "units": units[:3],
                 "organization_unit": organization_unit,
-                "is_unit": is_unit,
-                "is_child": bool(organization_unit) and not is_unit,
+                "unit_key": unit_key(organization_unit),
+                "is_unit_team": bool(organization_unit) and team_key(organization_unit) == key,
             }
         )
     default_view, team_views = views[0], views[1:]
-    names = {view["key"]: view["display_name"] for view in team_views}
-
-    def hierarchy_order(view: dict) -> tuple[str, int, str]:
-        # A child team sorts right after its müdürlük's own team.
-        if view["is_child"]:
-            unit = view["organization_unit"]
-            parent = names.get(team_key(unit), unit)
-            return (parent.casefold(), 1, view["display_name"].casefold())
-        return (view["display_name"].casefold(), 0, "")
-
-    team_views.sort(key=hierarchy_order)
+    team_views.sort(key=lambda view: view["display_name"].casefold())
     return [default_view, *team_views]
+
+
+def build_hierarchy(team_views: list[dict], groups: QuotaGroups) -> dict:
+    """Nest team views (from ``build_group_views``) under their müdürlük.
+
+    Returns the default group, the müdürlüks sorted by name (each with its own
+    team first, then its other teams) and the teams without a müdürlük.
+    Configured müdürlük quotas without teams are kept so they can be removed.
+    """
+    default_view, teams = team_views[0], team_views[1:]
+    buckets: dict[str, dict] = {
+        key: {"names": [], "teams": []} for key in groups.by_key if is_unit_key(key)
+    }
+    standalone = []
+    for view in teams:
+        if not view["unit_key"]:
+            standalone.append(view)
+            continue
+        bucket = buckets.setdefault(view["unit_key"], {"names": [], "teams": []})
+        bucket["teams"].append(view)
+        bucket["names"].append(view["organization_unit"])
+
+    units = []
+    for key, bucket in buckets.items():
+        row = groups.by_key.get(key)
+        display_name = (
+            (row.display_name if row is not None else "")
+            or _most_common(bucket["names"])
+            or key.removeprefix(UNIT_KEY_PREFIX)
+        )
+        unit_teams = sorted(
+            bucket["teams"],
+            key=lambda view: (not view["is_unit_team"], view["display_name"].casefold()),
+        )
+        members = [member for view in unit_teams for member in view["members"]]
+        inherited, inherited_sources = groups.unit_inherited(display_name)
+        totals = _empty_totals()
+        for view in unit_teams:
+            for name in totals:
+                totals[name] += view["totals"][name]
+        units.append(
+            {
+                "id": row.id if row is not None else None,
+                "key": key,
+                "kind": "unit",
+                "display_name": display_name,
+                "is_default": False,
+                "configured": row is not None,
+                "values": _raw_values(row),
+                "inherited": inherited,
+                "inherited_sources": inherited_sources,
+                "teams": unit_teams,
+                "team_count": len(unit_teams),
+                "members": members,
+                "member_count": len(members),
+                "override_count": sum(view["override_count"] for view in unit_teams),
+                "configured_team_count": sum(1 for view in unit_teams if view["configured"]),
+                "totals": totals,
+                "directorates": sorted({clean_name(m.directorate) for m in members} - {""}),
+                "organization_unit": display_name,
+            }
+        )
+    units.sort(key=lambda unit: unit["display_name"].casefold())
+    return {"default": default_view, "units": units, "standalone": standalone}

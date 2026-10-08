@@ -1,8 +1,9 @@
-// Fill admin user cards and AD department groups with LiteLLM usage (30 days).
+// Fill admin user cards, teams and müdürlüks with LiteLLM usage (30 days).
 (() => {
   const userBlocks = document.querySelectorAll("[data-genai-user]");
   const groupBlocks = document.querySelectorAll("[data-genai-group]");
-  if (!userBlocks.length && !groupBlocks.length) return;
+  const unitBlocks = document.querySelectorAll("[data-genai-unit]");
+  if (!userBlocks.length && !groupBlocks.length && !unitBlocks.length) return;
   const C = window.GenAiCharts;
 
   async function load() {
@@ -41,14 +42,16 @@
       block.hidden = false;
     });
 
-    groupBlocks.forEach((block) => {
-      const row = byGroup.get(block.dataset.genaiGroup);
+    const fillUsage = (block, row) => {
       if (!row || !row.api_requests) return;
       const label = document.createElement("span");
       label.textContent = `LLM: ${C.compact(row.total_tokens)} token · ${C.compact(row.api_requests)} istek${stats.show_spend ? ` · ${C.money(row.spend)}` : ""}`;
       block.replaceChildren(C.sparkline(row.daily_tokens, {width: 70, height: 18}), label);
       block.hidden = false;
-    });
+    };
+    const byUnit = new Map((stats.units || []).map((row) => [row.key, row]));
+    groupBlocks.forEach((block) => fillUsage(block, byGroup.get(block.dataset.genaiGroup)));
+    unitBlocks.forEach((block) => fillUsage(block, byUnit.get(block.dataset.genaiUnit)));
   }
 
   load();

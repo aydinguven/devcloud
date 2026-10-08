@@ -149,3 +149,60 @@ async def test_admin_access_controls(client: AsyncClient):
     assert 'name="base_url"' not in models_page.text
     assert "https://managed-mlflow.internal" in models_page.text
     assert "Bağlantı bekleniyor" in models_page.text
+
+
+@pytest.mark.asyncio
+async def test_quota_inherits_team_then_mudurluk_then_default(client: AsyncClient):
+    from sqlalchemy import update
+
+    from app.models.user import User, UserRole
+    from tests.conftest import TestingSessionLocal
+
+    async def register(username):
+        response = await client.post(
+            "/api/auth/register",
+            json={"username": username, "email": f"{username}@test.com", "password": "Password123!"},
+        )
+        return response.json()["user"]["id"], {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    admin_id, admin = await register("unitadmin")
+    member_id, member = await register("argemember")
+    async with TestingSessionLocal() as session:
+        await session.execute(update(User).where(User.id == admin_id).values(role=UserRole.ADMIN))
+        await session.execute(
+            update(User).where(User.id == member_id).values(
+                team="ARAŞTIRMA VE GELİŞTİRME", organization_unit="YENİLİKÇİ TEKNOLOJİLER"
+            )
+        )
+        await session.commit()
+
+    both = await client.put(
+        "/api/admin/user-groups", headers=admin,
+        json={"team": "ARAŞTIRMA VE GELİŞTİRME", "unit": "YENİLİKÇİ TEKNOLOJİLER", "cpu_quota": 1},
+    )
+    assert both.status_code == 422
+
+    unit = await client.put(
+        "/api/admin/user-groups", headers=admin,
+        json={"unit": " YENİLİKÇİ  TEKNOLOJİLER", "cpu_quota": 4, "memory_mb_quota": 16384, "gpu_quota": 2},
+    )
+    assert unit.status_code == 200, unit.text
+    assert unit.json()["kind"] == "unit" and unit.json()["member_count"] == 1
+    team = await client.put(
+        "/api/admin/user-groups", headers=admin,
+        json={"team": "ARAŞTIRMA VE GELİŞTİRME", "cpu_quota": 8},
+    )
+    assert team.status_code == 200, team.text
+
+    me = (await client.get("/api/auth/me", headers=member)).json()
+    assert (me["cpu_quota"], me["memory_mb_quota"], me["gpu_quota"]) == (8, 16384, 2)
+    assert me["quota_sources"] == {
+        "cpu_quota": "group", "memory_mb_quota": "unit", "disk_mb_quota": "default", "gpu_quota": "unit",
+    }
+
+    # Removing the müdürlük quota drops its fields back to the default group.
+    await client.delete(f"/api/admin/user-groups/{unit.json()['id']}", headers=admin)
+    me = (await client.get("/api/auth/me", headers=member)).json()
+    assert me["cpu_quota"] == 8
+    assert me["quota_sources"]["memory_mb_quota"] == "default"
+    assert me["quota_sources"]["gpu_quota"] == "default"

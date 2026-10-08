@@ -10,18 +10,31 @@
   const pct = (part, whole) => (whole ? `%${((part / whole) * 100).toFixed(1)}` : "—");
   const value = (row) => Number(row[metric]) || 0;
 
-  function board(listId, rows, {name, detail, emptyId}) {
+  // Leaderboard of the top ``limit`` rows. The viewer's own row (``isSelf``) is
+  // highlighted and, when outside the top, pinned below with its real rank.
+  // ``includeIdle`` lists rows without usage after the ranked ones.
+  function board(listId, rows, {name, detail, emptyId, isSelf = () => false, limit = 10, includeIdle = false}) {
     const list = $(listId);
-    const sorted = rows.filter((row) => value(row) > 0).sort((a, b) => value(b) - value(a)).slice(0, 10);
+    const ranked = rows.filter((row) => value(row) > 0).sort((a, b) => value(b) - value(a));
+    const sorted = ranked.slice(0, limit);
+    const entries = sorted.map((row, index) => [row, index]);
+    const selfIndex = ranked.findIndex(isSelf);
+    if (selfIndex >= limit) entries.push([ranked[selfIndex], selfIndex]);
+    if (includeIdle) rows.filter((row) => value(row) <= 0).forEach((row) => entries.push([row, -1]));
     if (emptyId) $(emptyId).hidden = sorted.length > 0;
     const top = sorted.length ? value(sorted[0]) : 1;
     const fmt = C.formatter(metric);
-    list.replaceChildren(...sorted.map((row, index) => {
+    list.replaceChildren(...entries.map(([row, index]) => {
       const item = document.createElement("li");
-      item.className = `genai-board-row${index < 3 ? " is-podium" : ""}`;
+      const classes = ["genai-board-row"];
+      if (index >= 0 && index < 3) classes.push("is-podium");
+      if (isSelf(row)) classes.push("is-self");
+      if (index >= limit) classes.push("is-pinned");
+      if (index < 0) classes.push("is-idle");
+      item.className = classes.join(" ");
       const rank = document.createElement("span");
       rank.className = "genai-board-rank";
-      rank.textContent = MEDALS[index] || String(index + 1);
+      rank.textContent = index < 0 ? "—" : MEDALS[index] || String(index + 1);
       const body = document.createElement("div");
       body.className = "genai-board-body";
       const head = document.createElement("div");
@@ -34,7 +47,7 @@
       const track = document.createElement("div");
       track.className = "genai-board-track";
       const fill = document.createElement("span");
-      fill.style.width = `${Math.max(2, (value(row) / top) * 100)}%`;
+      fill.style.width = `${index < 0 ? 0 : Math.max(2, (value(row) / top) * 100)}%`;
       fill.style.background = C.PALETTE[index % C.PALETTE.length];
       track.append(fill);
       const meta = document.createElement("small");
@@ -43,12 +56,100 @@
       item.append(rank, body);
       return item;
     }));
-    if (!sorted.length && !emptyId) {
+    if (!entries.length && !emptyId) {
       const item = document.createElement("li");
       item.className = "text-muted";
       item.textContent = "Bu dönemde kullanım yok.";
       list.append(item);
     }
+  }
+
+  // 1-based rank of the row matching ``predicate`` among rows with usage.
+  function rankOf(rows, predicate) {
+    const ranked = rows.filter((row) => value(row) > 0).sort((a, b) => value(b) - value(a));
+    const index = ranked.findIndex(predicate);
+    return {rank: index >= 0 ? index + 1 : null, of: ranked.length};
+  }
+
+  const userName = (row) => (row.full_name ? `${row.username} · ${row.full_name}` : row.username);
+  const isMe = (row) => row.devcloud_user_id != null && row.devcloud_user_id === stats.viewer.user_id;
+
+  function scopeKpis(prefix, row) {
+    const t = stats.totals;
+    $(`${prefix}-requests`).textContent = C.compact(row.api_requests);
+    $(`${prefix}-requests-share`).textContent = `kurum payı ${pct(row.api_requests, t.api_requests)}`;
+    $(`${prefix}-tokens`).textContent = C.compact(row.total_tokens);
+    $(`${prefix}-tokens-share`).textContent = `kurum payı ${pct(row.total_tokens, t.total_tokens)}`;
+    $(`${prefix}-users`).textContent = String(row.members);
+    $(`${prefix}-users-total`).textContent = `${row.member_total} kayıtlı üyeden`;
+    if (stats.show_spend) {
+      $(`${prefix}-spend`).textContent = C.money(row.spend);
+      $(`${prefix}-spend-share`).textContent = `kurum payı ${pct(row.spend, t.spend)}`;
+    }
+  }
+
+  function renderTeamScope(labels) {
+    const team = stats.my_team;
+    $("scope-team").hidden = !team;
+    if (!team) return;
+    $("team-name").textContent = team.name;
+    const ownUnitTeam = team.unit && team.unit.toLocaleLowerCase("tr-TR") === team.name.toLocaleLowerCase("tr-TR");
+    $("team-meta").textContent = !team.unit ? "Müdürlük bilgisi yok" : ownUnitTeam ? "Müdürlük ekibi" : `${team.unit} müdürlüğü`;
+    const {rank, of} = rankOf(stats.groups.filter((row) => row.key), (row) => row.key === team.key);
+    $("team-rank").textContent = rank ? `#${rank} / ${of} takım` : "Bu dönemde kullanım yok";
+    scopeKpis("team", team);
+    C.bars($("chart-team"), {
+      labels,
+      metric,
+      series: [{name: METRIC_LABELS[metric], color: "#0f766e", values: team.daily.map(value)}],
+    });
+    $("team-users-count").textContent = `${team.members} / ${team.member_total} aktif`;
+    board("board-team-users", team.users, {
+      name: userName,
+      detail: (row) => `${C.compact(row.api_requests)} istek · ${C.compact(row.total_tokens)} token`,
+      isSelf: isMe,
+      limit: 25,
+    });
+  }
+
+  function renderUnitScope(labels) {
+    const unit = stats.my_unit;
+    $("scope-unit").hidden = !unit;
+    if (!unit) return;
+    $("unit-name").textContent = unit.name;
+    $("unit-meta").textContent = `${unit.team_count} takım · ${unit.member_total} kayıtlı üye`;
+    const {rank, of} = rankOf(stats.units, (row) => row.key === unit.key);
+    $("unit-rank").textContent = rank ? `#${rank} / ${of} müdürlük` : "Bu dönemde kullanım yok";
+    scopeKpis("unit", unit);
+    const series = unit.team_series.slice(0, 8).map((team, index) => ({
+      name: team.name,
+      color: C.PALETTE[index % C.PALETTE.length],
+      values: team.values.map(value),
+    }));
+    C.bars($("chart-unit-teams"), {labels, metric, series});
+    $("unit-teams-legend").replaceChildren(...series.map((s) => {
+      const span = document.createElement("span");
+      span.className = "genai-legend-inline";
+      const dot = document.createElement("i");
+      dot.style.background = s.color;
+      span.append(dot, document.createTextNode(s.name));
+      return span;
+    }));
+    $("unit-teams-count").textContent = `${unit.teams.length} takım`;
+    board("board-unit-teams", unit.teams, {
+      name: (row) => row.name,
+      detail: (row) => `${row.members} / ${row.member_total} aktif kullanıcı · ${C.compact(row.api_requests)} istek · ${C.compact(row.total_tokens)} token`,
+      isSelf: (row) => row.key === stats.viewer.team_key,
+      limit: 50,
+      includeIdle: true,
+    });
+    $("unit-users-count").textContent = `${unit.users.length} aktif kullanıcı`;
+    board("board-unit-users", unit.users, {
+      name: userName,
+      detail: (row) => `${C.compact(row.api_requests)} istek · ${C.compact(row.total_tokens)} token${row.team ? ` · ${row.team}` : ""}`,
+      isSelf: isMe,
+      limit: 15,
+    });
   }
 
   function render() {
@@ -75,15 +176,27 @@
     });
     $("daily-legend").textContent = `■ ${METRIC_LABELS[metric]}  ─ ${METRIC_LABELS[lineMetric]}`;
 
+    renderUnitScope(labels);
+    renderTeamScope(labels);
+    $("scope-global-title").hidden = !stats.my_team && !stats.my_unit;
+
     $("users-count").textContent = `${stats.users.length} kullanıcı`;
     board("board-users", stats.users, {
-      name: (row) => row.full_name ? `${row.username} · ${row.full_name}` : row.username,
+      name: userName,
       detail: (row) => `${C.compact(row.api_requests)} istek · ${C.compact(row.total_tokens)} token${row.team ? ` · ${row.team}` : ""}`,
       emptyId: stats.user_breakdown ? null : "board-users-empty",
+      isSelf: isMe,
     });
     board("board-groups", stats.groups, {
       name: (row) => row.name,
-      detail: (row) => `${row.members} aktif kullanıcı · ${C.compact(row.api_requests)} istek`,
+      detail: (row) => `${row.members} aktif kullanıcı · ${C.compact(row.api_requests)} istek${row.unit ? ` · ${row.unit}` : ""}`,
+      isSelf: (row) => row.key && row.key === stats.viewer.team_key,
+    });
+    board("board-units", stats.units || [], {
+      name: (row) => row.name,
+      detail: (row) => `${row.team_count} takım · ${row.members} aktif kullanıcı · ${C.compact(row.api_requests)} istek`,
+      emptyId: "board-units-empty",
+      isSelf: (row) => row.key === stats.viewer.unit_key,
     });
     board("board-teams", stats.teams || [], {
       name: (row) => row.name,

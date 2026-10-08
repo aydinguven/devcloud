@@ -1262,27 +1262,34 @@ function initQuotaForms() {
 
   document.querySelectorAll(".group-quota-form").forEach((form) => {
     const isDefault = form.dataset.defaultGroup === "true";
+    const isUnit = form.dataset.kind === "unit";
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       let payload;
       try { payload = readQuotaFields(form, { allowBlank: !isDefault }); }
       catch (error) { showQuotaError(form, error.message); return; }
-      submitQuotaRequest(form, "/api/admin/user-groups", "PUT", { team: form.dataset.team, ...payload });
+      const target = isUnit ? { unit: form.dataset.name } : { team: form.dataset.name };
+      submitQuotaRequest(form, "/api/admin/user-groups", "PUT", { ...target, ...payload });
     });
     form.querySelector("[data-group-quota-delete]")?.addEventListener("click", () => {
-      if (!confirm("Takım kotası kaldırılsın mı? Üyeler varsayılan kotaya döner (özel kotalar korunur).")) return;
+      const message = isUnit
+        ? "Müdürlük kotası kaldırılsın mı? Kendi kotası olmayan takımlar varsayılan kotaya döner (takım ve özel kotalar korunur)."
+        : "Takım kotası kaldırılsın mı? Üyeler müdürlük veya varsayılan kotaya döner (özel kotalar korunur).";
+      if (!confirm(message)) return;
       submitQuotaRequest(form, `/api/admin/user-groups/${form.dataset.groupId}`, "DELETE");
     });
   });
 }
 
 // Team groups follow the user search: groups with matches open, others hide.
-// A query matching a team name shows all of its members.
+// A query matching a team name shows all of its members; müdürlüks follow
+// their teams.
 function initUserGroupFilter() {
   document.querySelectorAll("[data-admin-group-filter]").forEach((input) => {
     const groups = document.querySelectorAll(input.dataset.adminGroupFilter);
+    const units = input.dataset.adminUnitFilter ? document.querySelectorAll(input.dataset.adminUnitFilter) : [];
     const userOpened = new WeakMap();
-    groups.forEach((group) => {
+    [...groups, ...units].forEach((group) => {
       group.addEventListener("toggle", () => {
         if (!input.value.trim()) userOpened.set(group, group.open);
       });
@@ -1307,6 +1314,29 @@ function initUserGroupFilter() {
         const matches = Array.from(cards).some((card) => !card.hidden);
         group.hidden = !matches;
         group.open = matches;
+      });
+      // Müdürlüks wrap their teams: a müdürlük name match shows every team in
+      // it, otherwise the müdürlük stays visible while any of its teams is.
+      units.forEach((unit) => {
+        const teams = unit.querySelectorAll(input.dataset.adminGroupFilter);
+        if (!query) {
+          unit.hidden = false;
+          unit.open = Boolean(userOpened.get(unit));
+          return;
+        }
+        const name = unit.querySelector(":scope > summary").textContent.toLocaleLowerCase("tr-TR");
+        if (name.includes(query)) {
+          teams.forEach((team) => {
+            team.hidden = false;
+            team.querySelectorAll(".admin-user-card").forEach((card) => { card.hidden = false; });
+          });
+          unit.hidden = false;
+          unit.open = true;
+          return;
+        }
+        const matches = Array.from(teams).some((team) => !team.hidden);
+        unit.hidden = !matches;
+        unit.open = matches;
       });
     });
   });

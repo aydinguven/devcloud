@@ -171,6 +171,7 @@ class DirectoryIdentity:
     groups: tuple[str, ...]
     is_admin: bool
     organization_unit: str = ""
+    managed_unit: str = ""
 
 
 def encrypt_directory_secret(secret: str) -> str:
@@ -353,12 +354,15 @@ def _entry_value(entry, attribute: str) -> str:
     return values[0].strip() if values else ""
 
 
+def _detects_unit_heads(config: DirectoryConfig) -> bool:
+    return bool(config.title_attribute and parse_unit_head_titles(config.unit_head_titles))
+
+
 def _derives_organization_unit(config: DirectoryConfig) -> bool:
     return bool(
         not config.organization_unit_attribute
         and config.manager_attribute
-        and config.title_attribute
-        and parse_unit_head_titles(config.unit_head_titles)
+        and _detects_unit_heads(config)
     )
 
 
@@ -483,11 +487,8 @@ def authenticate_directory_user(
                     config.directorate_attribute,
                     config.organization_unit_attribute,
                     config.group_membership_attribute,
-                    *(
-                        (config.title_attribute, config.manager_attribute)
-                        if _derives_organization_unit(config)
-                        else ()
-                    ),
+                    config.title_attribute if _detects_unit_heads(config) else "",
+                    config.manager_attribute if _derives_organization_unit(config) else "",
                 ]
                 if attribute
             )
@@ -511,12 +512,18 @@ def authenticate_directory_user(
         directorate = _entry_value(entry, config.directorate_attribute)
         organization_unit = _entry_value(entry, config.organization_unit_attribute)
         groups = _entry_values(entry, config.group_membership_attribute)
+        head_titles = parse_unit_head_titles(config.unit_head_titles)
         if _derives_organization_unit(config):
             organization_unit = derive_organization_unit(
                 _person_from_entry(entry, config),
                 _manager_chain_lookup(service_connection, config),
-                parse_unit_head_titles(config.unit_head_titles),
+                head_titles,
             )
+        # A unit head manages their own müdürlük.
+        is_unit_head = _detects_unit_heads(config) and (
+            fold_directory_text(_entry_value(entry, config.title_attribute)) in head_titles
+        )
+        managed_unit = organization_unit if is_unit_head else ""
 
         if config.required_group_dn and not _is_group_member(
             service_connection,
@@ -559,6 +566,7 @@ def authenticate_directory_user(
         team=team,
         directorate=directorate,
         organization_unit=organization_unit,
+        managed_unit=managed_unit,
         user_dn=user_dn,
         groups=tuple(groups),
         is_admin=is_admin,
@@ -580,6 +588,7 @@ def _fit_identity_to_columns(identity: DirectoryIdentity) -> DirectoryIdentity:
         team=clip(identity.team, "team"),
         directorate=clip(identity.directorate, "directorate"),
         organization_unit=clip(identity.organization_unit, "organization_unit"),
+        managed_unit=clip(identity.managed_unit, "managed_unit"),
     )
 
 
@@ -655,6 +664,7 @@ class HybridAuthProvider(AuthProvider):
             existing.team = identity.team
             existing.directorate = identity.directorate
             existing.organization_unit = identity.organization_unit
+            existing.managed_unit = identity.managed_unit
             existing.role = role
             existing.is_active = True
             user = existing
@@ -675,6 +685,7 @@ class HybridAuthProvider(AuthProvider):
                 team=identity.team,
                 directorate=identity.directorate,
                 organization_unit=identity.organization_unit,
+                managed_unit=identity.managed_unit,
                 role=role,
                 auth_source="active_directory",
                 is_active=True,
