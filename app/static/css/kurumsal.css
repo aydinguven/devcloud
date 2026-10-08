@@ -2814,3 +2814,5 @@ code { color: #8d0022; }
 @media (prefers-reduced-motion: reduce) {
   .update-progress-track > span, .platform-log-live > span { animation: none !important; transition: none; }
 }
+
+.platform-update-status-message.is-warning { background: var(--warning-bg); border-left-color: #d39b2a; color: #7a5a00; }

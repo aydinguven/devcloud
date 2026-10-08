@@ -18,6 +18,11 @@ from app.installer.progress import (
 from app.installer.update_source import validate_git_source
 
 
+# Matches app.installer.cli.EXIT_APPLIED_PUBLISH_FAILED (kept local: this
+# module runs with the system Python and imports as little as possible).
+PUBLISH_FAILED_EXIT_CODE = 3
+
+
 def _write_json(path: Path, value: dict) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -114,11 +119,24 @@ def main() -> int:
             returncode = subprocess.run(
                 command, text=True, stdout=log, stderr=subprocess.STDOUT, env=env
             ).returncode
-        progress.finish(returncode == 0)
+        # Exit code 3: applied, but the worker bundle was not published.
+        applied = returncode in (0, PUBLISH_FAILED_EXIT_CODE)
+        progress.finish(applied)
         _write_json(
             status,
             {
-                "state": "succeeded" if returncode == 0 else "failed",
+                "state": "succeeded" if applied else "failed",
+                **(
+                    {
+                        "warning": (
+                            "Platform güncellendi ancak worker güncelleme paketi "
+                            "yayınlanamadı (genellikle disk dolu). Yer açıp "
+                            "'devcloud-setup.sh --yes publish-worker-bundle' çalıştırın."
+                        )
+                    }
+                    if returncode == PUBLISH_FAILED_EXIT_CODE
+                    else {}
+                ),
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "filename": request.get("filename"),
@@ -128,9 +146,9 @@ def main() -> int:
                 "output": read_output_tail(output),
             },
         )
-        if returncode == 0 and source_type == "bundle":
+        if applied and source_type == "bundle":
             bundle.unlink(missing_ok=True)
-        return returncode
+        return 0 if applied else returncode
     except Exception as exc:
         progress.finish(False)
         _write_json(

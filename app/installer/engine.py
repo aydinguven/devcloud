@@ -37,6 +37,32 @@ from app.installer.state import InstallationState
 from app.platform_release import load_platform_release
 
 
+# Retention after a successful update: the current and previous release
+# (rollback target), their runtime images, and the newest backups.
+KEEP_RELEASES = 2
+KEEP_BACKUPS = 3
+# Head room an update needs beyond a second copy of the release tree.
+UPDATE_FREE_MARGIN_BYTES = 2 * 1024 ** 3
+
+
+def _tree_size(root: Path) -> int:
+    total = 0
+    for directory, _subdirectories, files in os.walk(root):
+        for name in files:
+            try:
+                total += (Path(directory) / name).lstat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _free_bytes(path: Path) -> int:
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return shutil.disk_usage(probe).free
+
+
 @dataclass(slots=True)
 class PlanStep:
     key: str
@@ -407,7 +433,11 @@ class InstallerEngine:
         return InstallPlan(
             f"Update DevCloud to {self.release_version}",
             [
-                PlanStep("preflight", "Validate the target host and release source", self.preflight),
+                PlanStep(
+                    "preflight",
+                    "Validate the target host, release source and free disk space",
+                    lambda: (self.preflight(), self._check_update_disk_space(config)),
+                ),
                 *backup_step,
                 PlanStep(
                     "release",
@@ -468,6 +498,11 @@ class InstallerEngine:
                     "state",
                     "Record the successfully applied release",
                     lambda: self._save_state(config),
+                ),
+                PlanStep(
+                    "cleanup",
+                    "Remove releases, runtime images and backups older than the rollback target",
+                    lambda: self._safe_cleanup_after_update(config),
                 ),
             ],
             on_failure=lambda: self._rollback_update(config),
@@ -1133,6 +1168,92 @@ class InstallerEngine:
         relative_target = os.path.relpath(self.previous_release, start=install_root)
         temporary.symlink_to(relative_target, target_is_directory=True)
         os.replace(temporary, current)
+
+    def _check_update_disk_space(self, config: InstallConfig) -> None:
+        """Fail before changing anything when the release cannot be staged."""
+        if self.runner.dry_run:
+            return
+        releases_root = self.host_path(config.releases_root)
+        if (releases_root / self.release_id).exists():
+            return
+        needed = _tree_size(self.project_root) + UPDATE_FREE_MARGIN_BYTES
+        free = _free_bytes(releases_root)
+        if free < needed:
+            raise InstallerError(
+                f"Not enough free disk space for the update in {releases_root}: about "
+                f"{needed / 1024 ** 3:.1f} GiB needed, {free / 1024 ** 3:.1f} GiB free. "
+                "Remove old backups (/var/lib/devcloud/backups) or unused images "
+                "(podman image prune) and retry."
+            )
+
+    def _safe_cleanup_after_update(self, config: InstallConfig) -> None:
+        # Runs after the state is saved: an exception here would roll back an
+        # applied update.
+        try:
+            self._cleanup_after_update(config)
+        except Exception as exc:  # noqa: BLE001
+            self._report_detail(f"Eski sürüm temizliği atlandı: {exc}")
+
+    def _cleanup_after_update(self, config: InstallConfig) -> None:
+        """Keep the current and previous release; remove older copies.
+
+        Best effort: a failed cleanup never fails an applied update.
+        """
+        if self.runner.dry_run:
+            return
+        releases_root = self.host_path(config.releases_root)
+        keep_paths = {(releases_root / self.release_id).resolve()}
+        if self.previous_release is not None:
+            keep_paths.add(self.previous_release.resolve())
+        keep_versions = {self.release_version}
+        if self.previous_release is not None:
+            try:
+                keep_versions.add(InstallerEngine(project_root=self.previous_release).release_version)
+            except InstallerError:
+                pass
+        removed = []
+        if releases_root.is_dir():
+            staged = [
+                path for path in releases_root.iterdir()
+                if path.is_dir() and not path.is_symlink() and (path / ".devcloud-release-id").is_file()
+            ]
+            staged.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            survivors = [path for path in staged if path.resolve() in keep_paths]
+            for path in staged:
+                if path.resolve() in keep_paths:
+                    continue
+                if len(survivors) < KEEP_RELEASES:
+                    survivors.append(path)
+                    continue
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path.name)
+            for leftover in releases_root.glob(".*.staging-*"):
+                shutil.rmtree(leftover, ignore_errors=True)
+        backups = self.host_path("/var/lib/devcloud/backups")
+        if backups.is_dir():
+            archives = sorted(
+                backups.glob("pre-update-v*.tar.gz"), key=lambda path: path.stat().st_mtime, reverse=True
+            )
+            for path in archives[KEEP_BACKUPS:]:
+                path.unlink(missing_ok=True)
+                removed.append(path.name)
+        if self.runner.exists("podman"):
+            for repository in ("localhost/devcloud-controller", "localhost/devcloud-worker"):
+                listing = self.runner.run(
+                    ["podman", "images", "--format", "{{.Tag}}", repository],
+                    capture_output=True,
+                    check=False,
+                )
+                for tag in (listing.stdout or "").split():
+                    if tag in keep_versions or tag in ("<none>", "latest"):
+                        continue
+                    result = self.runner.run(
+                        ["podman", "image", "rm", f"{repository}:{tag}"], check=False
+                    )
+                    if result.returncode == 0:
+                        removed.append(f"{repository}:{tag}")
+        if removed:
+            self._report_detail(f"{len(removed)} eski öğe temizlendi")
 
     def _report_detail(self, text: str) -> None:
         progress = getattr(self, "progress", None)

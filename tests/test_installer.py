@@ -1210,3 +1210,27 @@ def test_update_progress_follows_plan_steps_and_rollback(tmp_path, monkeypatch):
     old = time.time() - 600
     os.utime(progress_file, (old, old))
     assert "progress" not in admin_routes._read_update_status()
+
+
+def test_applied_update_with_unpublished_worker_bundle_is_not_reported_failed(tmp_path, monkeypatch):
+    queue = tmp_path / "update-queue"
+    (queue / "uploads").mkdir(parents=True)
+    bundle = queue / "uploads" / "abc.tar.gz"
+    bundle.write_bytes(b"bundle")
+    (queue / "pending.json").write_text(
+        json.dumps({"source_type": "bundle", "bundle": str(bundle), "target_version": "3.15.0"}),
+        encoding="utf-8",
+    )
+
+    def fake_run(command, *, text, stdout, stderr, env):
+        stdout.write("Update DevCloud to 3.15.0 completed successfully.\nWARNING: ... No space left on device\n")
+        return subprocess.CompletedProcess(command, 3)
+
+    monkeypatch.setenv("UPDATE_QUEUE_ROOT", str(queue))
+    monkeypatch.setattr(queued_update.subprocess, "run", fake_run)
+
+    assert queued_update.main() == 0
+    status = json.loads((queue / "status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "succeeded" and status["return_code"] == 3
+    assert "publish-worker-bundle" in status["warning"]
+    assert not bundle.exists()
