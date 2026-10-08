@@ -311,6 +311,78 @@ function initAdminFlavorSettings() {
   });
 }
 
+// Live progress of a controller or worker update (app/installer/progress.py).
+const UPDATE_ACTIVE_STATES = ["preparing", "downloading", "queued", "running"];
+
+function formatUpdateBytes(value) {
+  const units = ["B", "KB", "MB", "GB"];
+  let size = Number(value) || 0;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+}
+
+function formatUpdateElapsed(startedAt) {
+  const started = Date.parse(startedAt || "");
+  if (Number.isNaN(started)) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - started) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")} geçti`;
+}
+
+function renderUpdateProgress(box, state, progress, { restarting = false, startedAt = "" } = {}) {
+  if (!box) return;
+  const active = UPDATE_ACTIVE_STATES.includes(state) || restarting;
+  const finished = state === "succeeded" || state === "failed";
+  if (!active && !(finished && progress)) {
+    box.hidden = true;
+    return;
+  }
+  const value = progress || {};
+  let percent = Number(value.percent) || 0;
+  let label = value.label || "";
+  if (state === "succeeded") {
+    percent = 100;
+    label = "Tamamlandı";
+  } else if (state === "failed") {
+    label = value.phase === "rollback" || value.phase === "failed"
+      ? `${value.label || "Güncelleme"} · başarısız`
+      : `${label || "Güncelleme"} · başarısız`;
+  } else if (restarting) {
+    label = "Controller yeniden başlatılıyor";
+  } else if (!label) {
+    label = { preparing: "Hazırlanıyor", downloading: "Bundle indiriliyor", queued: "Root updater bekleniyor", running: "Güncelleme uygulanıyor" }[state] || "";
+  }
+  const parts = [];
+  if (value.step_index && value.step_total && value.phase === "steps") parts.push(`Adım ${value.step_index}/${value.step_total}`);
+  if (value.phase === "download" && value.bytes_total) parts.push(`${formatUpdateBytes(value.bytes_done)} / ${formatUpdateBytes(value.bytes_total)}`);
+  if (value.detail) parts.push(value.detail);
+  if (active) {
+    const elapsed = formatUpdateElapsed(value.started_at || startedAt);
+    if (elapsed) parts.push(elapsed);
+  }
+  const indeterminate = active && (!progress || restarting);
+  box.hidden = false;
+  box.classList.toggle("is-indeterminate", indeterminate);
+  box.classList.toggle("is-failed", state === "failed");
+  box.classList.toggle("is-rollback", value.phase === "rollback" && state !== "failed");
+  box.classList.toggle("is-done", state === "succeeded");
+  const fill = box.querySelector(".update-progress-track > span");
+  if (fill) fill.style.width = `${indeterminate ? 100 : Math.max(2, percent)}%`;
+  box.querySelector(".update-progress-track")?.setAttribute("aria-valuenow", String(Math.round(percent)));
+  const labelNode = box.querySelector(".update-progress-label");
+  const percentNode = box.querySelector(".update-progress-percent");
+  const textNode = box.querySelector(".update-progress-text");
+  if (labelNode) {
+    labelNode.textContent = label;
+    if (percentNode) percentNode.textContent = indeterminate ? "" : `%${Math.round(percent)}`;
+    if (textNode) textNode.textContent = parts.join(" · ");
+  } else if (textNode) {
+    // Compact (worker row): one line with label, percent and details.
+    textNode.textContent = [label, indeterminate ? "" : `%${Math.round(percent)}`, ...parts].filter(Boolean).join(" · ");
+  }
+}
+
 function initAdminFilters() {
   document.querySelectorAll("[data-admin-filter]").forEach((input) => {
     const selector = input.dataset.adminFilter;
@@ -1624,6 +1696,7 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
     badge.dataset.state = state;
     badge.textContent = `${labels[state] || state}${target}`;
     badge.title = upgrade.message || "";
+    renderUpdateProgress(row?.querySelector("[data-update-progress]"), state, upgrade.progress);
     const detail = row?.querySelector(".node-upgrade-detail");
     if (detail) {
       const timestamp = upgrade.updated_at
@@ -1637,6 +1710,12 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
 
   const nodesTable = document.getElementById("admin-nodes-table");
   if (nodesTable) {
+    nodesTable.querySelectorAll("[data-update-progress][data-upgrade]").forEach((box) => {
+      try {
+        const upgrade = JSON.parse(box.dataset.upgrade || "{}");
+        renderUpdateProgress(box, upgrade.state || "idle", upgrade.progress);
+      } catch (_error) { /* malformed initial state; SSE will refresh it */ }
+    });
     const renderWorkerGpu = (row, accelerators = [], runtimes = {}) => {
       const runtime = runtimes?.nvidia || {};
       const physical = accelerators.filter(device => device?.kind === "physical");
@@ -2960,6 +3039,9 @@ function initAdminPlatformUpdater() {
   let checkedRelease = null;
   let updateWasActive = false;
   let refreshFailures = 0;
+  let lastUpdateValue = {};
+  const updateProgressBox = document.getElementById("platform-update-progress");
+  const updateLiveBadge = document.getElementById("platform-log-live");
 
   const setStatusMessage = (text, tone = "") => {
     if (!updateStatusMessage) return;
@@ -2995,13 +3077,18 @@ function initAdminPlatformUpdater() {
       ? "error"
       : value.state === "succeeded" ? "success" : "");
     if (["queued", "running"].includes(value.state)) updateWasActive = true;
-    const serialized = JSON.stringify(value);
+    lastUpdateValue = value;
+    if (updateLiveBadge) updateLiveBadge.hidden = !UPDATE_ACTIVE_STATES.includes(value.state);
+    renderUpdateProgress(updateProgressBox, value.state, value.progress, { startedAt: value.started_at });
+    const serialized = JSON.stringify({ ...value, progress: undefined });
     if (serialized !== lastUpdateStatus && updateTerminal) {
       lastUpdateStatus = serialized;
       const detail = value.output || value.error || (
-        ["queued", "running"].includes(value.state)
-          ? "Teknik çıktı, updater işlemi tamamlandığında burada gösterilecek."
-          : friendly
+        value.state === "running"
+          ? "Updater çıktısı bekleniyor..."
+          : value.state === "queued"
+            ? "Root updater'ın işi alması bekleniyor."
+            : friendly
       );
       updateTerminal.textContent = detail;
       updateTerminal.scrollTop = updateTerminal.scrollHeight;
@@ -3024,6 +3111,10 @@ function initAdminPlatformUpdater() {
     } catch (error) {
       refreshFailures += 1;
       if (updateWasActive) {
+        renderUpdateProgress(updateProgressBox, "running", lastUpdateValue.progress, {
+          restarting: true,
+          startedAt: lastUpdateValue.started_at,
+        });
         updateState.textContent = "Yeniden bağlanıyor";
         updateState.className = "badge badge-starting";
         setStatusMessage(
@@ -3152,8 +3243,13 @@ function initAdminPlatformUpdater() {
     );
   });
   if (gitUpdateForm || bundleUpdateForm) {
-    refreshQueuedUpdateStatus();
-    window.setInterval(refreshQueuedUpdateStatus, 5000);
+    // Poll every 2 s while an update runs, otherwise every 5 s.
+    const pollQueuedUpdateStatus = async () => {
+      await refreshQueuedUpdateStatus();
+      const active = updateWasActive && !["succeeded", "failed", "idle"].includes(lastUpdateValue.state);
+      window.setTimeout(pollQueuedUpdateStatus, active ? 2000 : 5000);
+    };
+    pollQueuedUpdateStatus();
   }
 
   const tbModal = document.getElementById("template-builder-modal");

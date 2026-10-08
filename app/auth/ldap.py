@@ -159,7 +159,8 @@ def walk_manager_chain(
     The walk stops without a unit at a division head (the team then belongs
     directly to the Genel Müdürlük), a missing manager, a manager loop, the
     depth cap, or a manager in another directorate, so a chain never climbs
-    past the Genel Müdürlük into another organization.
+    past the Genel Müdürlük into another organization. A blank ``division`` on
+    either side is not a different directorate.
     """
     if not head_titles:
         return ChainResult("", CHAIN_NO_HEAD)
@@ -181,8 +182,11 @@ def walk_manager_chain(
         manager = lookup(manager_dn)
         if manager is None:
             return ChainResult("", CHAIN_MISSING_MANAGER)
-        if fold_directory_text(manager.directorate) != directorate:
+        # A blank division in AD does not end the chain; only a different one does.
+        manager_directorate = fold_directory_text(manager.directorate)
+        if directorate and manager_directorate and manager_directorate != directorate:
             return ChainResult("", CHAIN_OTHER_DIVISION)
+        directorate = directorate or manager_directorate
         current = manager
     return ChainResult("", CHAIN_LOOP)
 

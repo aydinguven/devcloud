@@ -107,6 +107,7 @@ async def lifespan(app: FastAPI):
         recover_interrupted_mlflow_deployments,
     )
     from app.migrations import require_current, upgrade
+    from app.directory_sync import directory_sync_background_worker
 
     logger.info("Initializing DevCloud Database...")
     if settings.AUTO_MIGRATE:
@@ -125,11 +126,18 @@ async def lifespan(app: FastAPI):
     deployment_task = asyncio.create_task(
         mlflow_deployment_background_worker(check_interval_seconds=2)
     )
+    # Place every AD team under its müdürlük without waiting for logins.
+    directory_sync_task = asyncio.create_task(
+        directory_sync_background_worker(
+            AsyncSessionLocal, interval_hours=settings.DIRECTORY_SYNC_INTERVAL_HOURS
+        )
+    )
 
     yield
+    directory_sync_task.cancel()
     reaper_task.cancel()
     deployment_task.cancel()
-    await asyncio.gather(reaper_task, deployment_task, return_exceptions=True)
+    await asyncio.gather(reaper_task, deployment_task, directory_sync_task, return_exceptions=True)
     logger.info("DevCloud shutting down...")
 
 

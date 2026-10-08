@@ -257,10 +257,11 @@ async def test_directory_sync_places_teams_and_refreshes_users(client: AsyncClie
 
     bt, yt, arge = "BİLGİ TEKNOLOJİLERİ", "YENİLİKÇİ TEKNOLOJİLER", "ARAŞTIRMA VE GELİŞTİRME"
 
-    def entry(username, name, team, title, manager="", division=bt):
+    def entry(username, name, team, title, manager="", division=bt, in_scope=True):
         return DirectoryEntry(
             dn=f"CN={username},CN=Users", username=username, full_name=name, team=team,
             title=title, directorate=division, manager_dn=f"CN={manager},CN=Users" if manager else "",
+            in_scope=in_scope,
         )
 
     entries = [
@@ -270,8 +271,12 @@ async def test_directory_sync_places_teams_and_refreshes_users(client: AsyncClie
         entry("K015570", "Aydın Güven Aslangören", arge, "BİLİŞİM UZMANI", "K014810"),
         entry("K015571", "Elif Yılmaz", arge, "UZMAN", "K999999"),  # stale manager DN
         entry("K017000", "Arşiv Uzmanı", "ARŞİV", "UZMAN"),  # no manager
+        # The müdür is outside the sync search and has no division in AD;
+        # the chain still reaches him.
+        entry("K016408", "Seda Gökhüseyin", "İŞLETİM SİSTEMİ YÖNETİMİ", "UZMAN", "K016400"),
+        entry("K016400", "Burak Çelik", "ALTYAPI YÖNETİMİ", "MÜDÜR", "K012950", division="", in_scope=False),
     ]
-    monkeypatch.setattr("app.routes.admin_routes.fetch_directory_entries", lambda config: entries)
+    monkeypatch.setattr("app.directory_sync.fetch_directory_entries", lambda config: entries)
 
     async with TestingSessionLocal() as session:
         for username, team in (("K015571", "ESKİ TAKIM"), ("K014810", yt), ("gone", "X")):
@@ -282,7 +287,8 @@ async def test_directory_sync_places_teams_and_refreshes_users(client: AsyncClie
     response = await client.post("/api/admin/directory-sync", headers=headers)
     assert response.status_code == 200, response.text
     summary = response.json()
-    assert (summary["ad_people"], summary["teams"], summary["units"], summary["division_teams"]) == (6, 4, 1, 1)
+    # The out-of-scope müdür completes chains but is not counted or placed.
+    assert (summary["ad_people"], summary["teams"], summary["units"], summary["division_teams"]) == (7, 5, 2, 1)
     assert summary["updated_users"] == 2 and summary["missing_users"] == ["gone"]
     assert summary["unassigned_teams"] == [{"name": "ARŞİV", "reason": "no_manager", "members": 1}]
 
@@ -297,3 +303,6 @@ async def test_directory_sync_places_teams_and_refreshes_users(client: AsyncClie
     assert users["K014810"].managed_unit == yt
     assert (teams[arge].status, teams[arge].organization_unit, teams[arge].head_name) == ("team", yt, "Kemal Özgür Duman")
     assert (teams[bt].status, teams[bt].head_name) == ("division", "Mehmet Zahit Ateş")
+    os_team = teams["İŞLETİM SİSTEMİ YÖNETİMİ"]
+    assert (os_team.status, os_team.organization_unit, os_team.head_name) == ("team", "ALTYAPI YÖNETİMİ", "Burak Çelik")
+    assert "ALTYAPI YÖNETİMİ" not in teams

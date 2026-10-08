@@ -173,11 +173,19 @@
           <span class="platform-current-label">İşlem günlüğü</span>
           <strong id="platform-update-log-title">Son güncelleme durumu</strong>
         </div>
-        <span class="platform-log-live"><span aria-hidden="true"></span> Canlı</span>
+        <span class="platform-log-live" id="platform-log-live" hidden><span aria-hidden="true"></span> Canlı</span>
       </div>
       <p id="platform-update-status-message" class="platform-update-status-message" role="status">
         Güncelleme kuyruğu hazır.
       </p>
+      <div class="update-progress" id="platform-update-progress" hidden>
+        <div class="update-progress-head">
+          <strong class="update-progress-label"></strong>
+          <span class="update-progress-percent"></span>
+        </div>
+        <div class="update-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+        <small class="update-progress-text"></small>
+      </div>
       <pre id="admin-update-terminal" class="terminal-window" aria-live="polite">Güncelleme kuyruğu hazır.</pre>
     </section>
   </section>
@@ -461,6 +469,10 @@ cd devcloud
               {% else %}Hazır{% endif %}
               {% if upgrade_status.get('target_version') %} · v{{ upgrade_status.get('target_version') }}{% endif %}
             </span>
+          </div>
+          <div class="update-progress is-compact" data-update-progress data-upgrade='{{ upgrade_status|tojson }}' hidden>
+            <div class="update-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+            <small class="update-progress-text"></small>
           </div>
           <div
             class="node-upgrade-detail {% if not upgrade_status.get('message') %}is-hidden{% elif upgrade_state == 'failed' %}is-error{% endif %}"
@@ -1129,13 +1141,13 @@ cd devcloud
 
   <div class="tree-sync{% if directory_sync and directory_sync.unassigned_count %} has-warning{% endif %}" id="directory-sync-status" role="status" aria-live="polite">
     {% if directory_sync %}
-      <span>Son AD senkronizasyonu <time data-local-time="{{ directory_sync.synced_at }}">{{ directory_sync.synced_at[:16]|replace('T', ' ') }}</time></span>
+      <span>Son AD senkronizasyonu <time data-local-time="{{ directory_sync.synced_at }}">{{ directory_sync.synced_at[:16]|replace('T', ' ') }}</time>{% if directory_sync.trigger == 'automatic' %} (otomatik){% endif %}</span>
       <span>{{ directory_sync.ad_people }} kişi · {{ directory_sync.teams }} takım · {{ directory_sync.units }} müdürlük</span>
       <span>{{ directory_sync.updated_users }} kullanıcı güncellendi</span>
       {% if directory_sync.unassigned_count %}<a href="#tree-unassigned">{{ directory_sync.unassigned_count }} AD takımının müdürlüğü yok</a>{% endif %}
       {% if directory_sync.missing_count %}<span title="{{ directory_sync.missing_users|join(', ') }}">{{ directory_sync.missing_count }} kullanıcı AD'de bulunamadı</span>{% endif %}
     {% elif directory_settings and directory_settings.enabled %}
-      <span>Henüz AD senkronizasyonu yapılmadı. Müdürlükler şimdilik yalnızca kullanıcı girişlerinden öğreniliyor.</span>
+      <span>Henüz AD senkronizasyonu yapılmadı. Controller açıldıktan kısa süre sonra otomatik çalışır; hemen başlatmak için düğmeyi kullanın.</span>
     {% endif %}
   </div>
 

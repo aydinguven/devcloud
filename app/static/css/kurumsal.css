@@ -2779,3 +2779,38 @@ code { color: #8d0022; }
   .user-row-actions { grid-column: 1 / -1; grid-row: auto; text-align: left; }
   .tree-form, .tree-editor > summary { padding-left: 0.9rem; }
 }
+
+/* ---------- Live update progress (controller panel and worker rows) ---------- */
+.platform-log-live[hidden] { display: none; }
+.platform-log-live > span { animation: update-live-pulse 1.4s ease-in-out infinite; }
+@keyframes update-live-pulse { 50% { opacity: 0.25; } }
+.update-progress { margin: 0 0 0.75rem; }
+.update-progress[hidden] { display: none; }
+.update-progress-head { align-items: baseline; display: flex; gap: 0.75rem; justify-content: space-between; margin-bottom: 0.3rem; }
+.update-progress-label { color: var(--heading); font-size: 0.8rem; }
+.update-progress-percent { color: var(--heading); font-size: 0.8rem; font-variant-numeric: tabular-nums; font-weight: 750; }
+.update-progress-track { background: #e5eaf1; border-radius: 99px; height: 8px; overflow: hidden; position: relative; }
+.update-progress-track > span {
+  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  border-radius: 99px;
+  display: block;
+  height: 100%;
+  transition: width 0.6s ease;
+}
+.update-progress-text { color: var(--text-muted); display: block; font-size: 0.7rem; margin-top: 0.3rem; min-height: 1em; }
+.update-progress.is-indeterminate .update-progress-track > span {
+  animation: update-progress-slide 1.6s linear infinite;
+  background: linear-gradient(90deg, transparent, #3b82f6 40%, #3b82f6 60%, transparent);
+  width: 40% !important;
+}
+@keyframes update-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.update-progress.is-done .update-progress-track > span { background: var(--success); }
+.update-progress.is-failed .update-progress-track > span { background: var(--danger); }
+.update-progress.is-failed .update-progress-label { color: var(--danger); }
+.update-progress.is-rollback .update-progress-track > span { background: #d39b2a; }
+.update-progress.is-compact { margin: 0.35rem 0 0.15rem; max-width: 260px; }
+.update-progress.is-compact .update-progress-track { height: 5px; }
+.update-progress.is-compact .update-progress-text { font-size: 0.64rem; margin-top: 0.2rem; }
+@media (prefers-reduced-motion: reduce) {
+  .update-progress-track > span, .platform-log-live > span { animation: none !important; transition: none; }
+}
