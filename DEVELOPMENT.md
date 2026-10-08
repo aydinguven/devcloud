@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.13.0`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.14.0`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | PR open | `feat/directory-sync` | Bulk AD sync (team -> müdürlük placement, Genel Müdürlük teams, reasons) and compact Admin > Kullanıcılar | Merge, release, then run **AD'den senkronize et** on IDMVAIFACT1 and review the unresolved teams |
+| Aydin | Pending | `main` | 3.14.0 rollout | Update IDMVAIFACT1 and workers, run **Admin > Kullanıcılar > AD'den senkronize et** once, then review "Müdürlüğü belirlenemeyen takımlar" and the users AD did not return |
 | Aydin | Pending | `main` | 3.13.0 rollout | Update IDMVAIFACT1 and workers, check Admin > Dizin has `manager` / `title` / `MÜDÜR`, then log in as Kemal (K014810): Admin > Kullanıcılar nests Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler and GenAI > İstatistikler shows Müdürlüğüm |
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
@@ -57,6 +57,8 @@
 
 ## Latest handoff
 
+2026-10-08 3.14.0 (PR #40): migration 29 adds `directory_teams` and `directory_settings.division_head_titles` / `last_sync_at` / `last_sync_summary`. After updating, one click on **AD'den senkronize et** places every AD team and refreshes the existing directory users without waiting for logins. The sync reads everyone under `user_base_dn` with the login filter (`{username}` -> `*`); if the panel shows far fewer people than expected, check the bind account's read access and the AD page size. Periodic sync is not implemented (manual button only).
+
 2026-10-08 3.13.0 (PR #38): migration 28 adds `directory_settings.manager_attribute` / `title_attribute` / `unit_head_titles` (defaults `manager` / `title` / `MÜDÜR`) and `users.managed_unit`. Nothing changes for a user until their next AD login, which fills `organization_unit` and `managed_unit`; until then teams appear under "Müdürlüğü belirlenmemiş takımlar" and managers see no Müdürlüğüm section. The AD bind account must be able to read managers' `department`, `title`, `division` and `manager`. Possible follow-up: a division-wide view for GENEL MÜDÜR.
 
 2026-10-07 release pipeline (`ci/leaner-release`): v3.12.0 took 14.3 min. Its critical path was platform 8.4 min + publish 5.8 min, and 3.9 min of publish was only downloading staged artifacts. It also rebuilt all six workspace images because the old scope treated any change to `deploy/ci/build-release-assets.sh` as a workspace change. The branch fixes both and parallelizes the Rocky build (estimated ~7-8 min with no workspace changes). After merge, watch the first run. If `gh release view/upload` on drafts misbehaves, the fallback is to restore the artifact staging for the platform assets only.
@@ -71,6 +73,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-08: Released 3.13.0. Added the bulk AD sync with team müdürlük placement and the compact users panel (PR #40); prepared 3.14.0.
 - 2026-10-08: Built the müdürlük hierarchy from the AD manager chain, quota inheritance through the müdürlük, the nested admin users panel and team/müdürlük GenAI stats (PR #38); prepared 3.13.0.
 - 2026-10-07: Profiled the v3.12.0 release run and slimmed the release pipeline (see Latest handoff).
 - 2026-10-06: Diagnosed the production login 500s down to firewalld reloads breaking Podman DNS (see Latest handoff); restored service manually; prepared 3.9.5 with the permanent fix and login error hardening.
