@@ -886,7 +886,21 @@ cd devcloud
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Müdürlük özniteliği</span>
           <input class="form-input" name="organization_unit_attribute" value="{{ directory_settings.organization_unit_attribute if directory_settings else '' }}" placeholder="Müdürlük değerini taşıyan AD özniteliği">
-          <small class="text-muted">İsteğe bağlıdır. Örn. “Yenilikçi Teknolojiler Müdürlüğü” değerini taşıyan öznitelik.</small>
+          <small class="text-muted">İsteğe bağlıdır. Boş bırakılırsa müdürlük, yönetici zincirinden türetilir.</small>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Yönetici özniteliği</span>
+          <input class="form-input" name="manager_attribute" value="{{ directory_settings.manager_attribute if directory_settings else 'manager' }}" placeholder="manager">
+          <small class="text-muted">Kullanıcının yöneticisinin DN değerini taşıyan öznitelik.</small>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Unvan özniteliği</span>
+          <input class="form-input" name="title_attribute" value="{{ directory_settings.title_attribute if directory_settings else 'title' }}" placeholder="title">
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Müdürlük yöneticisi unvanları</span>
+          <input class="form-input" name="unit_head_titles" value="{{ directory_settings.unit_head_titles if directory_settings else 'MÜDÜR' }}" placeholder="MÜDÜR">
+          <small class="text-muted">Virgülle ayrılır. Yönetici zincirinde bu unvana sahip ilk kişinin takımı, kullanıcının müdürlüğü olur. Örn. Ar-Ge üyesi → Kemal (MÜDÜR, Yenilikçi Teknolojiler).</small>
         </label>
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Üst birim özniteliği</span>
@@ -944,7 +958,7 @@ cd devcloud
   <div class="admin-team-list">
     {% for group in user_groups %}
       {% set inherited = group.inherited %}
-      <details class="admin-team-group{% if group.is_default %} is-default{% endif %}" data-group-key="{{ group.key }}">
+      <details class="admin-team-group{% if group.is_default %} is-default{% endif %}{% if group.is_child %} is-child{% endif %}" data-group-key="{{ group.key }}">
         <summary class="admin-team-summary">
           <span class="admin-team-chevron" aria-hidden="true"></span>
           <span class="admin-team-heading">
@@ -956,6 +970,7 @@ cd devcloud
             </small>
           </span>
           <span class="admin-team-badges">
+            {% if group.is_unit %}<span class="badge badge-neutral">Müdürlük</span>{% endif %}
             <span class="badge badge-neutral">{{ group.member_count }} üye</span>
             {% if group.override_count %}<span class="badge badge-override">{{ group.override_count }} özel kota</span>{% endif %}
             {% if not group.is_default and not group.configured %}<span class="badge badge-stopped">Varsayılan kullanılıyor</span>{% endif %}

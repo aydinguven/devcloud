@@ -4,6 +4,7 @@ import re
 import secrets
 import ssl
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from sqlalchemy import select
@@ -89,6 +90,74 @@ class DirectoryConfig:
     admin_group_dn: str
     nested_group_search: bool
     organization_unit_attribute: str = ""
+    manager_attribute: str = "manager"
+    title_attribute: str = "title"
+    unit_head_titles: str = "MÜDÜR"
+
+
+@dataclass(frozen=True)
+class DirectoryPerson:
+    """The organization attributes of one directory entry in a manager chain."""
+
+    dn: str
+    team: str
+    title: str
+    directorate: str
+    manager_dn: str
+
+
+# A real AD chain is a handful of levels; the cap only guards broken data.
+MAX_MANAGER_CHAIN_DEPTH = 12
+
+
+def fold_directory_text(value: str | None) -> str:
+    """Normalize a title or unit name for matching, tolerant of Turkish i forms.
+
+    Python's casefold maps "İ" to "i" plus a combining dot and "I" to "i", so
+    "MÜDÜR YARDIMCISI" and "Müdür Yardımcısı" would differ. All i variants fold
+    to a plain "i" instead.
+    """
+    text = " ".join((value or "").split())
+    for variant in ("İ", "I", "ı"):
+        text = text.replace(variant, "i")
+    return text.casefold().replace("\u0307", "")
+
+
+def parse_unit_head_titles(raw: str | None) -> frozenset[str]:
+    """Comma-separated unit-head titles from the settings, normalized."""
+    keys = (fold_directory_text(part) for part in (raw or "").split(","))
+    return frozenset(key for key in keys if key)
+
+
+def derive_organization_unit(
+    person: DirectoryPerson,
+    lookup: Callable[[str], DirectoryPerson | None],
+    head_titles: frozenset[str],
+) -> str:
+    """Return the team of the nearest unit head in ``person``'s manager chain.
+
+    The person counts as their own head (a MÜDÜR's müdürlük is their own team).
+    The walk stops without a result at a missing manager, a manager loop, the
+    depth cap, or a manager in another directorate, so a chain never climbs past
+    the Genel Müdürlük into another organization.
+    """
+    if not head_titles:
+        return ""
+    directorate = fold_directory_text(person.directorate)
+    seen: set[str] = set()
+    current = person
+    for _ in range(MAX_MANAGER_CHAIN_DEPTH + 1):
+        if fold_directory_text(current.title) in head_titles:
+            return current.team
+        seen.add(current.dn.strip().casefold())
+        manager_dn = current.manager_dn.strip()
+        if not manager_dn or manager_dn.casefold() in seen:
+            return ""
+        manager = lookup(manager_dn)
+        if manager is None or fold_directory_text(manager.directorate) != directorate:
+            return ""
+        current = manager
+    return ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +204,9 @@ def config_from_record(record: DirectorySettings) -> DirectoryConfig:
         team_attribute=record.team_attribute,
         directorate_attribute=record.directorate_attribute,
         organization_unit_attribute=record.organization_unit_attribute,
+        manager_attribute=record.manager_attribute,
+        title_attribute=record.title_attribute,
+        unit_head_titles=record.unit_head_titles,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -166,6 +238,9 @@ def config_from_update(
         team_attribute=update.team_attribute,
         directorate_attribute=update.directorate_attribute,
         organization_unit_attribute=update.organization_unit_attribute,
+        manager_attribute=update.manager_attribute,
+        title_attribute=update.title_attribute,
+        unit_head_titles=update.unit_head_titles,
         group_membership_attribute=update.group_membership_attribute,
         required_group_dn=update.required_group_dn,
         admin_group_dn=update.admin_group_dn,
@@ -278,6 +353,60 @@ def _entry_value(entry, attribute: str) -> str:
     return values[0].strip() if values else ""
 
 
+def _derives_organization_unit(config: DirectoryConfig) -> bool:
+    return bool(
+        not config.organization_unit_attribute
+        and config.manager_attribute
+        and config.title_attribute
+        and parse_unit_head_titles(config.unit_head_titles)
+    )
+
+
+def _person_from_entry(entry, config: DirectoryConfig) -> DirectoryPerson:
+    return DirectoryPerson(
+        dn=entry.entry_dn,
+        team=_entry_value(entry, config.team_attribute),
+        title=_entry_value(entry, config.title_attribute),
+        directorate=_entry_value(entry, config.directorate_attribute),
+        manager_dn=_entry_value(entry, config.manager_attribute),
+    )
+
+
+def _manager_chain_lookup(connection, config: DirectoryConfig):
+    """Return a DN -> DirectoryPerson lookup over the service connection."""
+    ldap3, LDAPException, _ = _ldap3()
+    attributes = [
+        attribute
+        for attribute in (
+            config.team_attribute,
+            config.title_attribute,
+            config.directorate_attribute,
+            config.manager_attribute,
+        )
+        if attribute
+    ]
+
+    def lookup(dn: str) -> DirectoryPerson | None:
+        try:
+            connection.search(
+                search_base=dn,
+                search_filter="(objectClass=*)",
+                search_scope=ldap3.BASE,
+                attributes=attributes,
+                size_limit=1,
+            )
+        except LDAPException as exc:
+            # A manager outside the bind account's view or a stale DN only
+            # leaves the müdürlük empty; it must not fail the login.
+            logger.info("Manager lookup for %s failed: %s", dn, exc)
+            return None
+        if not connection.entries:
+            return None
+        return _person_from_entry(connection.entries[0], config)
+
+    return lookup
+
+
 def _dn_equal(left: str, right: str) -> bool:
     return left.strip().casefold() == right.strip().casefold()
 
@@ -354,6 +483,11 @@ def authenticate_directory_user(
                     config.directorate_attribute,
                     config.organization_unit_attribute,
                     config.group_membership_attribute,
+                    *(
+                        (config.title_attribute, config.manager_attribute)
+                        if _derives_organization_unit(config)
+                        else ()
+                    ),
                 ]
                 if attribute
             )
@@ -377,6 +511,12 @@ def authenticate_directory_user(
         directorate = _entry_value(entry, config.directorate_attribute)
         organization_unit = _entry_value(entry, config.organization_unit_attribute)
         groups = _entry_values(entry, config.group_membership_attribute)
+        if _derives_organization_unit(config):
+            organization_unit = derive_organization_unit(
+                _person_from_entry(entry, config),
+                _manager_chain_lookup(service_connection, config),
+                parse_unit_head_titles(config.unit_head_titles),
+            )
 
         if config.required_group_dn and not _is_group_member(
             service_connection,

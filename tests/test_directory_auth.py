@@ -208,3 +208,40 @@ async def test_enabled_directory_disables_public_registration(client: AsyncClien
     register_page = await client.get("/register")
     assert register_page.status_code == 302
     assert register_page.headers["location"] == "/login"
+
+
+def test_organization_unit_is_derived_from_the_manager_chain():
+    from app.auth.ldap import (
+        DirectoryPerson,
+        derive_organization_unit,
+        parse_unit_head_titles,
+    )
+
+    def person(dn, team, title, manager="", division="BİLGİ TEKNOLOJİLERİ"):
+        return DirectoryPerson(dn=dn, team=team, title=title, directorate=division, manager_dn=manager)
+
+    people = {
+        p.dn: p
+        for p in (
+            person("CN=K016972", "BAŞKANLIK", "MÜDÜR", division="BAŞKANLIK"),
+            person("CN=K012950", "BİLGİ TEKNOLOJİLERİ", "GENEL MÜDÜR", "CN=K016972"),
+            person("CN=K014810", "YENİLİKÇİ TEKNOLOJİLER", "MÜDÜR", "CN=K012950"),
+            person("CN=LEAD", "ARAŞTIRMA VE GELİŞTİRME", "UZMAN", "CN=K014810"),
+            person("CN=LOOP-A", "X", "UZMAN", "CN=LOOP-B"),
+            person("CN=LOOP-B", "X", "UZMAN", "CN=LOOP-A"),
+        )
+    }
+    heads = parse_unit_head_titles(" Müdür , ")
+
+    def derive(p):
+        return derive_organization_unit(p, people.get, heads)
+
+    # Direct report and a report through an in-team lead reach the same MÜDÜR.
+    assert derive(person("CN=K015570", "ARAŞTIRMA VE GELİŞTİRME", "BİLİŞİM UZMANI", "CN=K014810")) == "YENİLİKÇİ TEKNOLOJİLER"
+    assert derive(person("CN=NEW", "ARAŞTIRMA VE GELİŞTİRME", "UZMAN", "CN=LEAD")) == "YENİLİKÇİ TEKNOLOJİLER"
+    # A MÜDÜR's müdürlük is their own team.
+    assert derive(people["CN=K014810"]) == "YENİLİKÇİ TEKNOLOJİLER"
+    # The walk never crosses into another division, missing managers or loops.
+    assert derive(people["CN=K012950"]) == ""
+    assert derive(person("CN=ORPHAN", "Y", "UZMAN", "CN=GONE")) == ""
+    assert derive(people["CN=LOOP-A"]) == ""

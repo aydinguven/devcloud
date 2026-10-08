@@ -6,6 +6,7 @@ Teams come from the directory ``department`` attribute synced to
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -175,13 +176,34 @@ def build_group_views(
                 totals["memory"] += usage["memory"]["used"]
                 totals["gpu"] += usage["gpu"]["used"]
                 totals["running"] += usage.get("running_workspace_count", 0)
-        # Directorate/müdürlük context shown under the team name.
+        # The müdürlük most members belong to places the team in the hierarchy.
+        unit_counts = Counter(
+            " ".join(m.organization_unit.split()) for m in members if m.organization_unit
+        )
+        organization_unit = (
+            max(unit_counts.items(), key=lambda item: (item[1], item[0]))[0]
+            if unit_counts
+            else ""
+        )
+        if is_default:
+            organization_unit = ""
+        is_unit = bool(organization_unit) and team_key(organization_unit) == key
+        # Directorate/müdürlük context shown under the team name; a müdürlük's
+        # own team does not repeat its name.
         units = sorted(
             {
-                " · ".join(part for part in (m.organization_unit, m.directorate) if part)
+                " · ".join(
+                    part
+                    for part in (
+                        "" if team_key(m.organization_unit) == key else m.organization_unit,
+                        m.directorate,
+                    )
+                    if part
+                )
                 for m in members
                 if (m.organization_unit or m.directorate)
             }
+            - {""}
         )
         views.append(
             {
@@ -201,8 +223,21 @@ def build_group_views(
                 "override_count": sum(1 for member in members if has_override(member)),
                 "totals": totals,
                 "units": units[:3],
+                "organization_unit": organization_unit,
+                "is_unit": is_unit,
+                "is_child": bool(organization_unit) and not is_unit,
             }
         )
     default_view, team_views = views[0], views[1:]
-    team_views.sort(key=lambda view: view["display_name"].casefold())
+    names = {view["key"]: view["display_name"] for view in team_views}
+
+    def hierarchy_order(view: dict) -> tuple[str, int, str]:
+        # A child team sorts right after its müdürlük's own team.
+        if view["is_child"]:
+            unit = view["organization_unit"]
+            parent = names.get(team_key(unit), unit)
+            return (parent.casefold(), 1, view["display_name"].casefold())
+        return (view["display_name"].casefold(), 0, "")
+
+    team_views.sort(key=hierarchy_order)
     return [default_view, *team_views]

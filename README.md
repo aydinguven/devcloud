@@ -127,10 +127,18 @@ before enabling directory login.
 - Profile fields are synchronized on successful directory login and are
   read-only in DevCloud. The default AD mappings are `sAMAccountName` for the
   username, `displayName` for full name, `mail` for email, `department` for
-  team, and `division` for the parent organization. The optional directorate
+  team, and `division` for the parent organization. The optional müdürlük
   mapping is empty by default; set it to the AD attribute that carries the
-  intermediate directorate value. Administrators can change all attribute
+  intermediate müdürlük value. Administrators can change all attribute
   names in the directory settings form.
+- When no müdürlük attribute is set, the müdürlük is derived from the AD
+  `manager` chain at login: it is the `department` of the nearest manager (or
+  the user themselves) whose `title` is one of the unit-head titles (`MÜDÜR`
+  by default, comma-separated). The walk stops at a manager in another
+  `division`, so `GENEL MÜDÜR` and above never become a müdürlük. Example:
+  an `ARAŞTIRMA VE GELİŞTİRME` member reporting to a `MÜDÜR` in
+  `YENİLİKÇİ TEKNOLOJİLER` gets that müdürlük, and the admin team list shows
+  the team under it. Existing users pick up the value on their next login.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 

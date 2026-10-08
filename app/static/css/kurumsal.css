@@ -982,6 +982,8 @@ code { color: #8d0022; }
 .admin-team-summary:hover { background: #f7f9fc; }
 .admin-team-group[open] > .admin-team-summary { background: var(--pale-blue); border-bottom: 1px solid #d4deeb; }
 .admin-team-group.is-default > .admin-team-summary { border-left: 3px solid var(--secondary); }
+/* A team inside a müdürlük is indented under the müdürlük's own team. */
+.admin-team-group.is-child > .admin-team-summary { border-left: 3px solid #d4deeb; padding-left: 2.6rem; }
 .admin-team-chevron {
   border-bottom: 2px solid #5d6a7d;
   border-right: 2px solid #5d6a7d;
