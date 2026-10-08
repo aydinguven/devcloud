@@ -187,7 +187,8 @@
       emptyId: stats.user_breakdown ? null : "board-users-empty",
       isSelf: isMe,
     });
-    board("board-groups", stats.groups, {
+    // "Takımsız" (users without a team) is not a team, so it is not ranked.
+    board("board-groups", stats.groups.filter((row) => row.key), {
       name: (row) => row.name,
       detail: (row) => `${row.members} aktif kullanıcı · ${C.compact(row.api_requests)} istek${row.unit ? ` · ${row.unit}` : ""}`,
       isSelf: (row) => row.key && row.key === stats.viewer.team_key,

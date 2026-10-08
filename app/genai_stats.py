@@ -33,6 +33,9 @@ METRICS = (
 )
 CACHE_SECONDS = 60
 MAX_PAGES = 50
+# LiteLLM books requests that carry no user under this id. It is not a person,
+# so it is left out of the user, team and müdürlük breakdowns.
+LITELLM_DEFAULT_USER_ID = "default_user_id"
 
 _cache: dict[tuple, tuple[float, dict]] = {}
 _cache_lock = asyncio.Lock()
@@ -261,6 +264,8 @@ async def _shape(
     group_days: dict[str, dict[str, dict]] = defaultdict(dict)
     unit_days: dict[str, dict[str, dict]] = defaultdict(dict)
     for entity, metrics in users_raw["entities"].items():
+        if entity == LITELLM_DEFAULT_USER_ID:
+            continue  # pre-LDAP traffic without a user; stays in the totals only
         person = people.get(entity)
         per_day = users_raw["entity_daily"].get(entity, {})
         series = {
