@@ -285,6 +285,7 @@ async def init_db() -> None:
     from app.models.workspace import Workspace  # noqa: F401
     from app.models.custom_template import CustomTemplate  # noqa: F401
     from app.models.directory_settings import DirectorySettings  # noqa: F401
+    from app.models.directory_team import DirectoryTeam  # noqa: F401
     from app.models.node import Node  # noqa: F401
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
     from app.models.mlflow_server_settings import MlflowServerSettings  # noqa: F401

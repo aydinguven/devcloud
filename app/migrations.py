@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 28
+CURRENT_SCHEMA_VERSION = 29
 
 
 class MigrationError(RuntimeError):
@@ -666,6 +666,26 @@ async def _add_directory_manager_chain_fields(conn) -> None:
                 )
 
 
+async def _add_directory_sync_fields(conn) -> None:
+    """Add the Genel Müdür titles and the last bulk sync result."""
+    wanted = {
+        "division_head_titles": "VARCHAR(512) NOT NULL DEFAULT 'GENEL MÜDÜR'",
+        "last_sync_at": "TIMESTAMP WITH TIME ZONE",
+        "last_sync_summary": "TEXT NOT NULL DEFAULT ''",
+    }
+    existing = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("directory_settings")
+        }
+    )
+    for name, definition in wanted.items():
+        if name not in existing:
+            await conn.execute(
+                text(f"ALTER TABLE directory_settings ADD COLUMN {name} {definition}")
+            )
+
+
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
     """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
@@ -981,6 +1001,10 @@ async def upgrade() -> None:
         if 28 not in applied:
             await _add_directory_manager_chain_fields(conn)
             await _record_version(conn, 28, "müdürlük hierarchy from the AD manager chain")
+        if 29 not in applied:
+            # init_db creates the portable directory_teams table.
+            await _add_directory_sync_fields(conn)
+            await _record_version(conn, 29, "bulk AD sync and directory teams")
 
 
 async def current_version() -> int:

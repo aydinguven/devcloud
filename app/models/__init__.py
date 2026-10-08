@@ -22,6 +22,7 @@ from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.genai_settings import GenAiSettings
 from app.models.genai_account import GenAiAccount
+from app.models.directory_team import DirectoryTeam
 from app.models.flavor_settings import FlavorSettings
 from app.models.template_settings import TemplateSettings
 

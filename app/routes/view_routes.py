@@ -43,6 +43,7 @@ from app.orchestrator.templates import list_builtin_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
+from app.directory_sync import directory_teams_by_key, parse_summary
 from app.quotas import build_group_views, build_hierarchy, effective_quota, load_quota_groups
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
@@ -594,7 +595,10 @@ async def admin_page(
             disk_usage_by_user=disk_usage,
             quotas=quotas,
         )
-        team_views = build_group_views(users, quota_groups, usage_by_user)
+        directory_record = await db.get(DirectorySettings, 1)
+        team_views = build_group_views(
+            users, quota_groups, usage_by_user, directory_teams=await directory_teams_by_key(db)
+        )
         context.update(
             {
                 "all_users": users,
@@ -602,7 +606,8 @@ async def admin_page(
                 "quotas_by_user": quotas,
                 "user_groups": team_views,
                 "user_hierarchy": build_hierarchy(team_views, quota_groups),
-                "directory_settings": await db.get(DirectorySettings, 1),
+                "directory_settings": directory_record,
+                "directory_sync": parse_summary(directory_record),
             }
         )
     elif section == "workspaces":

@@ -24,6 +24,7 @@ class DirectorySettingsUpdate(BaseModel):
     manager_attribute: str = Field(default="manager", max_length=128)
     title_attribute: str = Field(default="title", max_length=128)
     unit_head_titles: str = Field(default="MÜDÜR", max_length=512)
+    division_head_titles: str = Field(default="GENEL MÜDÜR", max_length=512)
     group_membership_attribute: str = Field(default="memberOf", max_length=128)
     required_group_dn: str = Field(default="", max_length=512)
     admin_group_dn: str = Field(default="", max_length=512)
@@ -44,6 +45,7 @@ class DirectorySettingsUpdate(BaseModel):
         "manager_attribute",
         "title_attribute",
         "unit_head_titles",
+        "division_head_titles",
         "group_membership_attribute",
         "required_group_dn",
         "admin_group_dn",
@@ -82,6 +84,7 @@ class DirectorySettingsOut(BaseModel):
     manager_attribute: str = "manager"
     title_attribute: str = "title"
     unit_head_titles: str = "MÜDÜR"
+    division_head_titles: str = "GENEL MÜDÜR"
     group_membership_attribute: str
     required_group_dn: str
     admin_group_dn: str

@@ -983,35 +983,6 @@ code { color: #8d0022; }
 .admin-team-summary:hover { background: #f7f9fc; }
 .admin-team-group[open] > .admin-team-summary { background: var(--pale-blue); border-bottom: 1px solid #d4deeb; }
 .admin-team-group.is-default > .admin-team-summary { border-left: 3px solid var(--secondary); }
-/* Müdürlük -> team -> member: a müdürlük wraps its teams, which are indented. */
-.admin-unit-group { border-top: 1px solid #e1e7ef; }
-.admin-unit-group[hidden] { display: none; }
-.admin-unit-summary { border-left: 3px solid var(--primary, #d50032); }
-.admin-unit-summary .admin-team-name { font-size: 0.95rem; letter-spacing: 0.01em; }
-.admin-unit-group[open] > .admin-unit-summary { background: #f2f5fa; border-bottom: 1px solid #d4deeb; }
-.admin-unit-group[open] > .admin-team-summary .admin-team-chevron { transform: rotate(45deg); }
-.admin-unit-body { background: #fbfcfe; border-left: 3px solid #e4e9f1; }
-.admin-unit-body > .group-quota-form { background: #f0f4f9; }
-.admin-team-group.is-nested > .admin-team-summary { padding-left: 2.6rem; }
-/* Nested member cards have less room: the quota form gets its own row. */
-@media (min-width: 621px) {
-  .admin-team-group.is-nested .admin-user-card { grid-template-columns: minmax(220px, 0.9fr) minmax(220px, 1fr); }
-  .admin-team-group.is-nested .admin-quota-form { grid-column: 1 / -1; }
-  .admin-team-group.is-nested .admin-quota-form .quota-input-grid { grid-template-columns: repeat(4, minmax(0, 160px)); }
-}
-.admin-team-section-label {
-  background: #f7f9fc;
-  border-top: 1px solid #e1e7ef;
-  color: #5d6a7d;
-  font-size: 0.65rem;
-  font-weight: 750;
-  letter-spacing: 0.07em;
-  padding: 0.55rem 1.4rem;
-  text-transform: uppercase;
-}
-.badge-unit { background: #fdecef; border: 1px solid #f3b9c5; color: #a0002a; }
-.badge-unit-head { background: #e9f1fb; border: 1px solid #bcd2ee; color: #1d4f91; }
-.group-quota-form h3 small { color: #8592a5; font-size: 0.62rem; font-weight: 600; letter-spacing: 0; margin-left: 0.35rem; text-transform: none; }
 .admin-team-chevron {
   border-bottom: 2px solid #5d6a7d;
   border-right: 2px solid #5d6a7d;
@@ -2325,20 +2296,20 @@ code { color: #8d0022; }
 }
 .admin-action-card--template { border-top: 3px solid #7656b5; }
 .admin-action-card-button { justify-content: center; width: 100%; }
-.admin-section-content details {
+.admin-section-content details:not(.tree-row):not(.tree-editor) {
   background: #f8fafc;
   border: 1px solid var(--border-color) !important;
   border-radius: 2px !important;
   padding: 0.8rem 1rem !important;
 }
-.admin-section-content details > summary {
+.admin-section-content details:not(.tree-row):not(.tree-editor) > summary {
   color: var(--heading) !important;
   cursor: pointer;
   font-size: 0.8rem !important;
   font-weight: 700 !important;
   list-style-position: outside;
 }
-.admin-section-content details[open] > summary {
+.admin-section-content details:not(.tree-row):not(.tree-editor)[open] > summary {
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 0.8rem;
   padding-bottom: 0.7rem;
@@ -2612,3 +2583,199 @@ code { color: #8d0022; }
 .genai-kpi[hidden],
 .admin-llm-metrics div[hidden],
 .genai-segmented button[hidden] { display: none; }
+
+/* ---------- Admin users: compact müdürlük -> team -> user tree ---------- */
+.admin-users-head { align-items: flex-start; gap: 1rem; }
+.admin-users-head .admin-section-description { font-size: 0.74rem; margin-top: 0.2rem; }
+.tree-sync {
+  border-top: 1px solid #e1e7ef;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 1.25rem;
+}
+.tree-sync:empty { display: none; }
+.tree-sync.has-warning a { color: #9a5b00; font-weight: 700; }
+.tree-sync.is-busy { color: var(--heading); }
+.tree-sync.is-error { background: var(--danger-bg); color: var(--danger); }
+.tree { border-top: 1px solid #e1e7ef; }
+.tree-section[hidden], .tree-row[hidden] { display: none; }
+.tree-section-label {
+  background: #f4f6fa;
+  border-top: 1px solid #e1e7ef;
+  color: #5d6a7d;
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  margin: 0;
+  padding: 0.4rem 1.25rem;
+  text-transform: uppercase;
+}
+.tree-section-label span { color: var(--text-muted); font-weight: 600; letter-spacing: 0; margin-left: 0.5rem; text-transform: none; }
+.tree-row { border-top: 1px solid #e8ecf2; }
+.tree-summary {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem 0.9rem;
+  grid-template-columns: 12px minmax(200px, 1fr) auto minmax(150px, 190px) minmax(150px, 190px);
+  list-style: none;
+  padding: 0.45rem 1.25rem;
+}
+.tree-summary::-webkit-details-marker { display: none; }
+.tree-summary:hover { background: #f7f9fc; }
+.tree-chevron {
+  border-bottom: 2px solid #7a8698;
+  border-right: 2px solid #7a8698;
+  height: 6px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  width: 6px;
+}
+.tree-row[open] > .tree-summary > .tree-chevron { transform: rotate(45deg); }
+.tree-row[open] > .tree-summary { background: #f2f5fa; }
+.tree-name { align-items: baseline; display: flex; flex-wrap: wrap; gap: 0.1rem 0.4rem; min-width: 0; }
+.tree-name strong { color: var(--heading); font-size: 0.82rem; }
+.tree-name small { color: var(--text-muted); flex-basis: 100%; font-size: 0.66rem; overflow-wrap: anywhere; }
+.tree-row.is-unit > .tree-summary { border-left: 3px solid var(--primary); padding-left: calc(1.25rem - 3px); }
+.tree-row.is-unit > .tree-summary .tree-name strong { font-size: 0.88rem; }
+.tree-row.is-default > .tree-summary { border-left: 3px solid var(--secondary); padding-left: calc(1.25rem - 3px); }
+.tree-row.is-nested > .tree-summary { padding-left: 2.4rem; }
+.tree-quota { display: flex; flex-wrap: nowrap; gap: 0.25rem; justify-content: flex-end; }
+.tree-quota-item {
+  background: #fff;
+  border: 1px solid #d4deeb;
+  color: var(--heading);
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.08rem 0.35rem;
+  white-space: nowrap;
+}
+.tree-quota-item b { color: #7a8698; font-weight: 700; margin-right: 0.2rem; }
+.tree-quota-item.is-inherited { border-style: dashed; color: #8592a5; }
+.tree-llm { align-items: center; color: var(--primary); display: flex; font-size: 0.64rem; font-weight: 700; gap: 0.35rem; min-width: 0; white-space: nowrap; }
+.tree-name .tag { align-self: center; }
+.tree-llm:empty::before { color: #b5bfcc; content: "LLM —"; font-weight: 600; }
+.tree-totals { color: var(--text-muted); font-size: 0.64rem; text-align: right; }
+.tree-totals b { color: var(--success); }
+.tree-body { background: #fbfcfe; border-top: 1px solid #e8ecf2; }
+.tree-row.is-unit > .tree-body { border-left: 3px solid #f0c4cf; }
+.tree-empty { color: var(--text-muted); font-size: 0.72rem; margin: 0; padding: 0.6rem 1.25rem 0.7rem 2.4rem; }
+
+/* Folded quota editors. */
+.tree-editor { border-bottom: 1px solid #e8ecf2; }
+.tree-editor > summary {
+  color: #1d4f91;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+  list-style: none;
+  padding: 0.4rem 1.25rem 0.4rem 2.4rem;
+}
+.tree-editor > summary::-webkit-details-marker { display: none; }
+.tree-editor > summary::before { content: "+ "; }
+.tree-editor[open] > summary::before { content: "− "; }
+.tree-editor > summary small { color: var(--text-muted); font-weight: 500; margin-left: 0.35rem; }
+.tree-editor[open] { background: #f3f6fa; }
+.tree-form { align-items: flex-end; display: flex; flex-wrap: wrap; gap: 0.5rem 0.6rem; padding: 0.15rem 1.25rem 0.65rem 2.4rem; }
+.tree-field { display: flex; flex-direction: column; font-size: 0.64rem; gap: 0.15rem; width: 112px; }
+.tree-field > span { color: #5d6a7d; font-weight: 700; }
+.tree-field .form-input { font-size: 0.78rem; height: 30px; padding: 0.2rem 0.45rem; }
+.tree-field .form-input.is-override { background: #fffaf0; border-color: #d39b2a; }
+.tree-field .form-input::placeholder { color: #9aa6b6; }
+.tree-form-actions { align-items: center; display: flex; gap: 0.4rem; }
+.btn.btn-xs { font-size: 0.7rem; line-height: 1.2; padding: 0.3rem 0.65rem; }
+
+/* Source of a quota value. */
+.src { color: #8592a5; font-size: 0.58rem; font-weight: 650; letter-spacing: 0.02em; }
+.src.is-user { color: #9a5b00; }
+.src.is-group { color: #1d4f91; }
+.src.is-unit { color: #a0002a; }
+
+/* Small tags next to names. */
+.tag {
+  background: #f1f4f8;
+  border: 1px solid #d9e0ea;
+  border-radius: 3px;
+  color: #5d6a7d;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0 0.3rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tag-admin { background: #263244; border-color: #263244; color: #fff; }
+.tag-head { background: #e9f1fb; border-color: #bcd2ee; color: #1d4f91; }
+.tag-override { background: #fff4dd; border-color: #f0d49b; color: #8a5600; }
+.tag-inactive { background: var(--danger-bg); border-color: #f2c2c9; color: var(--danger); }
+.tag-warn { background: #fff7e6; border-color: #f0d49b; color: #8a5600; text-transform: none; }
+
+/* User table: one dense row per user. */
+.user-table { --user-cols: minmax(220px, 1.7fr) repeat(4, minmax(84px, 1fr)) minmax(120px, 1.1fr) 52px; }
+.user-table-head,
+.user-table .user-row {
+  align-items: center;
+  column-gap: 0.75rem;
+  display: grid;
+  grid-template-columns: var(--user-cols);
+  padding: 0.35rem 1.25rem 0.35rem 2.4rem;
+}
+.tree-row.is-nested .user-table-head,
+.tree-row.is-nested .user-table .user-row { padding-left: 3.4rem; }
+.user-table-head {
+  color: #8592a5;
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  padding-bottom: 0.2rem;
+  padding-top: 0.45rem;
+  text-transform: uppercase;
+}
+.user-table .user-row { border-top: 1px solid #edf0f5; }
+.user-table .user-row:hover { background: #f7f9fc; }
+.user-table .user-row[hidden] { display: none; }
+.user-row.is-inactive { opacity: 0.6; }
+.user-row-identity { align-items: center; display: flex; gap: 0.55rem; min-width: 0; }
+.user-row-id { color: #9aa6b6; flex: 0 0 auto; font-size: 0.62rem; font-variant-numeric: tabular-nums; font-weight: 700; min-width: 1.8rem; }
+.user-row-copy { display: flex; flex-direction: column; min-width: 0; }
+.user-row-line { align-items: center; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.user-row-line strong { color: var(--heading); font-size: 0.78rem; }
+.user-row-copy small { color: var(--text-muted); font-size: 0.64rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-row-copy small a { color: inherit; }
+.user-row-username { color: #4b5768; font-weight: 700; }
+.user-metric, .user-llm { display: grid; font-size: 0.66rem; gap: 0.1rem; min-width: 0; }
+.user-metric-label { display: none; }
+.user-metric-value { color: var(--text-muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-metric-value b { color: var(--heading); font-weight: 700; }
+.user-metric-bar { background: #e5eaf1; height: 3px; overflow: hidden; }
+.user-metric-bar i { background: #7d8ea6; display: block; height: 100%; }
+.user-metric.is-full .user-metric-bar i { background: var(--primary); }
+.user-llm .user-metric-value small { color: #8592a5; margin-left: 0.2rem; }
+.user-llm.is-idle .user-metric-value { color: #b5bfcc; }
+.user-llm-spark { height: 16px; overflow: hidden; }
+.user-llm-spark svg { display: block; height: 16px; width: 100%; }
+.user-row-actions { text-align: right; }
+.user-row-form { border-top: 1px dashed #d8e0eb; grid-column: 1 / -1; margin-top: 0.35rem; padding: 0.45rem 0 0.15rem; }
+.user-row-form[hidden] { display: none; }
+
+@media (max-width: 1100px) {
+  .tree-summary { grid-template-columns: 12px minmax(0, 1fr) auto; }
+  .tree-llm, .tree-totals { grid-column: 2 / -1; text-align: left; }
+  .user-table { --user-cols: minmax(0, 1fr) repeat(2, minmax(80px, 0.6fr)) 52px; }
+  .user-table-head { display: none; }
+  .user-table .user-row { row-gap: 0.35rem; }
+  .user-row-identity { grid-column: 1 / -2; }
+  .user-row-actions { grid-column: -2; grid-row: 1; }
+  .user-metric-label { color: #8592a5; display: block; font-size: 0.56rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+  .user-llm { grid-column: 1 / -1; }
+}
+@media (max-width: 620px) {
+  .tree-summary, .tree-row.is-nested > .tree-summary { padding-left: 0.9rem; }
+  .user-table .user-row, .tree-row.is-nested .user-table .user-row { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 0.9rem; padding-right: 0.9rem; }
+  .user-row-identity { grid-column: 1 / -1; }
+  .user-row-actions { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  .tree-form, .tree-editor > summary { padding-left: 0.9rem; }
+}

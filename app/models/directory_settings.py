@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -59,6 +61,18 @@ class DirectorySettings(Base):
     )
     unit_head_titles: Mapped[str] = mapped_column(
         String(512), default="MÜDÜR", server_default="MÜDÜR", nullable=False
+    )
+    # A team whose chain reaches one of these titles before a unit head belongs
+    # directly to the Genel Müdürlük instead of a müdürlük.
+    division_head_titles: Mapped[str] = mapped_column(
+        String(512), default="GENEL MÜDÜR", server_default="GENEL MÜDÜR", nullable=False
+    )
+    # Result of the last bulk directory sync (app/directory_sync.py).
+    last_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_sync_summary: Mapped[str] = mapped_column(
+        Text, default="", server_default="", nullable=False
     )
     group_membership_attribute: Mapped[str] = mapped_column(
         String(128), default="memberOf", nullable=False

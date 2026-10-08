@@ -189,13 +189,15 @@ def build_group_views(
     users: Iterable[User],
     groups: QuotaGroups,
     usage_by_user: dict[int, dict] | None = None,
+    directory_teams: dict | None = None,
 ) -> list[dict]:
     """Group users by directory team for the admin panel.
 
     The default group (users without a team) comes first, then teams sorted by
     name. Configured groups without members are kept so an admin can see and
     remove quotas of teams that were renamed in the directory. Each team is
-    placed in the müdürlük most of its members belong to.
+    placed in the müdürlük most of its members belong to, or else where the
+    last bulk AD sync placed it (``directory_teams``: team key -> DirectoryTeam).
     """
     buckets: dict[str, dict] = {DEFAULT_GROUP_KEY: {"names": [], "members": []}}
     for key in groups.by_key:
@@ -218,9 +220,10 @@ def build_group_views(
         else:
             display_name = _most_common(bucket["names"]) or key
         members = sorted(bucket["members"], key=lambda user: user.username.casefold())
+        directory = None if is_default else (directory_teams or {}).get(key)
         organization_unit = (
             "" if is_default else _most_common(clean_name(m.organization_unit) for m in members)
-        )
+        ) or (clean_name(directory.organization_unit) if directory is not None else "")
         inherited, inherited_sources = groups.inherited_for(key, organization_unit)
         parent_inherited, parent_sources = groups.unit_inherited(organization_unit)
         totals = _empty_totals()
@@ -269,6 +272,13 @@ def build_group_views(
                 "organization_unit": organization_unit,
                 "unit_key": unit_key(organization_unit),
                 "is_unit_team": bool(organization_unit) and team_key(organization_unit) == key,
+                # Placement from the last bulk AD sync (None before the first sync).
+                "directory_status": directory.status if directory is not None else "",
+                "directory_reason": directory.reason if directory is not None else "",
+                "directory_members": directory.member_count if directory is not None else 0,
+                "directory_head": directory.head_name if directory is not None else "",
+                "directorate": _most_common(clean_name(m.directorate) for m in members)
+                or (clean_name(directory.directorate) if directory is not None else ""),
             }
         )
     default_view, team_views = views[0], views[1:]
@@ -280,8 +290,10 @@ def build_hierarchy(team_views: list[dict], groups: QuotaGroups) -> dict:
     """Nest team views (from ``build_group_views``) under their müdürlük.
 
     Returns the default group, the müdürlüks sorted by name (each with its own
-    team first, then its other teams) and the teams without a müdürlük.
-    Configured müdürlük quotas without teams are kept so they can be removed.
+    team first, then its other teams), the teams that report straight to a
+    Genel Müdür (grouped by directorate) and the teams whose müdürlük could not
+    be resolved. Configured müdürlük quotas without teams are kept so they can
+    be removed.
     """
     default_view, teams = team_views[0], team_views[1:]
     buckets: dict[str, dict] = {
@@ -309,6 +321,16 @@ def build_hierarchy(team_views: list[dict], groups: QuotaGroups) -> dict:
             key=lambda view: (not view["is_unit_team"], view["display_name"].casefold()),
         )
         members = [member for view in unit_teams for member in view["members"]]
+        head_name = next(
+            (view["directory_head"] for view in unit_teams if view["directory_head"]), ""
+        ) or next(
+            (
+                m.full_name or m.username
+                for m in members
+                if m.managed_unit and team_key(m.managed_unit) == team_key(display_name)
+            ),
+            "",
+        )
         inherited, inherited_sources = groups.unit_inherited(display_name)
         totals = _empty_totals()
         for view in unit_teams:
@@ -334,7 +356,28 @@ def build_hierarchy(team_views: list[dict], groups: QuotaGroups) -> dict:
                 "totals": totals,
                 "directorates": sorted({clean_name(m.directorate) for m in members} - {""}),
                 "organization_unit": display_name,
+                "head_name": head_name,
             }
         )
     units.sort(key=lambda unit: unit["display_name"].casefold())
-    return {"default": default_view, "units": units, "standalone": standalone}
+
+    divisions: dict[str, dict] = {}
+    unassigned = []
+    for view in standalone:
+        if view["directory_status"] == "division":
+            name = view["directorate"] or view["display_name"]
+            division = divisions.setdefault(
+                team_key(name), {"name": name, "head_name": "", "teams": []}
+            )
+            division["teams"].append(view)
+            division["head_name"] = division["head_name"] or view["directory_head"]
+        else:
+            unassigned.append(view)
+    return {
+        "default": default_view,
+        "units": units,
+        "divisions": sorted(divisions.values(), key=lambda item: item["name"].casefold()),
+        "unassigned": unassigned,
+        # Kept for callers that only need every team without a müdürlük.
+        "standalone": standalone,
+    }

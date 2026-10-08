@@ -140,6 +140,15 @@ before enabling directory login.
   an `ARAŞTIRMA VE GELİŞTİRME` member reporting to a `MÜDÜR` in
   `YENİLİKÇİ TEKNOLOJİLER` gets that müdürlük, and the admin team list shows
   the team under it. Existing users pick up the value on their next login.
+- **AD'den senkronize et** (Admin > Kullanıcılar) reads every directory person
+  in one paged search with the service account and places each AD
+  `department` under the müdürlük most of its members' chains reach. A member
+  whose own chain is broken (missing or stale `manager`) gets the team's
+  müdürlük, at login as well. Teams whose chain reaches a Genel Müdür title
+  (`GENEL MÜDÜR` by default) first are listed as reporting directly to the
+  Genel Müdürlük; the remaining teams are listed with the reason. The sync
+  refreshes the team, directorate, müdürlük, unit head and name of existing
+  directory users; it never creates or deactivates accounts.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 

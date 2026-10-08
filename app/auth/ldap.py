@@ -93,6 +93,7 @@ class DirectoryConfig:
     manager_attribute: str = "manager"
     title_attribute: str = "title"
     unit_head_titles: str = "MÜDÜR"
+    division_head_titles: str = "GENEL MÜDÜR"
 
 
 @dataclass(frozen=True)
@@ -129,35 +130,70 @@ def parse_unit_head_titles(raw: str | None) -> frozenset[str]:
     return frozenset(key for key in keys if key)
 
 
+# Why a manager chain ended without a müdürlük.
+CHAIN_UNIT = "unit"  # found a unit head
+CHAIN_DIVISION_HEAD = "division_head"  # reached the Genel Müdür first
+CHAIN_NO_MANAGER = "no_manager"  # the person has no manager in AD
+CHAIN_NO_HEAD = "no_head"  # the chain tops out without a unit head
+CHAIN_MISSING_MANAGER = "missing_manager"  # a manager DN is not readable
+CHAIN_OTHER_DIVISION = "other_division"  # a manager sits in another division
+CHAIN_LOOP = "loop"  # a manager loop or the depth cap
+
+
+@dataclass(frozen=True)
+class ChainResult:
+    unit: str
+    reason: str
+    head: DirectoryPerson | None = None
+
+
+def walk_manager_chain(
+    person: DirectoryPerson,
+    lookup: Callable[[str], DirectoryPerson | None],
+    head_titles: frozenset[str],
+    division_head_titles: frozenset[str] = frozenset(),
+) -> ChainResult:
+    """Find the nearest unit head in ``person``'s manager chain.
+
+    The person counts as their own head (a MÜDÜR's müdürlük is their own team).
+    The walk stops without a unit at a division head (the team then belongs
+    directly to the Genel Müdürlük), a missing manager, a manager loop, the
+    depth cap, or a manager in another directorate, so a chain never climbs
+    past the Genel Müdürlük into another organization.
+    """
+    if not head_titles:
+        return ChainResult("", CHAIN_NO_HEAD)
+    directorate = fold_directory_text(person.directorate)
+    seen: set[str] = set()
+    current = person
+    for _ in range(MAX_MANAGER_CHAIN_DEPTH + 1):
+        title = fold_directory_text(current.title)
+        if title in head_titles:
+            return ChainResult(current.team, CHAIN_UNIT, current)
+        if title in division_head_titles:
+            return ChainResult("", CHAIN_DIVISION_HEAD, current)
+        seen.add(current.dn.strip().casefold())
+        manager_dn = current.manager_dn.strip()
+        if not manager_dn:
+            return ChainResult("", CHAIN_NO_MANAGER if current is person else CHAIN_NO_HEAD)
+        if manager_dn.casefold() in seen:
+            return ChainResult("", CHAIN_LOOP)
+        manager = lookup(manager_dn)
+        if manager is None:
+            return ChainResult("", CHAIN_MISSING_MANAGER)
+        if fold_directory_text(manager.directorate) != directorate:
+            return ChainResult("", CHAIN_OTHER_DIVISION)
+        current = manager
+    return ChainResult("", CHAIN_LOOP)
+
+
 def derive_organization_unit(
     person: DirectoryPerson,
     lookup: Callable[[str], DirectoryPerson | None],
     head_titles: frozenset[str],
 ) -> str:
-    """Return the team of the nearest unit head in ``person``'s manager chain.
-
-    The person counts as their own head (a MÜDÜR's müdürlük is their own team).
-    The walk stops without a result at a missing manager, a manager loop, the
-    depth cap, or a manager in another directorate, so a chain never climbs past
-    the Genel Müdürlük into another organization.
-    """
-    if not head_titles:
-        return ""
-    directorate = fold_directory_text(person.directorate)
-    seen: set[str] = set()
-    current = person
-    for _ in range(MAX_MANAGER_CHAIN_DEPTH + 1):
-        if fold_directory_text(current.title) in head_titles:
-            return current.team
-        seen.add(current.dn.strip().casefold())
-        manager_dn = current.manager_dn.strip()
-        if not manager_dn or manager_dn.casefold() in seen:
-            return ""
-        manager = lookup(manager_dn)
-        if manager is None or fold_directory_text(manager.directorate) != directorate:
-            return ""
-        current = manager
-    return ""
+    """The team of the nearest unit head in ``person``'s manager chain, or ""."""
+    return walk_manager_chain(person, lookup, head_titles).unit
 
 
 @dataclass(frozen=True)
@@ -208,6 +244,7 @@ def config_from_record(record: DirectorySettings) -> DirectoryConfig:
         manager_attribute=record.manager_attribute,
         title_attribute=record.title_attribute,
         unit_head_titles=record.unit_head_titles,
+        division_head_titles=record.division_head_titles,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -242,6 +279,7 @@ def config_from_update(
         manager_attribute=update.manager_attribute,
         title_attribute=update.title_attribute,
         unit_head_titles=update.unit_head_titles,
+        division_head_titles=update.division_head_titles,
         group_membership_attribute=update.group_membership_attribute,
         required_group_dn=update.required_group_dn,
         admin_group_dn=update.admin_group_dn,
@@ -592,6 +630,25 @@ def _fit_identity_to_columns(identity: DirectoryIdentity) -> DirectoryIdentity:
     )
 
 
+async def _with_team_unit_fallback(
+    db: AsyncSession, identity: DirectoryIdentity
+) -> DirectoryIdentity:
+    """Use the team's müdürlük from the last bulk sync when the own chain gave none."""
+    if identity.organization_unit or not identity.team.strip():
+        return identity
+    from app.models.directory_team import DirectoryTeam
+    from app.quotas import team_key
+
+    row = (
+        await db.execute(
+            select(DirectoryTeam).where(DirectoryTeam.team_key == team_key(identity.team))
+        )
+    ).scalar_one_or_none()
+    if row is None or not row.organization_unit:
+        return identity
+    return replace(identity, organization_unit=row.organization_unit)
+
+
 class HybridAuthProvider(AuthProvider):
     """Internal auth fallback plus runtime-configured LDAP authentication."""
 
@@ -632,6 +689,7 @@ class HybridAuthProvider(AuthProvider):
             raise DirectoryUnavailableError(str(exc)) from exc
         if not identity:
             return None
+        identity = await _with_team_unit_fallback(db, identity)
         identity = _fit_identity_to_columns(identity)
 
         existing = (

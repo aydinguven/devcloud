@@ -72,13 +72,13 @@ async def test_admin_access_controls(client: AsyncClient):
     assert "Genel Bakış" in admin_page.text
     assert 'class="admin-category-link is-active"' in admin_page.text
     assert 'href="/admin/users"' in admin_page.text
-    assert "Kota Ayarları" not in admin_page.text
+    assert "data-quota-toggle" not in admin_page.text
 
     users_page = await client.get("/admin/users", headers=admin_headers)
     assert users_page.status_code == 200
-    assert "Kota Ayarları" in users_page.text
-    assert 'class="admin-user-card"' in users_page.text
-    assert 'class="quota-form admin-quota-form"' in users_page.text
+    assert "data-quota-toggle" in users_page.text
+    assert 'class="admin-user-card user-row' in users_page.text
+    assert 'class="quota-form admin-quota-form' in users_page.text
     assert "Kurumsal Dizin (LDAPS / Active Directory)" in users_page.text
     assert 'id="directory-settings-form"' in users_page.text
     assert 'value="ldaps.tcmb.gov.tr"' in users_page.text

@@ -245,3 +245,55 @@ def test_organization_unit_is_derived_from_the_manager_chain():
     assert derive(people["CN=K012950"]) == ""
     assert derive(person("CN=ORPHAN", "Y", "UZMAN", "CN=GONE")) == ""
     assert derive(people["CN=LOOP-A"]) == ""
+
+
+@pytest.mark.asyncio
+async def test_directory_sync_places_teams_and_refreshes_users(client: AsyncClient, monkeypatch):
+    from app.directory_sync import DirectoryEntry
+    from app.models.directory_team import DirectoryTeam
+
+    headers = await _admin_headers(client)
+    assert (await client.put("/api/admin/directory-settings", headers=headers, json=_settings_payload())).status_code == 200
+
+    bt, yt, arge = "BİLGİ TEKNOLOJİLERİ", "YENİLİKÇİ TEKNOLOJİLER", "ARAŞTIRMA VE GELİŞTİRME"
+
+    def entry(username, name, team, title, manager="", division=bt):
+        return DirectoryEntry(
+            dn=f"CN={username},CN=Users", username=username, full_name=name, team=team,
+            title=title, directorate=division, manager_dn=f"CN={manager},CN=Users" if manager else "",
+        )
+
+    entries = [
+        entry("K012950", "Mehmet Zahit Ateş", bt, "GENEL MÜDÜR"),
+        entry("K012951", "BT Uzmanı", bt, "UZMAN", "K012950"),
+        entry("K014810", "Kemal Özgür Duman", yt, "MÜDÜR", "K012950"),
+        entry("K015570", "Aydın Güven Aslangören", arge, "BİLİŞİM UZMANI", "K014810"),
+        entry("K015571", "Elif Yılmaz", arge, "UZMAN", "K999999"),  # stale manager DN
+        entry("K017000", "Arşiv Uzmanı", "ARŞİV", "UZMAN"),  # no manager
+    ]
+    monkeypatch.setattr("app.routes.admin_routes.fetch_directory_entries", lambda config: entries)
+
+    async with TestingSessionLocal() as session:
+        for username, team in (("K015571", "ESKİ TAKIM"), ("K014810", yt), ("gone", "X")):
+            session.add(User(username=username, email=f"{username}@x", hashed_password="x",
+                             team=team, auth_source="active_directory"))
+        await session.commit()
+
+    response = await client.post("/api/admin/directory-sync", headers=headers)
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    assert (summary["ad_people"], summary["teams"], summary["units"], summary["division_teams"]) == (6, 4, 1, 1)
+    assert summary["updated_users"] == 2 and summary["missing_users"] == ["gone"]
+    assert summary["unassigned_teams"] == [{"name": "ARŞİV", "reason": "no_manager", "members": 1}]
+
+    async with TestingSessionLocal() as session:
+        users = {u.username: u for u in (await session.execute(select(User))).scalars()}
+        teams = {t.name: t for t in (await session.execute(select(DirectoryTeam))).scalars()}
+    # Only existing directory users are refreshed; nobody is created.
+    assert set(users) == {"directory_admin", "K015571", "K014810", "gone"}
+    # A broken personal chain falls back to the team's müdürlük.
+    elif_ = users["K015571"]
+    assert (elif_.team, elif_.organization_unit, elif_.full_name) == (arge, yt, "Elif Yılmaz")
+    assert users["K014810"].managed_unit == yt
+    assert (teams[arge].status, teams[arge].organization_unit, teams[arge].head_name) == ("team", yt, "Kemal Özgür Duman")
+    assert (teams[bt].status, teams[bt].head_name) == ("division", "Mehmet Zahit Ateş")
