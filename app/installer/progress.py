@@ -38,6 +38,7 @@ STEP_LABELS = {
     "migrations": "Veritabanı migration'ları",
     "restart": "Servisler yeniden başlatılıyor",
     "state": "Sürüm kaydediliyor",
+    "cleanup": "Eski sürümler temizleniyor",
 }
 
 

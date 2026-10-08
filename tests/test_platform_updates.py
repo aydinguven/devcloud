@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import tarfile
 from pathlib import Path
@@ -167,3 +168,43 @@ def test_image_digest_accepts_current_and_legacy_podman_formats(
     monkeypatch.setattr("deploy.build_platform_update.command", lambda *_args: reported)
 
     assert _image_digest(tmp_path, "podman", "localhost/example:latest") == expected
+
+
+def test_publishing_prunes_old_bundles_and_refuses_without_disk_space(tmp_path, monkeypatch):
+    import shutil as shutil_module
+
+    from app import platform_release
+    from app.installer.platform import InstallerError
+
+    releases = tmp_path / "downloads" / "releases"
+    releases.mkdir(parents=True)
+    for index, version in enumerate(("3.12.0", "3.13.0", "3.14.0")):
+        old = releases / f"devcloud-platform-update-v{version}-{'a' * 12}.tar.gz"
+        old.write_bytes(b"old")
+        (releases / f"{old.name}.sha256").write_text("x", encoding="ascii")
+        os.utime(old, (1000 + index, 1000 + index))
+    (releases / ".devcloud-platform-update-v3.15.0-bbbbbbbbbbbb.tar.gz.dead.partial").write_bytes(b"half")
+    bundle = tmp_path / "devcloud-platform-update-v3.15.0-bbbbbbbbbbbb.tar.gz"
+    bundle.write_bytes(b"new bundle")
+
+    real_usage = shutil_module.disk_usage
+    monkeypatch.setattr(
+        platform_release.shutil, "disk_usage",
+        lambda path: real_usage(path)._replace(free=1024),
+    )
+    with pytest.raises(InstallerError, match="Not enough free disk space"):
+        platform_release.publish_platform_bundle(bundle, tmp_path / "downloads")
+    # Old bundles beyond the previous one and the interrupted copy are gone
+    # before the space check, so a retry has more room.
+    assert sorted(path.name for path in releases.iterdir()) == [
+        "devcloud-platform-update-v3.14.0-aaaaaaaaaaaa.tar.gz",
+        "devcloud-platform-update-v3.14.0-aaaaaaaaaaaa.tar.gz.sha256",
+    ]
+
+    monkeypatch.setattr(platform_release.shutil, "disk_usage", real_usage)
+    published = platform_release.publish_platform_bundle(bundle, tmp_path / "downloads")
+    assert published.read_bytes() == b"new bundle"
+    assert {path.name for path in releases.iterdir() if not path.name.endswith(".sha256")} == {
+        "devcloud-platform-update-v3.14.0-aaaaaaaaaaaa.tar.gz",
+        published.name,
+    }

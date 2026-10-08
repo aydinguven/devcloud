@@ -2815,6 +2815,8 @@ code { color: #8d0022; }
   .update-progress-track > span, .platform-log-live > span { animation: none !important; transition: none; }
 }
 
+.platform-update-status-message.is-warning { background: var(--warning-bg); border-left-color: #d39b2a; color: #7a5a00; }
+
 /* ---------- MLflow: deployment target (AI Factory / Kubernetes) ---------- */
 .deploy-targets { display: grid; gap: 0.6rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 1rem; }
 .deploy-target {

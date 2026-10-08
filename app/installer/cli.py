@@ -28,6 +28,13 @@ from deploy.package_offline import PackageError, verify_staged_bundle
 
 
 DEFAULT_STATE_ROOT = "/var/lib/devcloud/installer"
+# The update was applied, but publishing the worker bundle failed. The root
+# updater reports this as a successful update with a warning.
+EXIT_APPLIED_PUBLISH_FAILED = 3
+REPUBLISH_HINT = (
+    "Free disk space, then run: bash /opt/devcloud/current/deploy/devcloud-setup.sh "
+    "--yes publish-worker-bundle"
+)
 
 
 def _verify_offline_release(root: Path) -> None:
@@ -145,6 +152,10 @@ def _parser() -> argparse.ArgumentParser:
     update.add_argument("--prepared-root", type=Path, help=argparse.SUPPRESS)
 
     commands.add_parser("repair", help="repair configuration, permissions, SELinux, and services")
+    commands.add_parser(
+        "publish-worker-bundle",
+        help="republish the installed release for worker upgrades",
+    )
     commands.add_parser("status", help="show installation and service state")
     backup = commands.add_parser("backup", help="back up configuration and data")
     backup.add_argument("--output", type=Path)
@@ -279,6 +290,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         config = _config_from_state(engine)
+
+        if command == "publish-worker-bundle":
+            if not config.installs_controller:
+                raise InstallerError("Only a controller publishes worker update bundles")
+            release_root = engine.host_path(config.install_root) / "current"
+            published = publish_platform_root(
+                release_root.resolve(), engine.host_path(config.downloads_root)
+            )
+            ui.write(f"Worker update artifact published: {published.name}")
+            return 0
 
         if command == "repair":
             _execute_plan(
@@ -449,10 +470,20 @@ def main(argv: list[str] | None = None) -> int:
                             "see its output above."
                         )
                     if applied and platform_release and config.installs_controller:
-                        published = publish_platform_bundle(
-                            resolved_bundle,
-                            engine.host_path(config.downloads_root),
-                        )
+                        try:
+                            published = publish_platform_bundle(
+                                resolved_bundle,
+                                engine.host_path(config.downloads_root),
+                            )
+                        except (InstallerError, OSError) as exc:
+                            # The platform is updated; only workers cannot
+                            # fetch it yet. Say so instead of "failed".
+                            ui.write(
+                                "WARNING: The platform update was applied, but the worker "
+                                f"update bundle could not be published: {exc}\n"
+                                f"{REPUBLISH_HINT}"
+                            )
+                            return EXIT_APPLIED_PUBLISH_FAILED
                         ui.write(
                             f"Worker update artifact published: {published.name}"
                         )

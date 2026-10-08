@@ -3073,9 +3073,14 @@ function initAdminPlatformUpdater() {
       failed: `${target} uygulanamadı. Teknik ayrıntı aşağıda gösteriliyor.`,
       unknown: value.error || "Güncelleme durumu doğrulanamadı.",
     }[value.state] || "Güncelleme durumu alındı.";
-    setStatusMessage(friendly, value.state === "failed" || value.state === "unknown"
-      ? "error"
-      : value.state === "succeeded" ? "success" : "");
+    if (value.state === "succeeded" && value.warning) {
+      // Applied, but e.g. the worker bundle could not be published.
+      setStatusMessage(`${target} uygulandı. ${value.warning}`, "warning");
+    } else {
+      setStatusMessage(friendly, value.state === "failed" || value.state === "unknown"
+        ? "error"
+        : value.state === "succeeded" ? "success" : "");
+    }
     if (["queued", "running"].includes(value.state)) updateWasActive = true;
     lastUpdateValue = value;
     if (updateLiveBadge) updateLiveBadge.hidden = !UPDATE_ACTIVE_STATES.includes(value.state);

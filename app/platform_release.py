@@ -110,23 +110,85 @@ def load_platform_release(root: Path) -> PlatformRelease:
     )
 
 
-def publish_platform_bundle(bundle: Path, downloads_root: Path) -> Path:
-    """Atomically publish one verified bundle for enrolled worker upgrades."""
+# Room left after a copy so the host keeps working.
+PUBLISH_FREE_MARGIN_BYTES = 256 * 1024 * 1024
+
+
+def _format_size(value: int) -> str:
+    return f"{value / (1024 ** 3):.1f} GiB"
+
+
+def _bundle_sort_key(path: Path) -> tuple[tuple[int, ...], int, str]:
+    match = PLATFORM_BUNDLE_PATTERN.fullmatch(path.name)
+    version = tuple(int(part) for part in match.group("version").split(".")) if match else (0,)
+    return version, path.stat().st_mtime_ns, path.name
+
+
+def prune_published_bundles(release_root: Path, *, keep: int, protect: str = "") -> list[Path]:
+    """Delete all but the ``keep`` newest published bundles (and leftovers).
+
+    Workers only download the newest bundle, so older ones only use disk.
+    Interrupted copies (``.*.partial``) are always removed.
+    """
+    removed: list[Path] = []
+    if not release_root.is_dir():
+        return removed
+    for partial in release_root.glob(".devcloud-platform-update-*.partial"):
+        partial.unlink(missing_ok=True)
+        removed.append(partial)
+    bundles = sorted(
+        (
+            path
+            for path in release_root.iterdir()
+            if path.is_file()
+            and not path.is_symlink()
+            and PLATFORM_BUNDLE_PATTERN.fullmatch(path.name)
+            and path.name != protect
+        ),
+        key=_bundle_sort_key,
+        reverse=True,
+    )
+    for path in bundles[max(0, keep):]:
+        path.unlink(missing_ok=True)
+        path.with_name(path.name + ".sha256").unlink(missing_ok=True)
+        removed.append(path)
+    return removed
+
+
+def publish_platform_bundle(bundle: Path, downloads_root: Path, *, keep_previous: int = 1) -> Path:
+    """Atomically publish one verified bundle for enrolled worker upgrades.
+
+    Older published bundles beyond ``keep_previous`` are removed first, and
+    the copy only starts when the bundle fits on the disk.
+    """
     if not PLATFORM_BUNDLE_PATTERN.fullmatch(bundle.name):
         raise InstallerError("Platform update filename is invalid")
     release_root = downloads_root.resolve() / "releases"
     release_root.mkdir(parents=True, exist_ok=True)
     target = release_root / bundle.name
+    prune_published_bundles(release_root, keep=keep_previous, protect=bundle.name)
+    needed = bundle.stat().st_size + PUBLISH_FREE_MARGIN_BYTES
+    free = shutil.disk_usage(release_root).free
+    if free < needed:
+        raise InstallerError(
+            f"Not enough free disk space in {release_root} to publish the worker "
+            f"update bundle: about {_format_size(needed)} needed, "
+            f"{_format_size(free)} free"
+        )
     temporary = release_root / f".{target.name}.{uuid.uuid4().hex}.partial"
-    with bundle.open("rb") as source, temporary.open("xb") as destination:
-        shutil.copyfileobj(source, destination, length=1024 * 1024)
-    if sha256_file(temporary) != sha256_file(bundle):
+    try:
+        with bundle.open("rb") as source, temporary.open("xb") as destination:
+            shutil.copyfileobj(source, destination, length=1024 * 1024)
+        if sha256_file(temporary) != sha256_file(bundle):
+            raise InstallerError("Published platform bundle checksum mismatch")
+        temporary.replace(target)
+        target.with_name(target.name + ".sha256").write_text(
+            f"{sha256_file(target)}  {target.name}\n", encoding="ascii"
+        )
+    except OSError as exc:
+        raise InstallerError(f"Could not publish the worker update bundle: {exc}") from exc
+    finally:
         temporary.unlink(missing_ok=True)
-        raise InstallerError("Published platform bundle checksum mismatch")
-    temporary.replace(target)
-    target.with_name(target.name + ".sha256").write_text(
-        f"{sha256_file(target)}  {target.name}\n", encoding="ascii"
-    )
     return target
 
 
