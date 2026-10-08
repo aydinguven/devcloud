@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.12.0`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.13.0`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,10 +13,15 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro | PR open | `ci/leaner-release` | Faster release pipeline: workspace images only when `containers/<image>` changed, direct uploads to a draft release, parallel controller/worker builds and packaging, docs-only changes skip CI | Merge, then cut the next release and confirm: no workspace jobs when nothing changed, total run under ~8 min, release published and `stable` advanced |
+| Kiro | Releasing | `main` | 3.13.0 release: first run of the leaner release pipeline (#37) | Watch the `v3.13.0` run: no workspace jobs (no `containers/` change since v3.12.0), release published and `stable` advanced |
+| Aydin | Pending | `main` | 3.13.0 rollout | Update IDMVAIFACT1 and workers, check Admin > Dizin has `manager` / `title` / `MÜDÜR`, then log in as Kemal (K014810): Admin > Kullanıcılar nests Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler and GenAI > İstatistikler shows Müdürlüğüm |
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
+
+- 2026-10-08: AD has no müdürlük attribute. When `organization_unit_attribute` is empty, login derives `users.organization_unit` from the `manager` chain: the `department` of the nearest person (the user included) whose `title` is a unit-head title (`MÜDÜR` by default, Turkish-i-insensitive), stopping at another `division`, a missing manager, a loop or depth 12. Unit heads get `users.managed_unit`. Profiles sync only at login.
+- 2026-10-08: Quotas resolve per field as user override -> team -> müdürlük -> default. Müdürlük rows live in `user_group_quotas` with the `unit:` key prefix (`app.quotas.unit_key`), so a müdürlük never clashes with its own team of the same name. A team sits under the müdürlük most of its members belong to; each member still resolves through their own müdürlük. Limits stay per member, not a shared pool.
+- 2026-10-08: GenAI stats keep the global boards for everyone and add `my_team` (every user) and `my_unit` (unit heads, all teams including idle ones). LiteLLM's `default_user_id` (pre-LDAP traffic) is left out of the user/team/müdürlük breakdowns and the active-user count but still counts in the organization totals and model split, so totals match LiteLLM; Aydin chose to keep it that way for now. `Takımsız` is not ranked on the team board.
 
 - 2026-10-07: Releases always build and ship controller and worker images; a workspace image is built only when `containers/<image>` changed since the newest *published* `vX.Y.Z` release, or when forced with the `rebuild_workspaces` dispatch input. Unchanged workspaces are no longer republished, so their newest GHCR tag/offline archive belongs to the release that last changed them. Build jobs upload straight to a draft release (no artifact round-trip); `publish` un-drafts it and advances `stable`. Workflow string-pinning tests were removed at Aydin's request for fewer unnecessary tests.
 
@@ -37,6 +42,8 @@
 
 ## Validation
 
+- 2026-10-08 (PR #38, 3.13.0): suite 387 passed, 3 skipped; CI green on the merge commit. `authenticate_directory_user` against an ldap3 mock directory with the K015570 -> K014810 -> K012950 -> K016972 chain gives Aydın müdürlük YENİLİKÇİ TEKNOLOJİLER, Kemal the same plus `managed_unit`, Mehmet (GENEL MÜDÜR) neither; a stale manager DN still logs in. A v27 SQLite DB upgrades to v28. A seeded org with a fake LiteLLM was checked in headless Chromium as admin, Kemal and Aydın (nested admin list, quota sources, search, Takımım/Müdürlüğüm, hidden `default_user_id`/`Takımsız`); no console errors. Not yet validated: a real AD login on IDMVAIFACT1 and PostgreSQL for migration 28.
+
 - 2026-10-07 (`ci/leaner-release`): suite 383 passed, 3 skipped, 1 known Windows-only failure. Both workflows parse; every `run:` step and `build-release-assets.sh` pass `bash -n`. A Git Bash probe confirmed the parallel helpers propagate a failure and stop the failing chain. A simulated scope step for `v3.12.0` compares against `v3.11.1` and selects no workspace images; `rebuild_workspaces` lists/`all` select the named images and an unknown name fails. Not yet validated: a real GitHub run (draft creation/upload/un-draft, parallel podman steps in Rocky 10).
 
 - 2026-10-06: Full suite 368 passed, 3 skipped. Scratch checks: installer renders `IP=10.89.0.250` / `AddHost=devcloud-postgresql:10.89.0.250` for an existing `10.89.0.0/24` network, creates the network first when missing, and skips pinning for IPv6-only; `/readyz` returns 503 `gaierror` for an unresolvable DB host; an unhandled `/api` error returns JSON 500; a fake AD rejecting the service bind now yields 503 with a readable message instead of "wrong password".
@@ -47,6 +54,8 @@
 - Still required: a real deployment of a new model version on a worker.
 
 ## Latest handoff
+
+2026-10-08 3.13.0 (PR #38): migration 28 adds `directory_settings.manager_attribute` / `title_attribute` / `unit_head_titles` (defaults `manager` / `title` / `MÜDÜR`) and `users.managed_unit`. Nothing changes for a user until their next AD login, which fills `organization_unit` and `managed_unit`; until then teams appear under "Müdürlüğü belirlenmemiş takımlar" and managers see no Müdürlüğüm section. The AD bind account must be able to read managers' `department`, `title`, `division` and `manager`. Possible follow-up: a division-wide view for GENEL MÜDÜR.
 
 2026-10-07 release pipeline (`ci/leaner-release`): v3.12.0 took 14.3 min. Its critical path was platform 8.4 min + publish 5.8 min, and 3.9 min of publish was only downloading staged artifacts. It also rebuilt all six workspace images because the old scope treated any change to `deploy/ci/build-release-assets.sh` as a workspace change. The branch fixes both and parallelizes the Rocky build (estimated ~7-8 min with no workspace changes). After merge, watch the first run. If `gh release view/upload` on drafts misbehaves, the fallback is to restore the artifact staging for the platform assets only.
 
@@ -60,6 +69,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-08: Built the müdürlük hierarchy from the AD manager chain, quota inheritance through the müdürlük, the nested admin users panel and team/müdürlük GenAI stats (PR #38); prepared 3.13.0.
 - 2026-10-07: Profiled the v3.12.0 release run and slimmed the release pipeline (see Latest handoff).
 - 2026-10-06: Diagnosed the production login 500s down to firewalld reloads breaking Podman DNS (see Latest handoff); restored service manually; prepared 3.9.5 with the permanent fix and login error hardening.
 - 2026-09-29: Cloned the repo; diagnosed and fixed the MLflow deployment image-sync failure; merged as PR #26. Prepared 3.9.3 (PR #27); its tag build failed on the SQLAlchemy 2.1 greenlet issue, so fixed that and prepared 3.9.4.
