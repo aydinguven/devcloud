@@ -9,6 +9,11 @@
     return data;
   };
   const terminalStatuses = new Set(["running", "failed", "stopped"]);
+  // Deployment targets. Kubernetes (Nexus + workflow) has no backend yet.
+  const DEPLOY_TARGETS = {
+    "ai-factory": {label: "AI Factory", title: "Modeli Dağıt · AI Factory", submit: "Model Servisini Oluştur", available: true},
+    kubernetes: {label: "Kubernetes", title: "Modeli Dağıt · Kubernetes", submit: "Kubernetes'e Dağıt (yakında)", available: false},
+  };
   const statusBadge = value => value === "running" ? "badge-running" : value === "failed" ? "badge-error" : "badge-neutral";
 
   function initDeployModal() {
@@ -21,6 +26,29 @@
     const submit = document.getElementById("mlflow-deploy-submit");
     const error = document.getElementById("mlflow-deploy-error");
     const flavor = document.getElementById("mlflow-deploy-flavor");
+    const k8sFlavor = document.getElementById("mlflow-deploy-k8s-flavor");
+    const title = document.getElementById("mlflow-deploy-title");
+    const targetOptions = Array.from(modal.querySelectorAll("[data-deploy-target-option]"));
+    const targetPanels = Array.from(modal.querySelectorAll("[data-deploy-target-panel]"));
+    let target = "ai-factory";
+
+    const selectTarget = value => {
+      target = DEPLOY_TARGETS[value] ? value : "ai-factory";
+      const info = DEPLOY_TARGETS[target];
+      targetOptions.forEach(option => {
+        const selected = option.dataset.deployTargetOption === target;
+        option.setAttribute("aria-checked", String(selected));
+        option.classList.toggle("is-selected", selected);
+      });
+      targetPanels.forEach(panel => { panel.hidden = panel.dataset.deployTargetPanel !== target; });
+      // A hidden required field would block the form; only the active target's fields are required.
+      flavor.required = target === "ai-factory";
+      title.textContent = info.title;
+      submit.textContent = info.submit;
+      submit.disabled = !info.available;
+      error.textContent = "";
+    };
+    targetOptions.forEach(option => option.addEventListener("click", () => selectTarget(option.dataset.deployTargetOption)));
     const events = document.getElementById("mlflow-deploy-events");
     const result = document.getElementById("mlflow-deploy-result");
     const status = document.getElementById("mlflow-deploy-status");
@@ -40,8 +68,10 @@
       if (flavorsLoaded) return;
       const items = await fetchJson("/api/workspaces/flavors");
       const available = items.filter(item => item.enabled !== false && item.available !== false);
-      flavor.innerHTML = available.map(item => `<option value="${esc(item.id)}">${esc(item.display_name || item.name)} · ${esc(item.cpus)} CPU · ${esc(item.memory_display)}</option>`).join("");
-      if (!available.length) flavor.innerHTML = '<option value="">Kullanılabilir kaynak profili yok</option>';
+      const options = available.map(item => `<option value="${esc(item.id)}">${esc(item.display_name || item.name)} · ${esc(item.cpus)} CPU · ${esc(item.memory_display)}</option>`).join("")
+        || '<option value="">Kullanılabilir kaynak profili yok</option>';
+      flavor.innerHTML = options;
+      if (k8sFlavor) k8sFlavor.innerHTML = options;
       flavorsLoaded = true;
     }
 
@@ -84,9 +114,9 @@
       progress.hidden = true;
       result.hidden = true;
       error.textContent = "";
-      submit.disabled = false;
       activeDeployment = null;
       accessToken = "";
+      selectTarget(button.dataset.deployTarget || "ai-factory");
       document.getElementById("mlflow-deploy-model-name").value = model;
       document.getElementById("mlflow-deploy-model-version").value = version;
       document.getElementById("mlflow-deploy-selection").textContent = `${model} · v${version}`;
@@ -98,6 +128,10 @@
 
     form.addEventListener("submit", async event => {
       event.preventDefault();
+      if (!DEPLOY_TARGETS[target].available) {
+        error.textContent = "Kubernetes dağıtımı henüz etkin değil; şimdilik AI Factory hedefini kullanın.";
+        return;
+      }
       error.textContent = "";
       submit.disabled = true;
       submit.textContent = "Kuyruğa alınıyor...";
@@ -126,7 +160,7 @@
       } catch (value) {
         error.textContent = value.message;
         submit.disabled = false;
-        submit.textContent = "Model Servisini Oluştur";
+        submit.textContent = DEPLOY_TARGETS[target].submit;
       }
     });
   }
@@ -147,11 +181,12 @@
       const data = await fetchJson("/api/mlflow/deployments");
       body.innerHTML = (data.deployments || []).map(item => `<tr>
         <td><strong>${esc(item.name)}</strong><br><span class="text-muted">${esc(item.model_name)} v${esc(item.model_version)}</span></td>
+        <td><span class="badge badge-neutral">${esc(DEPLOY_TARGETS[item.target || "ai-factory"]?.label || item.target)}</span></td>
         <td><span class="badge ${statusBadge(item.status)}">${esc(item.status)}</span><br><span class="text-muted">${esc(item.status_message || "")}</span></td>
         <td>${esc(item.flavor_id)}</td>
         <td class="data-value"><code>${esc(item.endpoint_url)}</code></td>
         <td style="white-space:nowrap;">${actions(item)} ${terminalStatuses.has(item.status) ? `<button class="btn btn-danger btn-sm" data-deployment-action="delete" data-deployment-id="${esc(item.id)}">Sil</button>` : ""}</td>
-      </tr>`).join("") || '<tr><td colspan="5" class="text-muted">Henüz model deployment oluşturulmadı.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="6" class="text-muted">Henüz model deployment oluşturulmadı.</td></tr>';
       status.textContent = "";
     }
     root.addEventListener("click", async event => {

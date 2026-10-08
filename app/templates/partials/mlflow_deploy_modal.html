@@ -1,7 +1,7 @@
 <div id="mlflow-deploy-modal" class="modal-backdrop">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mlflow-deploy-title" style="width:min(760px,94vw);max-height:92vh;overflow:auto;">
     <div class="card-header" style="margin-bottom:1rem;">
-      <div><span class="page-kicker">MLflow Model Service</span><h2 id="mlflow-deploy-title" class="card-title">Modeli Dağıt</h2></div>
+      <div><span class="page-kicker">MLflow Model Service</span><h2 id="mlflow-deploy-title" class="card-title">Modeli Dağıt · AI Factory</h2></div>
       <button id="mlflow-deploy-close" type="button" aria-label="Kapat" style="background:none;border:0;font-size:1.5rem;cursor:pointer;">&times;</button>
     </div>
     <form id="mlflow-deploy-form">
@@ -11,11 +11,38 @@
         <strong id="mlflow-deploy-selection">—</strong>
         <div id="mlflow-deploy-run" class="text-muted" style="margin-top:.25rem;"></div>
       </div>
-      <div class="responsive-form-grid">
-        <label class="form-group"><span class="form-label">Deployment adı</span><input id="mlflow-deploy-name" class="form-input" required minlength="2" maxlength="60" pattern="[a-zA-Z0-9_\- ]+"></label>
+      <div class="deploy-targets" role="radiogroup" aria-label="Dağıtım hedefi">
+        <button type="button" class="deploy-target" role="radio" aria-checked="true" data-deploy-target-option="ai-factory">
+          <span class="deploy-target-head"><strong>AI Factory</strong><span class="badge badge-running">Hazır</span></span>
+          <small>DevCloud worker'larında yönetilen model servisi; endpoint ve erişim tokenı hemen oluşur.</small>
+        </button>
+        <button type="button" class="deploy-target" role="radio" aria-checked="false" data-deploy-target-option="kubernetes">
+          <span class="deploy-target-head"><strong>Kubernetes</strong><span class="badge badge-neutral">Yakında</span></span>
+          <small>Model imajı Nexus'a yüklenir, workflow tetiklenir ve TCMB Kubernetes'inde dağıtılır.</small>
+        </button>
+      </div>
+
+      <label class="form-group"><span class="form-label">Deployment adı</span><input id="mlflow-deploy-name" class="form-input" required minlength="2" maxlength="60" pattern="[a-zA-Z0-9_\- ]+"></label>
+
+      <div class="responsive-form-grid" data-deploy-target-panel="ai-factory">
         <label class="form-group"><span class="form-label">Kaynak profili</span><select id="mlflow-deploy-flavor" class="form-input" required><option value="">Yükleniyor...</option></select></label>
         <label class="form-group"><span class="form-label">Gunicorn worker</span><input id="mlflow-deploy-workers" class="form-input" type="number" min="1" max="16" value="1" required></label>
         <label class="form-group"><span class="form-label">Maksimum çalışma süresi</span><select id="mlflow-deploy-auto-stop" class="form-input"><option value="0">Sürekli çalışsın</option><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option></select></label>
+      </div>
+
+      <div data-deploy-target-panel="kubernetes" hidden>
+        <ol class="deploy-pipeline" aria-label="Kubernetes dağıtım adımları">
+          <li><strong>İmaj</strong><small>Model versiyonundan serving imajı oluşturulur</small></li>
+          <li><strong>Nexus</strong><small>İmaj kurumsal Nexus reposuna yüklenir</small></li>
+          <li><strong>Workflow</strong><small>Dağıtım workflow'u tetiklenir</small></li>
+          <li><strong>Kubernetes</strong><small>Servis TCMB Kubernetes'inde ayağa kalkar</small></li>
+        </ol>
+        <div class="responsive-form-grid">
+          <label class="form-group"><span class="form-label">Namespace</span><input id="mlflow-deploy-k8s-namespace" class="form-input" maxlength="63" pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" placeholder="örn. ml-models"></label>
+          <label class="form-group"><span class="form-label">Replika sayısı</span><input id="mlflow-deploy-k8s-replicas" class="form-input" type="number" min="1" max="20" value="2"></label>
+          <label class="form-group"><span class="form-label">Kaynak profili</span><select id="mlflow-deploy-k8s-flavor" class="form-input"><option value="">Yükleniyor...</option></select></label>
+        </div>
+        <p class="deploy-target-note">Kubernetes dağıtımı henüz etkin değil. Nexus yüklemesi ve workflow entegrasyonu tamamlandığında bu seçenekle dağıtım yapılabilecek; şimdilik <strong>AI Factory</strong> hedefini kullanın.</p>
       </div>
       <div id="mlflow-deploy-error" class="text-destructive" role="alert" style="margin-bottom:.75rem;"></div>
       <div id="mlflow-deploy-actions" style="display:flex;justify-content:flex-end;gap:.5rem;">

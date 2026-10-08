@@ -2814,3 +2814,43 @@ code { color: #8d0022; }
 @media (prefers-reduced-motion: reduce) {
   .update-progress-track > span, .platform-log-live > span { animation: none !important; transition: none; }
 }
+
+/* ---------- MLflow: deployment target (AI Factory / Kubernetes) ---------- */
+.deploy-targets { display: grid; gap: 0.6rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 1rem; }
+.deploy-target {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.deploy-target:hover { border-color: #9fb3cd; }
+.deploy-target.is-selected { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.deploy-target-head { align-items: center; display: flex; gap: 0.5rem; justify-content: space-between; }
+.deploy-target-head strong { color: var(--heading); font-size: 0.88rem; }
+.deploy-target small { color: var(--text-muted); font-size: 0.72rem; line-height: 1.35; }
+.deploy-pipeline { counter-reset: deploy-step; display: grid; gap: 0.5rem; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; margin: 0.25rem 0 1rem; padding: 0; }
+.deploy-pipeline li {
+  background: #f6f8fb;
+  border: 1px dashed #c9d4e3;
+  border-radius: 6px;
+  counter-increment: deploy-step;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.6rem;
+}
+.deploy-pipeline li strong::before { color: var(--primary); content: counter(deploy-step) ". "; }
+.deploy-pipeline li strong { color: var(--heading); font-size: 0.78rem; }
+.deploy-pipeline li small { color: var(--text-muted); font-size: 0.66rem; line-height: 1.3; }
+.deploy-target-note { background: var(--warning-bg); border-left: 3px solid #d39b2a; color: #6b5200; font-size: 0.74rem; margin: 0 0 0.75rem; padding: 0.55rem 0.7rem; }
+.deploy-button-group { white-space: nowrap; }
+.deploy-button-group .btn + .btn, .mlflow-lineage-actions .btn + .btn { margin-left: 0.35rem; }
+@media (max-width: 620px) {
+  .deploy-targets, .deploy-pipeline { grid-template-columns: minmax(0, 1fr); }
+}
