@@ -774,6 +774,53 @@ async def test_usage_stats_leaderboards_for_admin_and_users(client, db_session, 
 
 
 @pytest.mark.asyncio
+async def test_usage_stats_show_own_team_and_managed_mudurluk(client, db_session, fake_litellm):
+    admin = await _register(client, db_session, "genai-admin", admin=True)
+    assert (await _configure(client, admin)).status_code == 200
+    manager = await _register(client, db_session, "k014810")
+    member = await _register(client, db_session, "k015570")
+    await _register(client, db_session, "k020000")
+    await _register(client, db_session, "k030000")
+    await _register(client, db_session, "k040000")
+    unit = "YENİLİKÇİ TEKNOLOJİLER"
+    for username, team, org_unit, managed in (
+        ("k014810", unit, unit, unit),
+        ("k015570", "ARAŞTIRMA VE GELİŞTİRME", unit, ""),
+        ("k020000", "ARAŞTIRMA VE GELİŞTİRME", unit, ""),
+        ("k030000", "RİSK", "RİSK YÖNETİMİ", ""),
+        ("k040000", "YAPAY ZEKA", unit, ""),  # no usage in the period
+    ):
+        await db_session.execute(
+            update(User).where(User.username == username).values(
+                team=team, organization_unit=org_unit, managed_unit=managed
+            )
+        )
+    await db_session.commit()
+    _seed_analytics(fake_litellm)
+
+    plain = (await client.get("/api/genai/stats?days=7", headers=member)).json()
+    assert plain["my_unit"] is None
+    team = plain["my_team"]
+    assert team["name"] == "ARAŞTIRMA VE GELİŞTİRME" and team["unit"] == unit
+    assert team["total_tokens"] == 1800 and team["members"] == 2 and team["member_total"] == 2
+    assert [row["username"] for row in team["users"]] == ["k015570", "k020000"]
+    assert team["daily"][-1]["total_tokens"] == 500
+    units = {row["name"]: row for row in plain["units"]}
+    assert units[unit]["total_tokens"] == 1800 and units[unit]["team_count"] == 3
+    assert units["RİSK YÖNETİMİ"]["total_tokens"] == 4000
+
+    managed = (await client.get("/api/genai/stats?days=7", headers=manager)).json()["my_unit"]
+    assert managed["name"] == unit and managed["total_tokens"] == 1800
+    assert managed["member_total"] == 4
+    # Every team of the müdürlük is listed, including teams without usage.
+    teams = {row["name"]: row for row in managed["teams"]}
+    assert set(teams) == {unit, "ARAŞTIRMA VE GELİŞTİRME", "YAPAY ZEKA"}
+    assert teams["YAPAY ZEKA"]["total_tokens"] == 0 and teams["YAPAY ZEKA"]["member_total"] == 1
+    assert {row["username"] for row in managed["users"]} == {"k015570", "k020000"}
+    assert "spend" not in managed
+
+
+@pytest.mark.asyncio
 async def test_usage_stats_without_team_analytics_and_unconfigured(client, db_session, fake_litellm):
     viewer = await _register(client, db_session, "k015570")
     unconfigured = (await client.get("/api/genai/stats", headers=viewer)).json()

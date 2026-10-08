@@ -34,6 +34,11 @@ class User(Base):
     organization_unit: Mapped[str] = mapped_column(
         String(255), default="", server_default="", nullable=False
     )
+    # The müdürlük this user heads (their title is a unit-head title), synced
+    # from the directory. Managers see their müdürlük's teams in GenAI stats.
+    managed_unit: Mapped[str] = mapped_column(
+        String(255), default="", server_default="", nullable=False
+    )
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER, nullable=False)
     auth_source: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

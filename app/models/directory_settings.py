@@ -49,6 +49,17 @@ class DirectorySettings(Base):
     organization_unit_attribute: Mapped[str] = mapped_column(
         String(128), default="", server_default="", nullable=False
     )
+    # Without a müdürlük attribute, the müdürlük is derived from the manager
+    # chain: the team of the nearest manager whose title is a unit-head title.
+    manager_attribute: Mapped[str] = mapped_column(
+        String(128), default="manager", server_default="manager", nullable=False
+    )
+    title_attribute: Mapped[str] = mapped_column(
+        String(128), default="title", server_default="title", nullable=False
+    )
+    unit_head_titles: Mapped[str] = mapped_column(
+        String(512), default="MÜDÜR", server_default="MÜDÜR", nullable=False
+    )
     group_membership_attribute: Mapped[str] = mapped_column(
         String(128), default="memberOf", nullable=False
     )

@@ -886,7 +886,21 @@ cd devcloud
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Müdürlük özniteliği</span>
           <input class="form-input" name="organization_unit_attribute" value="{{ directory_settings.organization_unit_attribute if directory_settings else '' }}" placeholder="Müdürlük değerini taşıyan AD özniteliği">
-          <small class="text-muted">İsteğe bağlıdır. Örn. “Yenilikçi Teknolojiler Müdürlüğü” değerini taşıyan öznitelik.</small>
+          <small class="text-muted">İsteğe bağlıdır. Boş bırakılırsa müdürlük, yönetici zincirinden türetilir.</small>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Yönetici özniteliği</span>
+          <input class="form-input" name="manager_attribute" value="{{ directory_settings.manager_attribute if directory_settings else 'manager' }}" placeholder="manager">
+          <small class="text-muted">Kullanıcının yöneticisinin DN değerini taşıyan öznitelik.</small>
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Unvan özniteliği</span>
+          <input class="form-input" name="title_attribute" value="{{ directory_settings.title_attribute if directory_settings else 'title' }}" placeholder="title">
+        </label>
+        <label class="form-group" style="margin: 0;">
+          <span class="form-label">Müdürlük yöneticisi unvanları</span>
+          <input class="form-input" name="unit_head_titles" value="{{ directory_settings.unit_head_titles if directory_settings else 'MÜDÜR' }}" placeholder="MÜDÜR">
+          <small class="text-muted">Virgülle ayrılır. Yönetici zincirinde bu unvana sahip ilk kişinin takımı, kullanıcının müdürlüğü olur. Örn. Ar-Ge üyesi → Kemal (MÜDÜR, Yenilikçi Teknolojiler).</small>
         </label>
         <label class="form-group" style="margin: 0;">
           <span class="form-label">Üst birim özniteliği</span>
@@ -922,168 +936,234 @@ cd devcloud
 
 {% macro quota_num(value) -%}{{ '%g'|format(value) }}{%- endmacro %}
 {% macro gb(mb) -%}{{ '%g'|format((mb / 1024)|round(2)) }}{%- endmacro %}
-{% set source_labels = {'user': 'özel', 'group': 'takım', 'default': 'varsayılan'} %}
+{% set source_labels = {'user': 'özel', 'group': 'takım', 'unit': 'müdürlük', 'default': 'varsayılan'} %}
+{% set quota_inputs = [
+  ('cpu_quota', 'cpu_quota', 'CPU', '0.5', '256'),
+  ('memory_gb_quota', 'memory_mb_quota', 'RAM GB', '0.25', '1024'),
+  ('disk_gb_quota', 'disk_mb_quota', 'Disk GB', '0.25', '1048576'),
+  ('gpu_quota', 'gpu_quota', 'GPU slot', '1', '64'),
+] %}
+{% set hierarchy = user_hierarchy %}
+
+{% macro quota_display(field, value) -%}
+  {%- if field in ('memory_mb_quota', 'disk_mb_quota') %}{{ gb(value) }}{% else %}{{ quota_num(value) }}{% endif -%}
+{%- endmacro %}
+
+{# Per-member limits shown in a summary; dashed chips are inherited from a higher level. #}
+{% macro quota_chips(values, sources, own_source) %}
+  <span class="admin-team-quota" title="Üye başına kota">
+    {% for key, label, suffix in [('cpu_quota', 'CPU', ''), ('memory_mb_quota', 'RAM', ' GB'), ('disk_mb_quota', 'Disk', ' GB'), ('gpu_quota', 'GPU', '')] %}
+      <span class="admin-team-quota-item{% if own_source and sources[key] != own_source %} is-inherited{% endif %}" title="Kaynak: {{ source_labels[sources[key]] }}"><b>{{ label }}</b> {{ quota_display(key, values[key]) }}{{ suffix }}</span>
+    {% endfor %}
+  </span>
+{% endmacro %}
+
+{% macro totals_line(totals) %}
+  <span class="admin-team-totals" title="Üyelerin şu an ayırdığı toplam kaynak">
+    Ayrılan: {{ '%.1f'|format(totals.cpu) }} CPU · {{ '%.1f'|format(totals.memory / 1073741824) }} GB · {{ totals.gpu|int }} GPU · {{ totals.running }} çalışan
+  </span>
+{% endmacro %}
+
+{# Quota form of the default group, a müdürlük or a team. Blank fields show what they inherit. #}
+{% macro group_quota_form(group, parent_values, parent_sources) %}
+  {% set raw = group['values'] %}
+  <form class="group-quota-form" data-kind="{{ group.kind }}" data-name="{{ '' if group.is_default else group.display_name }}" data-group-id="{{ group.id or '' }}" data-default-group="{{ 'true' if group.is_default else 'false' }}">
+    <h3>
+      {% if group.is_default %}Varsayılan kota (üye başına)
+      {% elif group.kind == 'unit' %}Müdürlük kotası (üye başına) <small>kendi kotası olmayan takımlara uygulanır</small>
+      {% else %}Takım kotası (üye başına){% endif %}
+    </h3>
+    <div class="quota-input-grid">
+      {% for name, field, label, step, max in quota_inputs %}
+        {% set current = raw[field] %}
+        {% if current is not none and field in ('memory_mb_quota', 'disk_mb_quota') %}{% set current = current / 1024 %}{% endif %}
+        <label class="quota-field">
+          <span>{{ label }}</span>
+          <input class="form-input" type="number" name="{{ name }}" min="0" max="{{ max }}" step="{{ step }}"
+            value="{% if current is not none %}{{ '%g'|format(current|round(2)) }}{% elif group.is_default %}{{ quota_display(field, parent_values[field]) }}{% endif %}"
+            {% if group.is_default %}required{% else %}placeholder="{{ quota_display(field, parent_values[field]) }} ({{ source_labels[parent_sources[field]] }})"{% endif %}>
+        </label>
+      {% endfor %}
+    </div>
+    <div class="quota-actions">
+      <button type="submit" class="btn btn-primary btn-sm">
+        {% if group.is_default %}Varsayılanı Kaydet{% elif group.kind == 'unit' %}Müdürlük Kotasını Kaydet{% else %}Takım Kotasını Kaydet{% endif %}
+      </button>
+      {% if group.configured and not group.is_default %}
+        <button type="button" class="btn btn-secondary btn-sm" data-group-quota-delete>{% if group.kind == 'unit' %}Müdürlük{% else %}Takım{% endif %} kotasını kaldır</button>
+      {% endif %}
+      <span class="quota-form-status" role="status"></span>
+    </div>
+  </form>
+{% endmacro %}
+
+{% macro user_card(u, group) %}
+  {% set quota_usage = usage_by_user[u.id] %}
+  {% set q = quotas_by_user[u.id] %}
+  {% set overridden = u.cpu_quota_override is not none or u.memory_mb_quota_override is not none or u.disk_mb_quota_override is not none or u.gpu_quota_override is not none %}
+  <article class="admin-user-card">
+    <header class="admin-user-header">
+      <div class="admin-user-identity">
+        <span class="admin-user-id">#{{ u.id }}</span>
+        <div class="admin-user-copy">
+          <strong class="admin-user-name">{{ u.username }}</strong>
+          <span class="admin-user-full-name">{{ u.full_name or 'Ad soyad girilmemiş' }}</span>
+          <a class="admin-user-email" href="mailto:{{ u.email }}">{{ u.email }}</a>
+        </div>
+      </div>
+      <div class="admin-user-badges">
+        <span class="badge {% if u.role == 'admin' %}badge-role-admin{% else %}badge-role-user{% endif %}">
+          {% if u.role == 'admin' %}Yönetici{% else %}Kullanıcı{% endif %}
+        </span>
+        {% if u.managed_unit %}<span class="badge badge-unit-head" title="{{ u.managed_unit }} müdürlüğünün yöneticisi">Müdür</span>{% endif %}
+        <span class="badge badge-neutral">{{ {'internal': 'Dahili', 'active_directory': 'Active Directory'}.get(u.auth_source, u.auth_source) }}</span>
+        {% if overridden %}<span class="badge badge-override">Özel kota</span>{% endif %}
+        <span class="admin-user-status {% if u.is_active %}is-active{% else %}is-inactive{% endif %}">{% if u.is_active %}Aktif{% else %}Pasif{% endif %}</span>
+      </div>
+    </header>
+
+    <section class="admin-user-usage" aria-label="{{ u.username }} kaynak kullanımı">
+      <h3>Kullanım / Kota</h3>
+      {% for key, label, field in [('cpu', 'CPU', 'cpu_quota'), ('memory', 'RAM', 'memory_mb_quota'), ('disk', 'Disk', 'disk_mb_quota'), ('gpu', 'GPU', 'gpu_quota')] %}
+        {% set metric = quota_usage[key] %}
+        <div class="admin-quota-metric">
+          <div class="admin-quota-label">
+            <span>{{ label }} <small class="admin-quota-source is-{{ q.sources[field] }}">{{ source_labels[q.sources[field]] }}</small></span>
+            <strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong>
+          </div>
+          <div class="admin-quota-track"><span style="width: {{ metric.percent }}%;"></span></div>
+        </div>
+      {% endfor %}
+    </section>
+
+    <section class="admin-user-llm" data-genai-user="{{ u.id }}" aria-label="{{ u.username }} LLM kullanımı" hidden>
+      <h3>LLM Kullanımı <small>son 30 gün</small></h3>
+      <div class="admin-llm-metrics">
+        <div><span>İstek</span><strong data-llm="api_requests">0</strong></div>
+        <div><span>Token</span><strong data-llm="total_tokens">0</strong></div>
+        <div><span>Girdi / Çıktı</span><strong data-llm="split">0 / 0</strong></div>
+        <div data-llm-spend hidden><span>Harcama</span><strong data-llm="spend">$0.00</strong></div>
+        <div><span>Sıra</span><strong data-llm="rank">—</strong></div>
+      </div>
+      <div class="admin-llm-spark" data-llm="spark"></div>
+    </section>
+
+    <form class="quota-form admin-quota-form" data-user-id="{{ u.id }}">
+      <h3>Kota Ayarları <small>boş = devralınan değer</small></h3>
+      <div class="quota-input-grid">
+        {% for name, field, label, step, max in quota_inputs %}
+          {% set override = u[field ~ '_override'] %}
+          {% if override is not none and field in ('memory_mb_quota', 'disk_mb_quota') %}{% set override = override / 1024 %}{% endif %}
+          <label class="quota-field">
+            <span>{{ label }} <small class="admin-quota-source is-{{ group.inherited_sources[field] }}">{{ source_labels[group.inherited_sources[field]] }}</small></span>
+            <input class="form-input{% if override is not none %} is-override{% endif %}" type="number" name="{{ name }}" min="0" max="{{ max }}" step="{{ step }}"
+              value="{% if override is not none %}{{ '%g'|format(override|round(2)) }}{% endif %}"
+              placeholder="{{ quota_display(field, group.inherited[field]) }}"
+              title="Boş bırakılırsa {{ source_labels[group.inherited_sources[field]] }} değeri: {{ quota_display(field, group.inherited[field]) }}">
+          </label>
+        {% endfor %}
+      </div>
+      <div class="quota-actions">
+        <button type="submit" class="btn btn-primary btn-sm">Kotayı Kaydet</button>
+        {% if overridden %}<button type="button" class="btn btn-secondary btn-sm" data-quota-reset>Devralınan kotaya döndür</button>{% endif %}
+        <span class="quota-form-status" role="status"></span>
+      </div>
+    </form>
+  </article>
+{% endmacro %}
+
+{% macro team_group(group) %}
+  <details class="admin-team-group{% if group.is_default %} is-default{% endif %}{% if group.unit_key %} is-nested{% endif %}" data-group-key="{{ group.key }}">
+    <summary class="admin-team-summary">
+      <span class="admin-team-chevron" aria-hidden="true"></span>
+      <span class="admin-team-heading">
+        <strong class="admin-team-name">{{ group.display_name }}</strong>
+        <small class="admin-team-units">
+          {% if group.is_default %}Takımı olmayan kullanıcılar ve üst seviyelerde boş bırakılan alanlar
+          {% elif group.units %}{{ group.units|join(' / ') }}
+          {% else %}AD department{% endif %}
+        </small>
+      </span>
+      <span class="admin-team-badges">
+        {% if group.is_unit_team %}<span class="badge badge-neutral" title="Müdürün kendi takımı">Müdürlük ekibi</span>{% endif %}
+        <span class="badge badge-neutral">{{ group.member_count }} üye</span>
+        {% if group.override_count %}<span class="badge badge-override">{{ group.override_count }} özel kota</span>{% endif %}
+        {% if not group.is_default and not group.configured %}
+          <span class="badge badge-stopped">{% if 'unit' in group.parent_sources.values() %}Müdürlük kotası kullanılıyor{% else %}Varsayılan kullanılıyor{% endif %}</span>
+        {% endif %}
+      </span>
+      {{ quota_chips(group.inherited, group.inherited_sources, 'default' if group.is_default else 'group') }}
+      <span class="admin-team-llm" data-genai-group="{{ group.key }}" title="Son 30 günde LiteLLM kullanımı" hidden></span>
+      {{ totals_line(group.totals) }}
+    </summary>
+
+    <div class="admin-team-body">
+      {{ group_quota_form(group, group.parent_inherited, group.parent_sources) }}
+      {% if group.members %}
+        <div class="admin-user-list">
+          {% for u in group.members %}{{ user_card(u, group) }}{% endfor %}
+        </div>
+      {% else %}
+        <p class="admin-team-empty">Bu takımda kayıtlı kullanıcı yok. Takım adı AD'de değiştiyse bu kotayı kaldırabilirsiniz; kullanıcılar ilk girişte takımlarına eklenir.</p>
+      {% endif %}
+    </div>
+  </details>
+{% endmacro %}
+
 <section class="card admin-users-panel" id="registered-users">
   <div class="card-header">
     <div>
       <h2 class="card-title">Kayıtlı Kullanıcılar</h2>
       <p class="admin-section-description">
-        Kullanıcılar AD <strong>department</strong> değerine göre takımlara ayrılır. Takım kotası her üyeye ayrı ayrı uygulanır;
-        boş bırakılan alanlar varsayılan gruptan, kullanıcıya özel değerler ise takım kotasının önüne geçer.
+        Kullanıcılar AD <strong>department</strong> değerine göre takımlara, takımlar da müdürlüklere ayrılır. Kotalar her üyeye ayrı ayrı uygulanır.
+        Öncelik sırası kullanıcıya özel, takım, müdürlük ve varsayılan kotadır; boş bırakılan alan bir üst seviyeden devralınır.
       </p>
     </div>
     <div class="admin-card-tools">
       <label class="admin-search-field">
-        <span class="sr-only">Kullanıcılarda veya takımlarda ara</span>
-        <input class="form-input" type="search" placeholder="Kullanıcı veya takım ara..." data-admin-filter=".admin-user-card" data-admin-group-filter=".admin-team-group">
+        <span class="sr-only">Kullanıcılarda, takımlarda veya müdürlüklerde ara</span>
+        <input class="form-input" type="search" placeholder="Kullanıcı, takım veya müdürlük ara..." data-admin-filter=".admin-user-card" data-admin-group-filter=".admin-team-group" data-admin-unit-filter=".admin-unit-group">
       </label>
-      <span class="admin-section-count">{{ all_users|length }} kullanıcı · {{ user_groups|length }} grup</span>
+      <span class="admin-section-count">{{ all_users|length }} kullanıcı · {{ hierarchy.units|length }} müdürlük · {{ user_groups|length - 1 }} takım</span>
     </div>
   </div>
 
   <div class="admin-team-list">
-    {% for group in user_groups %}
-      {% set inherited = group.inherited %}
-      <details class="admin-team-group{% if group.is_default %} is-default{% endif %}" data-group-key="{{ group.key }}">
-        <summary class="admin-team-summary">
+    {{ team_group(hierarchy.default) }}
+
+    {% for unit in hierarchy.units %}
+      <details class="admin-unit-group" data-group-key="{{ unit.key }}">
+        <summary class="admin-team-summary admin-unit-summary">
           <span class="admin-team-chevron" aria-hidden="true"></span>
           <span class="admin-team-heading">
-            <strong class="admin-team-name">{{ group.display_name }}</strong>
-            <small class="admin-team-units">
-              {% if group.is_default %}Takımı olmayan kullanıcılar ve takım kotasında boş bırakılan alanlar
-              {% elif group.units %}{{ group.units|join(' / ') }}
-              {% else %}AD department{% endif %}
-            </small>
+            <strong class="admin-team-name">{{ unit.display_name }}</strong>
+            <small class="admin-team-units">Müdürlük{% if unit.directorates %} · {{ unit.directorates|join(' / ') }}{% endif %}</small>
           </span>
           <span class="admin-team-badges">
-            <span class="badge badge-neutral">{{ group.member_count }} üye</span>
-            {% if group.override_count %}<span class="badge badge-override">{{ group.override_count }} özel kota</span>{% endif %}
-            {% if not group.is_default and not group.configured %}<span class="badge badge-stopped">Varsayılan kullanılıyor</span>{% endif %}
+            <span class="badge badge-unit">Müdürlük</span>
+            <span class="badge badge-neutral">{{ unit.team_count }} takım</span>
+            <span class="badge badge-neutral">{{ unit.member_count }} üye</span>
+            {% if unit.override_count %}<span class="badge badge-override">{{ unit.override_count }} özel kota</span>{% endif %}
+            {% if not unit.configured %}<span class="badge badge-stopped">Varsayılan kullanılıyor</span>{% endif %}
           </span>
-          <span class="admin-team-quota" title="Üye başına kota">
-            {% for key, label, value in [('cpu_quota', 'CPU', quota_num(inherited.cpu_quota)), ('memory_mb_quota', 'RAM', gb(inherited.memory_mb_quota) ~ ' GB'), ('disk_mb_quota', 'Disk', gb(inherited.disk_mb_quota) ~ ' GB'), ('gpu_quota', 'GPU', quota_num(inherited.gpu_quota))] %}
-              <span class="admin-team-quota-item{% if not group.is_default and group.inherited_sources[key] == 'default' %} is-inherited{% endif %}"><b>{{ label }}</b> {{ value }}</span>
-            {% endfor %}
-          </span>
-          <span class="admin-team-llm" data-genai-group="{{ group.key }}" title="Son 30 günde LiteLLM kullanımı" hidden></span>
-          <span class="admin-team-totals" title="Üyelerin şu an ayırdığı toplam kaynak">
-            Ayrılan: {{ '%.1f'|format(group.totals.cpu) }} CPU · {{ '%.1f'|format(group.totals.memory / 1073741824) }} GB · {{ group.totals.gpu|int }} GPU · {{ group.totals.running }} çalışan
-          </span>
+          {{ quota_chips(unit.inherited, unit.inherited_sources, 'unit') }}
+          <span class="admin-team-llm" data-genai-unit="{{ unit.key }}" title="Son 30 günde müdürlük geneli LiteLLM kullanımı" hidden></span>
+          {{ totals_line(unit.totals) }}
         </summary>
-
-        <div class="admin-team-body">
-          <form class="group-quota-form" data-team="{{ '' if group.is_default else group.display_name }}" data-group-id="{{ group.id or '' }}" data-default-group="{{ 'true' if group.is_default else 'false' }}">
-            <h3>{% if group.is_default %}Varsayılan kota (üye başına){% else %}Takım kotası (üye başına){% endif %}</h3>
-            <div class="quota-input-grid">
-              {% set raw = group['values'] %}
-              {% set defaults = user_groups[0].inherited %}
-              {% for key, label, step, max, current, default_value in [
-                ('cpu_quota', 'CPU', '0.5', '256', raw.cpu_quota, quota_num(defaults.cpu_quota)),
-                ('memory_gb_quota', 'RAM GB', '0.25', '1024', (raw.memory_mb_quota / 1024) if raw.memory_mb_quota is not none else none, gb(defaults.memory_mb_quota)),
-                ('disk_gb_quota', 'Disk GB', '0.25', '1048576', (raw.disk_mb_quota / 1024) if raw.disk_mb_quota is not none else none, gb(defaults.disk_mb_quota)),
-                ('gpu_quota', 'GPU slot', '1', '64', raw.gpu_quota, quota_num(defaults.gpu_quota)),
-              ] %}
-                <label class="quota-field">
-                  <span>{{ label }}</span>
-                  <input class="form-input" type="number" name="{{ key }}" min="0" max="{{ max }}" step="{{ step }}"
-                    value="{% if current is not none %}{{ '%g'|format(current|round(2)) }}{% elif group.is_default %}{{ default_value }}{% endif %}"
-                    {% if group.is_default %}required{% else %}placeholder="{{ default_value }} (varsayılan)"{% endif %}>
-                </label>
-              {% endfor %}
-            </div>
-            <div class="quota-actions">
-              <button type="submit" class="btn btn-primary btn-sm">{% if group.is_default %}Varsayılanı Kaydet{% else %}Takım Kotasını Kaydet{% endif %}</button>
-              {% if group.configured and not group.is_default %}
-                <button type="button" class="btn btn-secondary btn-sm" data-group-quota-delete>Takım kotasını kaldır</button>
-              {% endif %}
-              <span class="quota-form-status" role="status"></span>
-            </div>
-          </form>
-
-          {% if group.members %}
-            <div class="admin-user-list">
-              {% for u in group.members %}
-                {% set quota_usage = usage_by_user[u.id] %}
-                {% set q = quotas_by_user[u.id] %}
-                {% set overridden = u.cpu_quota_override is not none or u.memory_mb_quota_override is not none or u.disk_mb_quota_override is not none or u.gpu_quota_override is not none %}
-                <article class="admin-user-card">
-                  <header class="admin-user-header">
-                    <div class="admin-user-identity">
-                      <span class="admin-user-id">#{{ u.id }}</span>
-                      <div class="admin-user-copy">
-                        <strong class="admin-user-name">{{ u.username }}</strong>
-                        <span class="admin-user-full-name">{{ u.full_name or 'Ad soyad girilmemiş' }}</span>
-                        <a class="admin-user-email" href="mailto:{{ u.email }}">{{ u.email }}</a>
-                      </div>
-                    </div>
-                    <div class="admin-user-badges">
-                      <span class="badge {% if u.role == 'admin' %}badge-role-admin{% else %}badge-role-user{% endif %}">
-                        {% if u.role == 'admin' %}Yönetici{% else %}Kullanıcı{% endif %}
-                      </span>
-                      <span class="badge badge-neutral">{{ {'internal': 'Dahili', 'active_directory': 'Active Directory'}.get(u.auth_source, u.auth_source) }}</span>
-                      {% if overridden %}<span class="badge badge-override">Özel kota</span>{% endif %}
-                      <span class="admin-user-status {% if u.is_active %}is-active{% else %}is-inactive{% endif %}">{% if u.is_active %}Aktif{% else %}Pasif{% endif %}</span>
-                    </div>
-                  </header>
-
-                  <section class="admin-user-usage" aria-label="{{ u.username }} kaynak kullanımı">
-                    <h3>Kullanım / Kota</h3>
-                    {% for key, label, field in [('cpu', 'CPU', 'cpu_quota'), ('memory', 'RAM', 'memory_mb_quota'), ('disk', 'Disk', 'disk_mb_quota'), ('gpu', 'GPU', 'gpu_quota')] %}
-                      {% set metric = quota_usage[key] %}
-                      <div class="admin-quota-metric">
-                        <div class="admin-quota-label">
-                          <span>{{ label }} <small class="admin-quota-source is-{{ q.sources[field] }}">{{ source_labels[q.sources[field]] }}</small></span>
-                          <strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong>
-                        </div>
-                        <div class="admin-quota-track"><span style="width: {{ metric.percent }}%;"></span></div>
-                      </div>
-                    {% endfor %}
-                  </section>
-
-                  <section class="admin-user-llm" data-genai-user="{{ u.id }}" aria-label="{{ u.username }} LLM kullanımı" hidden>
-                    <h3>LLM Kullanımı <small>son 30 gün</small></h3>
-                    <div class="admin-llm-metrics">
-                      <div><span>İstek</span><strong data-llm="api_requests">0</strong></div>
-                      <div><span>Token</span><strong data-llm="total_tokens">0</strong></div>
-                      <div><span>Girdi / Çıktı</span><strong data-llm="split">0 / 0</strong></div>
-                      <div data-llm-spend hidden><span>Harcama</span><strong data-llm="spend">$0.00</strong></div>
-                      <div><span>Sıra</span><strong data-llm="rank">—</strong></div>
-                    </div>
-                    <div class="admin-llm-spark" data-llm="spark"></div>
-                  </section>
-
-                  <form class="quota-form admin-quota-form" data-user-id="{{ u.id }}">
-                    <h3>Kota Ayarları <small>boş = {% if group.is_default %}varsayılan{% else %}takım{% endif %} değeri</small></h3>
-                    <div class="quota-input-grid">
-                      {% for key, label, step, max, override, inherited_display in [
-                        ('cpu_quota', 'CPU', '0.5', '256', u.cpu_quota_override, quota_num(group.inherited.cpu_quota)),
-                        ('memory_gb_quota', 'RAM GB', '0.25', '1024', (u.memory_mb_quota_override / 1024) if u.memory_mb_quota_override is not none else none, gb(group.inherited.memory_mb_quota)),
-                        ('disk_gb_quota', 'Disk GB', '0.25', '1048576', (u.disk_mb_quota_override / 1024) if u.disk_mb_quota_override is not none else none, gb(group.inherited.disk_mb_quota)),
-                        ('gpu_quota', 'GPU slot', '1', '64', u.gpu_quota_override, quota_num(group.inherited.gpu_quota)),
-                      ] %}
-                        <label class="quota-field">
-                          <span>{{ label }}</span>
-                          <input class="form-input{% if override is not none %} is-override{% endif %}" type="number" name="{{ key }}" min="0" max="{{ max }}" step="{{ step }}"
-                            value="{% if override is not none %}{{ '%g'|format(override|round(2)) }}{% endif %}"
-                            placeholder="{{ inherited_display }}">
-                        </label>
-                      {% endfor %}
-                    </div>
-                    <div class="quota-actions">
-                      <button type="submit" class="btn btn-primary btn-sm">Kotayı Kaydet</button>
-                      {% if overridden %}<button type="button" class="btn btn-secondary btn-sm" data-quota-reset>Takıma döndür</button>{% endif %}
-                      <span class="quota-form-status" role="status"></span>
-                    </div>
-                  </form>
-                </article>
-              {% endfor %}
-            </div>
-          {% else %}
-            <p class="admin-team-empty">Bu takımda kayıtlı kullanıcı yok. Takım adı AD'de değiştiyse bu kotayı kaldırabilirsiniz; kullanıcılar ilk girişte takımlarına eklenir.</p>
+        <div class="admin-unit-body">
+          {{ group_quota_form(unit, hierarchy.default.inherited, hierarchy.default.inherited_sources) }}
+          {% for team in unit.teams %}{{ team_group(team) }}{% endfor %}
+          {% if not unit.teams %}
+            <p class="admin-team-empty">Bu müdürlükte kayıtlı takım yok. Müdürlük adı AD'de değiştiyse bu kotayı kaldırabilirsiniz.</p>
           {% endif %}
         </div>
       </details>
     {% endfor %}
+
+    {% if hierarchy.standalone %}
+      {% if hierarchy.units %}<div class="admin-team-section-label">Müdürlüğü belirlenmemiş takımlar</div>{% endif %}
+      {% for group in hierarchy.standalone %}{{ team_group(group) }}{% endfor %}
+    {% endif %}
   </div>
 </section>
 {% endif %}

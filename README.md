@@ -35,6 +35,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Resource Usage Dashboard**: Host CPU/RAM/disk utilization, per-user CPU/RAM/disk/GPU allocations, and remaining quota on the workspace dashboard.
 - **Self-Service Registration**: New users can sign up from the login screen with a default allowance of 1 CPU core, 1 GB RAM, and 10 GB disk; admins can adjust individual quotas.
 - **Per-User Quotas**: Admin-managed CPU, RAM, persistent-disk, and GPU-slot limits with workspace deployment enforcement. GPU quota defaults to zero.
+- **Hierarchical Quotas**: **Admin > Kullanıcılar** lists müdürlüks, their teams and the members. Quotas are per member and resolve user override → team → müdürlük → default; a blank field inherits the next level, and each value shows where it comes from.
 - **Pause to Reclaim Quota**: CPU and RAM are charged only while a workspace holds compute, so pausing one frees its allowance for another. Disk keeps counting paused workspaces because their data stays on the worker, and GPU slots keep counting because a paused workspace holds its accelerator slot. Resuming re-checks the owner's quota and is refused when it would exceed the limit.
 - **Outbound-Only CPU and NVIDIA GPU Workers**: Register workers without inbound management ports, validate an existing NVIDIA driver/Container Toolkit/CDI stack, display physical GPU and MIG inventory, and schedule GPU workspaces onto exact CDI devices.
 - **GPU Sharing Policy**: RTX 4090 workers default to two workspace slots per physical GPU and RTX 5090 workers to three; admins can override physical GPUs to one, two, or three slots. Every MIG CDI slice is an exclusive single slot.
@@ -127,10 +128,18 @@ before enabling directory login.
 - Profile fields are synchronized on successful directory login and are
   read-only in DevCloud. The default AD mappings are `sAMAccountName` for the
   username, `displayName` for full name, `mail` for email, `department` for
-  team, and `division` for the parent organization. The optional directorate
+  team, and `division` for the parent organization. The optional müdürlük
   mapping is empty by default; set it to the AD attribute that carries the
-  intermediate directorate value. Administrators can change all attribute
+  intermediate müdürlük value. Administrators can change all attribute
   names in the directory settings form.
+- When no müdürlük attribute is set, the müdürlük is derived from the AD
+  `manager` chain at login: it is the `department` of the nearest manager (or
+  the user themselves) whose `title` is one of the unit-head titles (`MÜDÜR`
+  by default, comma-separated). The walk stops at a manager in another
+  `division`, so `GENEL MÜDÜR` and above never become a müdürlük. Example:
+  an `ARAŞTIRMA VE GELİŞTİRME` member reporting to a `MÜDÜR` in
+  `YENİLİKÇİ TEKNOLOJİLER` gets that müdürlük, and the admin team list shows
+  the team under it. Existing users pick up the value on their next login.
 - When directory login is enabled, public self-registration is disabled. The
   existing local administrator remains available as an emergency fallback.
 
@@ -328,10 +337,14 @@ the new tier automatically, and the GenAI page asks them to rotate their
 personal key.
 
 **Usage statistics.** **GenAI > İstatistikler** shows request and token totals,
-a daily chart, user and AD department leaderboards, LiteLLM team rankings and
-the model split for 7, 30 or 90 days. **Admin > Kullanıcılar** adds 30-day LLM
-usage to every user card and department group. Spend (USD) is shown to admins
-only. The data comes from LiteLLM's `/user/daily/activity` and
+a daily chart, user, team (AD department) and müdürlük leaderboards, LiteLLM
+team rankings and the model split for 7, 30 or 90 days. Every user also gets a
+**Takımım** section with their team's totals, rank and members. Unit heads
+(see the unit-head titles in the directory settings) also get a **Müdürlüğüm**
+section with müdürlük-wide totals and every team in the müdürlük, including
+teams without usage. The viewer's own row is highlighted on each leaderboard.
+**Admin > Kullanıcılar** adds 30-day LLM usage to every user card, team and
+müdürlük. Spend (USD) is shown to admins only. The data comes from LiteLLM's `/user/daily/activity` and
 `/team/daily/activity` and is cached for 60 seconds.
 
 **Workspace AI with the user's own key.** Once a user has created GenAI access,

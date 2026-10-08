@@ -112,7 +112,7 @@ async def get_stats(
 ):
     """Usage leaderboards and charts; spend (USD) is shown to admins only."""
     _no_store(response)
-    stats = await usage_stats(db, days)
+    stats = await usage_stats(db, days, viewer=current_user)
     is_admin = current_user.role == UserRole.ADMIN
     stats["show_spend"] = is_admin
     return stats if is_admin else _without_spend(stats)

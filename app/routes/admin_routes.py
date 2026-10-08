@@ -70,8 +70,11 @@ from app.quotas import (
     DEFAULT_GROUP_LABEL,
     QUOTA_FIELDS,
     build_group_views,
+    build_hierarchy,
+    clean_name,
     load_quota_groups,
     team_key,
+    unit_key,
     user_out,
     user_out_for,
 )
@@ -1195,6 +1198,9 @@ def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
         team_attribute=record.team_attribute,
         directorate_attribute=record.directorate_attribute,
         organization_unit_attribute=record.organization_unit_attribute,
+        manager_attribute=record.manager_attribute,
+        title_attribute=record.title_attribute,
+        unit_head_titles=record.unit_head_titles,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -1788,10 +1794,15 @@ async def list_user_groups(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Admin: directory teams with their per-member quota and member counts."""
+    """Admin: the default group, directory teams and müdürlüks with their quotas."""
+    return [_group_quota_out(view) for view in await _quota_group_views(db)]
+
+
+async def _quota_group_views(db: AsyncSession) -> list[dict]:
     users = (await db.execute(select(User))).scalars().all()
-    views = build_group_views(users, await load_quota_groups(db))
-    return [_group_quota_out(view) for view in views]
+    groups = await load_quota_groups(db)
+    views = build_group_views(users, groups)
+    return views + build_hierarchy(views, groups)["units"]
 
 
 @admin_router.put("/user-groups", response_model=GroupQuotaOut)
@@ -1800,8 +1811,15 @@ async def upsert_user_group_quota(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Admin: set the per-member quota of a team, or of the default group."""
-    key = team_key(payload.team)
+    """Admin: set the per-member quota of a team, a müdürlük or the default group."""
+    if clean_name(payload.team) and clean_name(payload.unit):
+        raise HTTPException(
+            status_code=422, detail="Takım veya müdürlükten yalnızca biri seçilmelidir."
+        )
+    if clean_name(payload.unit):
+        key, label = unit_key(payload.unit), clean_name(payload.unit)
+    else:
+        key, label = team_key(payload.team), clean_name(payload.team)
     values = {name: getattr(payload, name) for name in QUOTA_FIELDS}
     if key == DEFAULT_GROUP_KEY and any(value is None for value in values.values()):
         raise HTTPException(
@@ -1814,17 +1832,13 @@ async def upsert_user_group_quota(
     if row is None:
         row = UserGroupQuota(
             group_key=key,
-            display_name=(
-                DEFAULT_GROUP_LABEL if key == DEFAULT_GROUP_KEY
-                else " ".join(payload.team.split())
-            ),
+            display_name=DEFAULT_GROUP_LABEL if key == DEFAULT_GROUP_KEY else label,
         )
     for name, value in values.items():
         setattr(row, name, value)
     db.add(row)
     await db.commit()
-    users = (await db.execute(select(User))).scalars().all()
-    views = build_group_views(users, await load_quota_groups(db))
+    views = await _quota_group_views(db)
     return _group_quota_out(next(view for view in views if view["key"] == key))
 
 
@@ -1834,7 +1848,7 @@ async def delete_user_group_quota(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Admin: remove a team quota so its members fall back to the default group."""
+    """Admin: remove a team or müdürlük quota; members fall back to the next level."""
     row = await db.get(UserGroupQuota, group_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Grup kotası bulunamadı.")
@@ -1852,6 +1866,8 @@ def _group_quota_out(view: dict) -> GroupQuotaOut:
         display_name=view["display_name"],
         is_default=view["is_default"],
         configured=view["configured"],
+        kind=view["kind"],
+        organization_unit=view["organization_unit"],
         inherited=view["inherited"],
         member_count=view["member_count"],
         override_count=view["override_count"],

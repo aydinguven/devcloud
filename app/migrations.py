@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 27
+CURRENT_SCHEMA_VERSION = 28
 
 
 class MigrationError(RuntimeError):
@@ -641,6 +641,31 @@ async def _add_genai_teams_and_workspace_keys(conn) -> None:
                 )
 
 
+async def _add_directory_manager_chain_fields(conn) -> None:
+    """Add the müdürlük-from-manager-chain settings and the unit-head column."""
+    wanted = {
+        "directory_settings": {
+            "manager_attribute": "VARCHAR(128) NOT NULL DEFAULT 'manager'",
+            "title_attribute": "VARCHAR(128) NOT NULL DEFAULT 'title'",
+            "unit_head_titles": "VARCHAR(512) NOT NULL DEFAULT 'MÜDÜR'",
+        },
+        "users": {
+            "managed_unit": "VARCHAR(255) NOT NULL DEFAULT ''",
+        },
+    }
+    for table, columns in wanted.items():
+        existing = await conn.run_sync(
+            lambda sync_conn, table=table: {
+                column["name"] for column in inspect(sync_conn).get_columns(table)
+            }
+        )
+        for name, definition in columns.items():
+            if name not in existing:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                )
+
+
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
     """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
@@ -953,6 +978,9 @@ async def upgrade() -> None:
         if 27 not in applied:
             await _add_genai_teams_and_workspace_keys(conn)
             await _record_version(conn, 27, "GenAI teams and per-user workspace keys")
+        if 28 not in applied:
+            await _add_directory_manager_chain_fields(conn)
+            await _record_version(conn, 28, "müdürlük hierarchy from the AD manager chain")
 
 
 async def current_version() -> int:

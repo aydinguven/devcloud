@@ -23,10 +23,11 @@ class UserOut(BaseModel):
     team: str
     directorate: str
     organization_unit: str = ""
+    managed_unit: str = ""
     role: UserRole
     auth_source: str
     is_active: bool
-    # Effective quota (override -> team group -> default); see app/quotas.py.
+    # Effective quota (override -> team -> müdürlük -> default); see app/quotas.py.
     cpu_quota: float
     memory_mb_quota: int
     disk_mb_quota: int
@@ -58,12 +59,15 @@ class UserQuotaUpdate(BaseModel):
 
 
 class GroupQuotaUpdate(BaseModel):
-    """Per-member quota for one team; ``team=""`` is the default group.
+    """Per-member quota for one team or müdürlük; both empty is the default group.
 
-    ``null`` inherits the default group's value (not allowed for the default).
+    Set ``team`` for a team or ``unit`` for a müdürlük, not both. ``null``
+    inherits the next level (team -> müdürlük -> default); the default group
+    needs every value.
     """
 
     team: str = Field(default="", max_length=255)
+    unit: str = Field(default="", max_length=255)
     cpu_quota: float | None = Field(default=None, ge=0, le=256)
     memory_mb_quota: int | None = Field(default=None, ge=0, le=1048576)
     disk_mb_quota: int | None = Field(default=None, ge=0, le=1073741824)
@@ -76,7 +80,9 @@ class GroupQuotaOut(BaseModel):
     display_name: str
     is_default: bool
     configured: bool
-    # Raw group values; null inherits the default group.
+    kind: str = "team"  # default | team | unit (müdürlük)
+    organization_unit: str = ""
+    # Raw group values; null inherits the next level.
     cpu_quota: float | None = None
     memory_mb_quota: int | None = None
     disk_mb_quota: int | None = None

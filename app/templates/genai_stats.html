@@ -7,7 +7,7 @@
   <div>
     <span class="page-kicker">LiteLLM</span>
     <h1>GenAI İstatistikleri</h1>
-    <p>Kurum genelinde LLM istekleri, token kullanımı ve en aktif kullanıcılar ile takımlar.</p>
+    <p>Takımınızın, yöneticiyseniz müdürlüğünüzün ve kurumun geneli için LLM istekleri, token kullanımı ve liderlik tabloları.</p>
   </div>
 </div>
 
@@ -37,6 +37,68 @@
   <p id="genai-stats-status" class="text-muted" role="status">İstatistikler yükleniyor...</p>
 
   <div id="genai-stats-body" hidden>
+    {# Müdürlük view for unit heads: müdürlük-wide totals and each of its teams. #}
+    <section class="genai-scope" id="scope-unit" aria-labelledby="unit-name" hidden>
+      <header class="genai-scope-head">
+        <div>
+          <span class="page-kicker">🏛️ Müdürlüğüm</span>
+          <h2 id="unit-name"></h2>
+          <small id="unit-meta" class="text-muted"></small>
+        </div>
+        <span class="genai-scope-rank" id="unit-rank"></span>
+      </header>
+      <div class="genai-kpis genai-kpis-compact">
+        <article class="genai-kpi"><span>İstek</span><strong id="unit-requests">—</strong><small id="unit-requests-share"></small></article>
+        <article class="genai-kpi"><span>Token</span><strong id="unit-tokens">—</strong><small id="unit-tokens-share"></small></article>
+        <article class="genai-kpi"><span>Aktif kullanıcı</span><strong id="unit-users">—</strong><small id="unit-users-total"></small></article>
+        <article class="genai-kpi" data-admin-only hidden><span>Harcama</span><strong id="unit-spend">—</strong><small id="unit-spend-share"></small></article>
+      </div>
+      <section class="card genai-chart-card">
+        <div class="card-header"><h2 class="card-title">Takımlara göre günlük kullanım</h2><span class="text-muted" id="unit-teams-legend"></span></div>
+        <div id="chart-unit-teams" class="genai-chart" role="img" aria-label="Müdürlükteki takımların günlük kullanımı"></div>
+      </section>
+      <section class="genai-grid">
+        <article class="card">
+          <div class="card-header"><h2 class="card-title">🏢 Takımlarım</h2><span class="badge badge-neutral" id="unit-teams-count"></span></div>
+          <ol id="board-unit-teams" class="genai-board"></ol>
+        </article>
+        <article class="card">
+          <div class="card-header"><h2 class="card-title">🏆 Müdürlük kullanıcıları</h2><span class="badge badge-neutral" id="unit-users-count"></span></div>
+          <ol id="board-unit-users" class="genai-board"></ol>
+        </article>
+      </section>
+    </section>
+
+    {# Every user sees their own team. #}
+    <section class="genai-scope" id="scope-team" aria-labelledby="team-name" hidden>
+      <header class="genai-scope-head">
+        <div>
+          <span class="page-kicker">👥 Takımım</span>
+          <h2 id="team-name"></h2>
+          <small id="team-meta" class="text-muted"></small>
+        </div>
+        <span class="genai-scope-rank" id="team-rank"></span>
+      </header>
+      <div class="genai-kpis genai-kpis-compact">
+        <article class="genai-kpi"><span>İstek</span><strong id="team-requests">—</strong><small id="team-requests-share"></small></article>
+        <article class="genai-kpi"><span>Token</span><strong id="team-tokens">—</strong><small id="team-tokens-share"></small></article>
+        <article class="genai-kpi"><span>Aktif kullanıcı</span><strong id="team-users">—</strong><small id="team-users-total"></small></article>
+        <article class="genai-kpi" data-admin-only hidden><span>Harcama</span><strong id="team-spend">—</strong><small id="team-spend-share"></small></article>
+      </div>
+      <section class="genai-grid">
+        <article class="card genai-chart-card">
+          <div class="card-header"><h2 class="card-title">Takımın günlük kullanımı</h2></div>
+          <div id="chart-team" class="genai-chart" role="img" aria-label="Takımın günlük kullanımı"></div>
+        </article>
+        <article class="card">
+          <div class="card-header"><h2 class="card-title">🏆 Takım arkadaşları</h2><span class="badge badge-neutral" id="team-users-count"></span></div>
+          <ol id="board-team-users" class="genai-board"></ol>
+        </article>
+      </section>
+    </section>
+
+    <h2 class="genai-section-title" id="scope-global-title" hidden>🌐 Kurum geneli</h2>
+
     <section class="genai-kpis" aria-label="Özet">
       <article class="genai-kpi"><span>İstek</span><strong id="kpi-requests">—</strong><small id="kpi-success"></small></article>
       <article class="genai-kpi"><span>Token</span><strong id="kpi-tokens">—</strong><small id="kpi-tokens-split"></small></article>
@@ -56,12 +118,17 @@
         <p id="board-users-empty" class="text-muted" hidden>Bu LiteLLM sürümü kullanıcı kırılımı döndürmüyor.</p>
       </article>
       <article class="card">
-        <div class="card-header"><h2 class="card-title">🏢 Departman liderliği</h2><span class="text-muted">AD department</span></div>
+        <div class="card-header"><h2 class="card-title">🏢 Takım liderliği</h2><span class="text-muted">AD department</span></div>
         <ol id="board-groups" class="genai-board"></ol>
       </article>
     </section>
 
     <section class="genai-grid">
+      <article class="card">
+        <div class="card-header"><h2 class="card-title">🏛️ Müdürlük liderliği</h2><span class="text-muted">Takımların bağlı olduğu müdürlük</span></div>
+        <ol id="board-units" class="genai-board"></ol>
+        <p id="board-units-empty" class="text-muted" hidden>Müdürlük bilgisi henüz yok. Kullanıcılar bir sonraki girişte müdürlüklerine eklenir.</p>
+      </article>
       <article class="card">
         <div class="card-header"><h2 class="card-title">LiteLLM takımları</h2><span class="text-muted">Standard / AI / Pro</span></div>
         <ol id="board-teams" class="genai-board"></ol>

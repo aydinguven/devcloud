@@ -43,7 +43,7 @@ from app.orchestrator.templates import list_builtin_templates
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
-from app.quotas import build_group_views, effective_quota, load_quota_groups
+from app.quotas import build_group_views, build_hierarchy, effective_quota, load_quota_groups
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.schemas.workspace import WorkspaceOut
 from app.workspace_catalog import configured_flavors, configured_templates, list_enabled_flavors, list_enabled_templates
@@ -594,12 +594,14 @@ async def admin_page(
             disk_usage_by_user=disk_usage,
             quotas=quotas,
         )
+        team_views = build_group_views(users, quota_groups, usage_by_user)
         context.update(
             {
                 "all_users": users,
                 "usage_by_user": usage_by_user,
                 "quotas_by_user": quotas,
-                "user_groups": build_group_views(users, quota_groups, usage_by_user),
+                "user_groups": team_views,
+                "user_hierarchy": build_hierarchy(team_views, quota_groups),
                 "directory_settings": await db.get(DirectorySettings, 1),
             }
         )

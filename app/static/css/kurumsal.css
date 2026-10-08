@@ -960,6 +960,7 @@ code { color: #8d0022; }
 }
 .admin-quota-source.is-user { color: #9a5b00; }
 .admin-quota-source.is-group { color: #1d4f91; }
+.admin-quota-source.is-unit { color: #a0002a; }
 .admin-quota-form .form-input.is-override { border-color: #d39b2a; background: #fffaf0; }
 .admin-quota-form .form-input::placeholder,
 .group-quota-form .form-input::placeholder { color: #9aa6b6; }
@@ -982,6 +983,35 @@ code { color: #8d0022; }
 .admin-team-summary:hover { background: #f7f9fc; }
 .admin-team-group[open] > .admin-team-summary { background: var(--pale-blue); border-bottom: 1px solid #d4deeb; }
 .admin-team-group.is-default > .admin-team-summary { border-left: 3px solid var(--secondary); }
+/* Müdürlük -> team -> member: a müdürlük wraps its teams, which are indented. */
+.admin-unit-group { border-top: 1px solid #e1e7ef; }
+.admin-unit-group[hidden] { display: none; }
+.admin-unit-summary { border-left: 3px solid var(--primary, #d50032); }
+.admin-unit-summary .admin-team-name { font-size: 0.95rem; letter-spacing: 0.01em; }
+.admin-unit-group[open] > .admin-unit-summary { background: #f2f5fa; border-bottom: 1px solid #d4deeb; }
+.admin-unit-group[open] > .admin-team-summary .admin-team-chevron { transform: rotate(45deg); }
+.admin-unit-body { background: #fbfcfe; border-left: 3px solid #e4e9f1; }
+.admin-unit-body > .group-quota-form { background: #f0f4f9; }
+.admin-team-group.is-nested > .admin-team-summary { padding-left: 2.6rem; }
+/* Nested member cards have less room: the quota form gets its own row. */
+@media (min-width: 621px) {
+  .admin-team-group.is-nested .admin-user-card { grid-template-columns: minmax(220px, 0.9fr) minmax(220px, 1fr); }
+  .admin-team-group.is-nested .admin-quota-form { grid-column: 1 / -1; }
+  .admin-team-group.is-nested .admin-quota-form .quota-input-grid { grid-template-columns: repeat(4, minmax(0, 160px)); }
+}
+.admin-team-section-label {
+  background: #f7f9fc;
+  border-top: 1px solid #e1e7ef;
+  color: #5d6a7d;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  padding: 0.55rem 1.4rem;
+  text-transform: uppercase;
+}
+.badge-unit { background: #fdecef; border: 1px solid #f3b9c5; color: #a0002a; }
+.badge-unit-head { background: #e9f1fb; border: 1px solid #bcd2ee; color: #1d4f91; }
+.group-quota-form h3 small { color: #8592a5; font-size: 0.62rem; font-weight: 600; letter-spacing: 0; margin-left: 0.35rem; text-transform: none; }
 .admin-team-chevron {
   border-bottom: 2px solid #5d6a7d;
   border-right: 2px solid #5d6a7d;
@@ -2506,6 +2536,38 @@ code { color: #8d0022; }
 .genai-board-track { background: #edf1f6; border-radius: 99px; height: 7px; margin: 0.3rem 0 0.2rem; overflow: hidden; }
 .genai-board-track span { border-radius: 99px; display: block; height: 100%; transition: width 0.4s ease; }
 .genai-board-body small { color: var(--text-muted); font-size: 0.7rem; }
+/* The viewer's own row; pinned when it is outside the top of the board. */
+.genai-board-row.is-self { background: #e9f1fb; box-shadow: inset 3px 0 0 #2563eb; }
+.genai-board-row.is-self .genai-board-head strong::after { color: #2563eb; content: " (siz)"; font-weight: 700; }
+.genai-board-row.is-pinned { border-top: 1px dashed #c9d4e3; margin-top: 0.3rem; }
+.genai-board-row.is-idle { opacity: 0.6; }
+
+/* Personal scopes on the stats page: "Müdürlüğüm" and "Takımım". */
+.genai-scope {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.15rem 0.25rem;
+}
+#scope-unit { border-top: 4px solid var(--primary); }
+#scope-team { border-top: 4px solid #0f766e; }
+.genai-scope-head { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: space-between; margin-bottom: 0.85rem; }
+.genai-scope-head h2 { color: var(--heading); font-size: 1.25rem; margin: 0.15rem 0; }
+.genai-scope-rank {
+  background: var(--pale-blue);
+  border-radius: 99px;
+  color: var(--heading);
+  font-size: 0.8rem;
+  font-weight: 750;
+  padding: 0.35rem 0.8rem;
+  white-space: nowrap;
+}
+.genai-kpis-compact .genai-kpi { box-shadow: none; padding: 0.7rem 0.9rem; }
+.genai-kpis-compact .genai-kpi strong { font-size: 1.45rem; }
+.genai-scope .card { box-shadow: none; }
+.genai-section-title { color: var(--heading); font-size: 1.05rem; margin: 0.5rem 0 0.85rem; }
 
 /* ---------- GenAI: admin user cards and groups ---------- */
 .admin-user-llm {
