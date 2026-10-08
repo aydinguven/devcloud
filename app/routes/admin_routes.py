@@ -32,12 +32,20 @@ from app.auth.dependencies import get_current_admin_user
 from app.auth.ldap import (
     DirectoryConfigurationError,
     DirectoryConnectionError,
+    DirectoryUnavailableError,
+    config_from_record,
     config_from_update,
     encrypt_directory_secret,
     test_directory_configuration,
     validate_directory_config,
 )
 from app.database import get_db
+from app.directory_sync import (
+    apply_snapshot,
+    build_org_snapshot,
+    directory_teams_by_key,
+    fetch_directory_entries,
+)
 from app.models.session_settings import SessionSettings
 from app.schemas.session_settings import SessionSettingsUpdate
 from app.session_settings import session_timeout_minutes
@@ -1201,6 +1209,7 @@ def _directory_settings_out(record: DirectorySettings) -> DirectorySettingsOut:
         manager_attribute=record.manager_attribute,
         title_attribute=record.title_attribute,
         unit_head_titles=record.unit_head_titles,
+        division_head_titles=record.division_head_titles,
         group_membership_attribute=record.group_membership_attribute,
         required_group_dn=record.required_group_dn,
         admin_group_dn=record.admin_group_dn,
@@ -1758,6 +1767,32 @@ async def test_directory_settings(
     )
 
 
+@admin_router.post("/directory-sync")
+async def sync_directory(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: read every AD person, place teams under müdürlüks, refresh users."""
+    record = await db.get(DirectorySettings, 1)
+    if record is None or not record.enabled:
+        raise HTTPException(status_code=409, detail="Önce LDAP / Active Directory girişini etkinleştirin.")
+    try:
+        config = config_from_record(record)
+        entries = await asyncio.to_thread(fetch_directory_entries, config)
+    except DirectoryConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DirectoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=f"Dizin okunamadı: {exc}") from exc
+    snapshot = build_org_snapshot(
+        entries,
+        config.unit_head_titles,
+        config.division_head_titles,
+        use_unit_attribute=bool(config.organization_unit_attribute),
+    )
+    # Service and room accounts have no department and are not counted.
+    return await apply_snapshot(db, snapshot, ad_people=sum(1 for e in entries if e.team))
+
+
 @admin_router.get("/users", response_model=list[UserOut])
 async def list_all_users(
     _admin: Annotated[User, Depends(get_current_admin_user)],
@@ -1801,7 +1836,7 @@ async def list_user_groups(
 async def _quota_group_views(db: AsyncSession) -> list[dict]:
     users = (await db.execute(select(User))).scalars().all()
     groups = await load_quota_groups(db)
-    views = build_group_views(users, groups)
+    views = build_group_views(users, groups, directory_teams=await directory_teams_by_key(db))
     return views + build_hierarchy(views, groups)["units"]
 
 

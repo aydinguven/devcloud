@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initLogPolling();
   initQuotaForms();
   initDirectorySettings();
+  initDirectorySync();
   initJupyterAiSettings();
   initModelContainerRegistrySettings();
   initAdminMlflowSettings();
@@ -1244,6 +1245,18 @@ function showQuotaError(form, message) {
 }
 
 function initQuotaForms() {
+  // Compact user rows keep their quota editor folded until "Kota" is pressed.
+  document.querySelectorAll("[data-quota-toggle]").forEach((button) => {
+    const form = button.closest(".admin-user-card")?.querySelector(".quota-form");
+    if (!form) return;
+    button.addEventListener("click", () => {
+      form.hidden = !form.hidden;
+      button.setAttribute("aria-expanded", String(!form.hidden));
+      button.classList.toggle("active", !form.hidden);
+      if (!form.hidden) form.querySelector("input")?.focus();
+    });
+  });
+
   document.querySelectorAll(".quota-form[data-user-id]").forEach((form) => {
     const url = `/api/admin/users/${form.dataset.userId}/quota`;
     form.addEventListener("submit", (event) => {
@@ -1288,6 +1301,7 @@ function initUserGroupFilter() {
   document.querySelectorAll("[data-admin-group-filter]").forEach((input) => {
     const groups = document.querySelectorAll(input.dataset.adminGroupFilter);
     const units = input.dataset.adminUnitFilter ? document.querySelectorAll(input.dataset.adminUnitFilter) : [];
+    const sections = input.dataset.adminSectionFilter ? document.querySelectorAll(input.dataset.adminSectionFilter) : [];
     const userOpened = new WeakMap();
     [...groups, ...units].forEach((group) => {
       group.addEventListener("toggle", () => {
@@ -1304,7 +1318,7 @@ function initUserGroupFilter() {
           group.open = Boolean(userOpened.get(group));
           return;
         }
-        const name = group.querySelector(".admin-team-summary").textContent.toLocaleLowerCase("tr-TR");
+        const name = group.querySelector(":scope > summary").textContent.toLocaleLowerCase("tr-TR");
         if (name.includes(query)) {
           cards.forEach((card) => { card.hidden = false; });
           group.hidden = false;
@@ -1338,7 +1352,43 @@ function initUserGroupFilter() {
         unit.hidden = !matches;
         unit.open = matches;
       });
+      // A section (Müdürlükler, a Genel Müdürlük, unresolved teams) hides with its rows.
+      sections.forEach((section) => {
+        const rows = section.querySelectorAll(":scope > details");
+        section.hidden = Boolean(query) && Array.from(rows).every((row) => row.hidden);
+      });
     });
+  });
+}
+
+// Bulk AD sync: places every AD team under its müdürlük and refreshes users.
+function initDirectorySync() {
+  const button = document.getElementById("btn-directory-sync");
+  const status = document.getElementById("directory-sync-status");
+  document.querySelectorAll("time[data-local-time]").forEach((node) => {
+    const date = new Date(node.dataset.localTime);
+    if (!Number.isNaN(date.getTime())) {
+      node.textContent = date.toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+    }
+  });
+  if (!button || !status) return;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    status.className = "tree-sync is-busy";
+    status.textContent = "Active Directory okunuyor...";
+    try {
+      const response = await fetch("/api/admin/directory-sync", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `Senkronizasyon başarısız (${response.status})`);
+      status.className = "tree-sync";
+      status.textContent = `${data.ad_people} kişi · ${data.teams} takım · ${data.units} müdürlük okundu; ` +
+        `${data.updated_users} kullanıcı güncellendi. Sayfa yenileniyor...`;
+      setTimeout(() => window.location.reload(), 900);
+    } catch (error) {
+      status.className = "tree-sync is-error";
+      status.textContent = error.message;
+      button.disabled = false;
+    }
   });
 }
 
@@ -1376,6 +1426,7 @@ function initDirectorySettings() {
       manager_attribute: String(data.get("manager_attribute") || "").trim(),
       title_attribute: String(data.get("title_attribute") || "").trim(),
       unit_head_titles: String(data.get("unit_head_titles") || "").trim(),
+      division_head_titles: String(data.get("division_head_titles") || "").trim(),
       group_membership_attribute: String(data.get("group_membership_attribute") || "").trim(),
       required_group_dn: String(data.get("required_group_dn") || "").trim(),
       admin_group_dn: String(data.get("admin_group_dn") || "").trim(),
