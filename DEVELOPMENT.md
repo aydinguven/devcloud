@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.15.0`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.16.0`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,13 +13,16 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Aydin | Pending | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
+| Aydin | Pending | `main` | 3.16.0 rollout | IDMVAIFACT1's 3.15.0 update applied but the worker bundle copy hit ENOSPC: free space, publish the 3.15.0 bundle manually (see Latest handoff), then update to 3.16.0 and upgrade workers |
+| Aydin | Superseded | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
 | Aydin | Superseded | `main` | 3.14.0 rollout | Update IDMVAIFACT1 and workers, run **Admin > Kullanıcılar > AD'den senkronize et** once, then review "Müdürlüğü belirlenemeyen takımlar" and the users AD did not return |
 | Aydin | Pending | `main` | 3.13.0 rollout | Update IDMVAIFACT1 and workers, check Admin > Dizin has `manager` / `title` / `MÜDÜR`, then log in as Kemal (K014810): Admin > Kullanıcılar nests Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler and GenAI > İstatistikler shows Müdürlüğüm |
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
 
+- 2026-10-08: Publishing the worker bundle prunes `.partial` leftovers and every published bundle but the previous one, checks free space first and never leaves a partial file. A publish failure after an applied update exits 3; `queued_update` records `succeeded` plus a `warning`. `devcloud-setup.sh --yes publish-worker-bundle` republishes the installed release. Updates check free space before staging, and a best-effort `cleanup` step (it must never raise, or the plan rolls back) keeps the current and previous release, their runtime images and the 3 newest pre-update backups.
+- 2026-10-08: MLflow deploys offer two targets: **AI Factory** (the existing managed service on DevCloud workers) and **Kubernetes** (planned: serving image -> Nexus -> workflow -> TCMB Kubernetes). Kubernetes is UI only and disabled (`DEPLOY_TARGETS.kubernetes.available = false` in `mlflow_deployments.js`) until the backend exists.
 - 2026-10-08: Update progress is a best-effort JSON file next to the queue (`app/installer/progress.py`, stdlib only): the root updater resets it and passes `DEVCLOUD_UPDATE_PROGRESS_FILE`; the installed CLI reports download bytes and verification; the target engine reports each plan step, the controller health wait and rollback (it falls back to `/var/lib/devcloud/update-queue/progress.json` when the variable is missing, so a 3.14 updater still gets step progress). Output streams to `output.log` instead of `capture_output`. Readers ignore a progress file older than the current request. `running.json` is always reported as `running` (older updaters left `"queued"` in it). The worker agent sends heartbeats every 3 s while an upgrade runs and immediately on status changes.
 - 2026-10-08: The bulk AD sync runs automatically ~60 s after startup and every `DIRECTORY_SYNC_INTERVAL_HOURS` (default 6). Managers outside the sync search are read by DN (up to 2000) to finish chains but are not placed or counted; a blank `division` no longer ends a chain.
 - 2026-10-08: **AD'den senkronize et** reads every person under `user_base_dn` (login filter with `{username}` -> `*`, paged by 500) and stores one `directory_teams` row per AD `department`: the müdürlük is the majority of its members' chains, `division` when a chain reaches a Genel Müdür title (`GENEL MÜDÜR`) first, otherwise `unassigned` with the chain reason. Members with a broken chain fall back to the team's müdürlük (also at login). Only existing `active_directory` users are refreshed (team, directorate, müdürlük, managed unit, name); nobody is created or deactivated. Rows are replaced on every sync. 3.13.0 released 2026-10-08 (first leaner pipeline run: ~9 min, no workspace jobs).
@@ -61,6 +64,8 @@
 
 ## Latest handoff
 
+2026-10-08 3.16.0 (#43, #44): IDMVAIFACT1's 3.15.0 update applied fully, then `publish_platform_bundle` failed with `[Errno 28] No space left on device` copying the 888 MiB bundle to `/srv/devcloud-downloads/releases`, so the panel said "uygulanamadı" and workers could not see 3.15.0. Recovery given to Aydin: delete `.devcloud-platform-update-*.partial` and old bundles there, download and verify the 3.15.0 bundle, publish it with `app.platform_release.publish_platform_bundle`. The fix in 3.16.0 publishes from the installed CLI, so it applies on the update after 3.16.0 is installed; the free-space preflight and cleanup step run as target code already on the 3.15.0 -> 3.16.0 update. Next: Kubernetes deploy backend (Nexus upload + workflow trigger).
+
 2026-10-08 3.15.0: live update progress (controller panel and worker rows) and automatic AD sync. On the 3.14.0 -> 3.15.0 update the old updater/UI run until the controller restarts, so the bar appears only after the restart; download bytes and live output need the next update. Workers show step progress once they run the 3.15.0 agent.
 
 2026-10-08 3.14.0 (PR #40): migration 29 adds `directory_teams` and `directory_settings.division_head_titles` / `last_sync_at` / `last_sync_summary`. After updating, one click on **AD'den senkronize et** places every AD team and refreshes the existing directory users without waiting for logins. The sync reads everyone under `user_base_dn` with the login filter (`{username}` -> `*`); if the panel shows far fewer people than expected, check the bind account's read access and the AD page size. Periodic sync is not implemented (manual button only).
@@ -79,6 +84,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-08: Diagnosed the ENOSPC worker-bundle publish failure on IDMVAIFACT1 (#43); added AI Factory / Kubernetes deploy targets to the MLflow UI (#44); released 3.16.0.
 - 2026-10-08: Released 3.14.0. Added live update progress for controller and workers, automatic AD sync and out-of-scope manager lookups; released 3.15.0.
 - 2026-10-08: Released 3.13.0. Added the bulk AD sync with team müdürlük placement and the compact users panel (PR #40); prepared 3.14.0.
 - 2026-10-08: Built the müdürlük hierarchy from the AD manager chain, quota inheritance through the müdürlük, the nested admin users panel and team/müdürlük GenAI stats (PR #38); prepared 3.13.0.
