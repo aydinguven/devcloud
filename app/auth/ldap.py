@@ -124,9 +124,21 @@ def fold_directory_text(value: str | None) -> str:
     return text.casefold().replace("\u0307", "")
 
 
+_TITLE_QUALIFIER = re.compile(r"\([^)]*\)")
+
+
+def fold_title(value: str | None) -> str:
+    """Normalize a job title for matching, ignoring qualifiers in parentheses.
+
+    An acting head is titled e.g. "MÜDÜR (TEDVİR)" or "MÜDÜR (V)" in AD and
+    must match the configured "MÜDÜR".
+    """
+    return fold_directory_text(_TITLE_QUALIFIER.sub(" ", value or ""))
+
+
 def parse_unit_head_titles(raw: str | None) -> frozenset[str]:
     """Comma-separated unit-head titles from the settings, normalized."""
-    keys = (fold_directory_text(part) for part in (raw or "").split(","))
+    keys = (fold_title(part) for part in (raw or "").split(","))
     return frozenset(key for key in keys if key)
 
 
@@ -168,7 +180,7 @@ def walk_manager_chain(
     seen: set[str] = set()
     current = person
     for _ in range(MAX_MANAGER_CHAIN_DEPTH + 1):
-        title = fold_directory_text(current.title)
+        title = fold_title(current.title)
         if title in head_titles:
             return ChainResult(current.team, CHAIN_UNIT, current)
         if title in division_head_titles:
@@ -563,7 +575,7 @@ def authenticate_directory_user(
             )
         # A unit head manages their own müdürlük.
         is_unit_head = _detects_unit_heads(config) and (
-            fold_directory_text(_entry_value(entry, config.title_attribute)) in head_titles
+            fold_title(_entry_value(entry, config.title_attribute)) in head_titles
         )
         managed_unit = organization_unit if is_unit_head else ""
 

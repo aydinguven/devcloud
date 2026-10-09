@@ -34,7 +34,7 @@ from app.auth.ldap import (
     _ldap3,
     _safe_unbind,
     config_from_record,
-    fold_directory_text,
+    fold_title,
     parse_unit_head_titles,
     validate_directory_config,
     walk_manager_chain,
@@ -207,7 +207,7 @@ def build_org_snapshot(
         team = snapshot.teams.get(team_key(entry.team))
         # A broken personal chain falls back to the team's müdürlük.
         unit = own_unit[dn_key] or (team.organization_unit if team else "")
-        is_head = fold_directory_text(entry.title) in head_titles
+        is_head = fold_title(entry.title) in head_titles
         snapshot.people[key] = PersonPlacement(
             team=clean_name(entry.team),
             directorate=clean_name(entry.directorate) or (team.directorate if team else ""),
