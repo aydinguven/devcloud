@@ -8,6 +8,7 @@ from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.mlflow_deployment import MlflowDeployment, MlflowDeploymentStatus
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.admission import admission_transaction
+from app.task_health import task_health
 from app.time_utils import ensure_utc
 
 logger = logging.getLogger("devcloud.reaper")
@@ -70,8 +71,10 @@ async def idle_reaper_background_worker(check_interval_seconds: int = 60) -> Non
         try:
             await asyncio.sleep(check_interval_seconds)
             await run_idle_reaper_cycle()
+            task_health.success("idle_reaper")
         except asyncio.CancelledError:
             logger.info("Maximum Runtime Reaper received cancellation. Shutting down.")
             break
         except Exception as exc:
+            task_health.failure("idle_reaper", exc)
             logger.error(f"Unexpected error in idle reaper loop: {exc}")

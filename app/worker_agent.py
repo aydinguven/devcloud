@@ -31,7 +31,7 @@ from app.installer.progress import live_details
 from app.worker_transfers import WorkerTransfers
 from app.agents.transfers import CHUNK_BYTES
 from app.agents.manager import STREAM_WINDOW, MAX_STREAM_FRAME_BYTES, MAX_STREAMS
-from app.orchestrator.podman_service import podman_service
+from app.orchestrator.podman_service import PodmanExecutionError, podman_service
 from app.model_container_registry import (
     ModelContainerRegistryConfig,
     environment_model_container_registry_config,
@@ -56,6 +56,16 @@ def _download_progress(done: int, total: int) -> dict:
         "percent": round(10.0 * share, 1),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _storage_writable(root: str) -> dict:
+    """Create and remove a probe file so a read-only remount is caught."""
+    try:
+        with tempfile.NamedTemporaryFile(dir=root, prefix=".devcloud-health-"):
+            pass
+        return {"ok": True, "message": ""}
+    except OSError as exc:
+        return {"ok": False, "message": f"{type(exc).__name__}: {exc}"[:300]}
 
 
 def _unsigned_ota_approved(metadata: dict) -> bool:
@@ -153,6 +163,8 @@ class WorkerAgent:
         }
         # Set to send the next heartbeat right away (upgrade progress).
         self.heartbeat_wakeup = asyncio.Event()
+        self._self_check: dict = {}
+        self._self_check_at = 0.0
 
     def _load_registry(self) -> dict:
         try:
@@ -552,6 +564,36 @@ class WorkerAgent:
             }
         )
 
+    async def self_check(self) -> dict:
+        """Check Podman and workspace storage; refreshed at most once a minute."""
+        now = time.monotonic()
+        if self._self_check and now - self._self_check_at < 60:
+            return self._self_check
+        started = time.monotonic()
+        if podman_service.is_mock:
+            podman = {"ok": True, "version": "mock", "message": "Mock Podman."}
+        else:
+            try:
+                code, stdout, stderr = await podman_service.run_cmd(
+                    "info", "--format", "{{.Version.Version}}", timeout=10
+                )
+                podman = {
+                    "ok": code == 0,
+                    "version": stdout.strip()[:64] if code == 0 else "",
+                    "message": "" if code == 0 else (stderr or stdout)[-300:],
+                }
+            except PodmanExecutionError as exc:
+                podman = {"ok": False, "version": "", "message": str(exc)[:300]}
+        podman["latency_ms"] = round((time.monotonic() - started) * 1000)
+        storage = await asyncio.to_thread(_storage_writable, settings.STORAGE_ROOT)
+        self._self_check = {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "podman": podman,
+            "storage": storage,
+        }
+        self._self_check_at = now
+        return self._self_check
+
     async def heartbeat(self) -> None:
         while True:
             workspace_images = [
@@ -600,6 +642,7 @@ class WorkerAgent:
             accelerator_capabilities = await asyncio.to_thread(
                 discover_nvidia_capabilities
             )
+            health = await self.self_check()
 
             await self.send(
                 {
@@ -615,6 +658,7 @@ class WorkerAgent:
                         "active_containers_count": active_cnt,
                         "capabilities": {
                             "runtime": "podman",
+                            "health": health,
                             **accelerator_capabilities,
                             "upgrade": self._reported_upgrade_status(),
                             "workspace_images": workspace_images,

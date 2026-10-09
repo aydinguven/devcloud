@@ -1,0 +1,179 @@
+/* Public per-component status page (/status). */
+.status-header {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* The logo sizes to its link; give the link a width so it cannot collapse
+   next to the header button. */
+.status-header .public-share-brand {
+  flex: 0 1 auto;
+  width: min(390px, 55vw);
+}
+
+.status-main {
+  margin: 0 auto;
+  max-width: 980px;
+  padding: clamp(1.5rem, 5vw, 3rem) 1rem;
+  width: 100%;
+}
+
+.status-overall {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-left: 6px solid var(--text-muted);
+  border-radius: 3px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.status-overall[data-status="ok"] { border-left-color: var(--success); }
+.status-overall[data-status="degraded"],
+.status-overall[data-status="unknown"] { border-left-color: var(--gold); }
+.status-overall[data-status="down"] { border-left-color: var(--danger); }
+
+.status-eyebrow {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-overall h1 {
+  color: var(--heading);
+  font-size: clamp(1.3rem, 4vw, 1.75rem);
+  margin: 0.2rem 0 0.35rem;
+}
+
+.status-meta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.status-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.status-item {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1rem 1.25rem;
+}
+
+.status-item-head {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.status-item-title {
+  color: var(--heading);
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.status-item-tag {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.status-item-summary,
+.status-item-message {
+  color: var(--text-main);
+  font-size: 0.88rem;
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.status-item-message {
+  color: var(--text-muted);
+  white-space: pre-line;
+}
+
+.status-pill {
+  border-radius: 999px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.7rem;
+}
+
+.status-pill[data-status="ok"] { background: var(--success-bg); color: var(--success); }
+.status-pill[data-status="degraded"] { background: var(--warning-bg); color: var(--warning); }
+.status-pill[data-status="down"] { background: var(--danger-bg); color: var(--danger); }
+.status-pill[data-status="disabled"],
+.status-pill[data-status="unknown"] { background: var(--pale-blue); color: var(--text-muted); }
+
+.status-item details {
+  margin-top: 0.6rem;
+}
+
+.status-item summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.status-table-wrap {
+  margin-top: 0.6rem;
+  overflow-x: auto;
+}
+
+.status-table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.status-table th,
+.status-table td {
+  border-bottom: 1px solid var(--pale-blue);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.status-table th {
+  color: var(--text-muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-details-list {
+  display: grid;
+  font-size: 0.78rem;
+  gap: 0.25rem 1rem;
+  grid-template-columns: max-content 1fr;
+  margin: 0.6rem 0 0;
+}
+
+.status-details-list dt { color: var(--text-muted); font-weight: 700; }
+.status-details-list dd { margin: 0; overflow-wrap: anywhere; }
+
+.status-note {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 560px) {
+  .status-overall { align-items: flex-start; flex-direction: column; }
+}

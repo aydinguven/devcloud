@@ -22,6 +22,13 @@
 
 ## Decisions
 
+- 2026-10-09: Per-component health lives on a public `/status` page fed by `GET /api/health` (`app/health.py`). `/healthz` and `/readyz` are unchanged; `/readyz` stays database-only so an LDAP or LiteLLM outage never restarts the controller. Required components are database, controller storage, workers, background tasks, and LDAP/AD when it is enabled. An optional component (LiteLLM, MLflow, registry, HTTPS, update) can only degrade the overall status. Anonymous callers get statuses, summaries and latency; hosts, paths and raw errors are admin-only. Reports are cached 15 s and built single-flight. Thresholds:
+  - worker heartbeat: over 60 s degraded, over 120 s down;
+  - disk: 85 % degraded, 95 % down;
+  - TLS certificate: under 14 days degraded;
+  - failed update: degraded for 7 days.
+
+  Background loops report into `app/task_health.py`. Workers add `capabilities.health` (Podman info, storage write probe; refreshed every 60 s) to the heartbeat; older agents simply omit it.
 - 2026-10-09: Unit-head and Genel Müdür titles match with parenthesized qualifiers removed (`app.auth.ldap.fold_title`), so acting heads such as Funda Kaplan (K000419, `MÜDÜR (TEDVİR)`) count as `MÜDÜR`. Before 3.16.1 her teams were shown as reporting straight to the Genel Müdürlük.
 - 2026-10-08: Publishing the worker bundle prunes `.partial` leftovers and every published bundle but the previous one, checks free space first and never leaves a partial file. A publish failure after an applied update exits 3; `queued_update` records `succeeded` plus a `warning`. `devcloud-setup.sh --yes publish-worker-bundle` republishes the installed release. Updates check free space before staging, and a best-effort `cleanup` step (it must never raise, or the plan rolls back) keeps the current and previous release, their runtime images and the 3 newest pre-update backups.
 - 2026-10-08: MLflow deploys offer two targets: **AI Factory** (the existing managed service on DevCloud workers) and **Kubernetes** (planned: serving image -> Nexus -> workflow -> TCMB Kubernetes). Kubernetes is UI only and disabled (`DEPLOY_TARGETS.kubernetes.available = false` in `mlflow_deployments.js`) until the backend exists.
@@ -51,6 +58,11 @@
 
 ## Validation
 
+- 2026-10-09 (`feat/component-health`): suite 395 passed, 3 skipped.
+  - In-process uvicorn with lifespan: `/readyz` ready; `/status` checked in headless Chromium as anonymous (5 components, no details) and as admin (10 components with tables), at 1280 and 420 px.
+  - Scratch scenarios produced the expected results: a stale/full/drifted worker, an offline worker, a dead reaper task, LDAP to a blackhole IP (cut at 5 s), an unreachable MLflow, a certificate 5 days from expiry, and a failed update.
+  - A worker with a missing Podman binary reports `podman.ok=false`.
+  - Not yet validated: real AD/LiteLLM/MLflow/registry endpoints, and a real worker heartbeat on IDMVAIFACT1.
 - 2026-10-09 (PR #46, 3.16.1): suite 391 passed, 3 skipped. `build_org_snapshot` with Funda's real AD record (`MÜDÜR (TEDVİR)`, department BİLGİ TEKNOLOJİLERİ ALTYAPI, manager K012521) places İşletim Sistemi Yönetimi and Sunucu Altyapı Yönetimi under BİLGİ TEKNOLOJİLERİ ALTYAPI with head Funda Kaplan. Not yet validated: a sync against the real AD.
 - 2026-10-08 (`feat/update-progress`, 3.15.0): suite 389 passed, 3 skipped. A queued_update test checks running state, live output and the progress env; an engine test checks step progress, rollback, the running-state fix and stale-progress filtering. ldap3 mock: a filter that excludes the müdür and a müdür without `division` still place İşletim Sistemi Yönetimi under Altyapı Yönetimi. Headless Chromium with a simulated queue: download bytes, step 7/11, restart (status endpoint unreachable), done, and three worker rows (downloading, step 4/9, failed). Not yet validated: a real root update on IDMVAIFACT1 and a real worker OTA.
 - 2026-10-08 (`feat/directory-sync`): suite 388 passed, 3 skipped. `fetch_directory_entries` against an ldap3 mock directory (paged search) and `build_org_snapshot` place Ar-Ge and Yapay Zeka under Yenilikçi Teknolojiler (head Kemal), a stale-manager member through the team, BİLGİ TEKNOLOJİLERİ as a Genel Müdürlük team (Mehmet) and a manager-less team as `no_manager`. v28 -> v29 SQLite upgrade OK. Headless Chromium: sync button, compact tree at 1440 and 900 px, search incl. section hiding, no console errors. Not yet validated: a real AD (page size, bind account reading all users) and PostgreSQL for migration 29.
