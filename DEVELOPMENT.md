@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.16.1`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.16.2`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -67,6 +67,8 @@
 
 ## Latest handoff
 
+2026-10-09 3.16.2 (#48): model version rows and the run lineage card show a single **Dağıt** button; AI Factory / Kubernetes is chosen in the deploy modal (default AI Factory).
+
 2026-10-09 3.16.1 (#46): acting-head titles like `MÜDÜR (TEDVİR)` now match `MÜDÜR`. The müdürlük shows as BİLGİ TEKNOLOJİLERİ ALTYAPI (Funda's AD `department`). Takes effect on the first AD sync after the update; no login needed.
 
 2026-10-08 3.16.0 (#43, #44): IDMVAIFACT1's 3.15.0 update applied fully, then `publish_platform_bundle` failed with `[Errno 28] No space left on device` copying the 888 MiB bundle to `/srv/devcloud-downloads/releases`, so the panel said "uygulanamadı" and workers could not see 3.15.0. Recovery given to Aydin: delete `.devcloud-platform-update-*.partial` and old bundles there, download and verify the 3.15.0 bundle, publish it with `app.platform_release.publish_platform_bundle`. The fix in 3.16.0 publishes from the installed CLI, so it applies on the update after 3.16.0 is installed; the free-space preflight and cleanup step run as target code already on the 3.15.0 -> 3.16.0 update. Next: Kubernetes deploy backend (Nexus upload + workflow trigger).
@@ -89,6 +91,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-09: Replaced the two per-target deploy buttons with a single **Dağıt** button (#48); released 3.16.2.
 - 2026-10-09: Fixed acting müdür titles (`MÜDÜR (TEDVİR)`) not ending the manager chain (#46); released 3.16.1.
 - 2026-10-08: Diagnosed the ENOSPC worker-bundle publish failure on IDMVAIFACT1 (#43); added AI Factory / Kubernetes deploy targets to the MLflow UI (#44); released 3.16.0.
 - 2026-10-08: Released 3.14.0. Added live update progress for controller and workers, automatic AD sync and out-of-scope manager lookups; released 3.15.0.
