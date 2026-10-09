@@ -209,7 +209,7 @@ def test_platform_updater_is_atomic_and_uses_bounded_restart_helper():
 
 
 def test_platform_update_api_streams_script_and_checks_exit_code():
-    routes = (PROJECT_ROOT / "app/routes/admin_routes.py").read_text(encoding="utf-8")
+    routes = (PROJECT_ROOT / "app/routes/admin/system.py").read_text(encoding="utf-8")
 
     assert 'project_dir / "deploy" / "update.sh"' in routes
     assert "stderr=asyncio.subprocess.STDOUT" in routes
