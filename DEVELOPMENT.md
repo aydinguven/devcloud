@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.16.2`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.17.0`.
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -79,6 +79,8 @@
 
 ## Latest handoff
 
+2026-10-09 3.17.0 (#50): new public **`/status`** page and `GET /api/health`, with per-component health (database, storage, workers, background tasks, AD, LiteLLM, MLflow, registry, HTTPS, update). The endpoint returns 503 when a required component is down. After updating IDMVAIFACT1, open `/status` as admin. Workers show Podman and storage self-checks only after they upgrade to 3.17.0; until then those columns read "—" and a version-skew note appears. Next: check the real AD, LiteLLM and MLflow rows. Optionally point an external monitor at `/api/health`.
+
 2026-10-09 3.16.2 (#48): model version rows and the run lineage card show a single **Dağıt** button; AI Factory / Kubernetes is chosen in the deploy modal (default AI Factory).
 
 2026-10-09 3.16.1 (#46): acting-head titles like `MÜDÜR (TEDVİR)` now match `MÜDÜR`. The müdürlük shows as BİLGİ TEKNOLOJİLERİ ALTYAPI (Funda's AD `department`). Takes effect on the first AD sync after the update; no login needed.
@@ -103,6 +105,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-09: Added per-component health with a public `/status` page (#50); released 3.17.0.
 - 2026-10-09: Replaced the two per-target deploy buttons with a single **Dağıt** button (#48); released 3.16.2.
 - 2026-10-09: Fixed acting müdür titles (`MÜDÜR (TEDVİR)`) not ending the manager chain (#46); released 3.16.1.
 - 2026-10-08: Diagnosed the ENOSPC worker-bundle publish failure on IDMVAIFACT1 (#43); added AI Factory / Kubernetes deploy targets to the MLflow UI (#44); released 3.16.0.
