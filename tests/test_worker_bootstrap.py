@@ -70,7 +70,7 @@ async def test_admin_ticket_enrolls_exactly_one_worker_and_renders_name_only_scr
         return ticket_model(**values)
 
     monkeypatch.setattr(
-        "app.routes.admin_routes.WorkerBootstrapTicket",
+        "app.routes.admin.nodes.WorkerBootstrapTicket",
         ticket_factory,
     )
 

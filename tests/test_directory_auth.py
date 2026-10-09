@@ -111,7 +111,7 @@ async def test_directory_connection_test_uses_unsaved_form_values(
         return "Bind ve kullanıcı tabanı araması başarılı.", 27
 
     monkeypatch.setattr(
-        "app.routes.admin_routes.test_directory_configuration", fake_test
+        "app.routes.admin.users.test_directory_configuration", fake_test
     )
     response = await client.post(
         "/api/admin/directory-settings/test",

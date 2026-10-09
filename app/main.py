@@ -14,7 +14,7 @@ from app.task_health import task_health
 from app.models.user import User, UserRole
 from app.models.node import Node, NodeStatus
 from app.proxy.router import proxy_router, model_endpoint_router
-from app.routes.admin_routes import admin_router
+from app.routes.admin import admin_router
 from app.routes.agent_routes import agent_router
 from app.routes.auth_routes import auth_router
 from app.routes.share_routes import share_router

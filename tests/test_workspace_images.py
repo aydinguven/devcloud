@@ -6,7 +6,7 @@ import httpx
 import pytest
 from sqlalchemy import update
 
-import app.routes.admin_routes as admin_routes
+import app.routes.admin.images as admin_images
 import app.worker_agent as worker_module
 import app.workspace_image_service as image_service
 from app.config import settings
@@ -219,7 +219,7 @@ async def test_registry_import_can_create_workspace_template(
             "architecture": "amd64",
         }
 
-    monkeypatch.setattr(admin_routes, "import_registry_image", fake_registry_import)
+    monkeypatch.setattr(admin_images, "import_registry_image", fake_registry_import)
     registration = await client.post(
         "/api/auth/register",
         json={

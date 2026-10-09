@@ -17,6 +17,8 @@ from app.orchestrator.podman_service import podman_service, PodmanService
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
 from app.orchestrator import idle_reaper
+from app.orchestrator import workspace_provisioning as provisioning
+from app.orchestrator.scheduler import NoSchedulableNode
 from app.routes import workspace_routes as routes
 from app.schemas.workspace import WorkspaceCreate
 from app.worker_agent import WorkerAgent
@@ -141,17 +143,17 @@ async def test_concurrent_admission_cannot_overbook(tmp_path, monkeypatch, backe
             ready.set()
         await asyncio.wait_for(ready.wait(), 5)
         return {}
-    monkeypatch.setattr(routes, "get_workspace_disk_usage_by_user", disk_usage)
+    monkeypatch.setattr(provisioning, "get_workspace_disk_usage_by_user", disk_usage)
     async def reserve(name):
         async with sessions() as db:
             current_user = await db.get(User, user_id)
-            return await routes.schedule_and_reserve_workspace(
+            return await provisioning.schedule_and_reserve_workspace(
                 db, current_user=current_user, data=WorkspaceCreate(name=name, template_id="vscode-empty", flavor_id="t1.micro"),
                 template=get_template("vscode-empty"), flavor=get_flavor("t1.micro"))
     try:
         outcomes = await asyncio.gather(reserve("first"), reserve("second"), return_exceptions=True)
         assert sum(isinstance(item, tuple) for item in outcomes) == 1, outcomes
-        expected = routes.QuotaExceeded if limit == "user" else routes.NoSchedulableNode
+        expected = provisioning.QuotaExceeded if limit == "user" else NoSchedulableNode
         assert sum(isinstance(item, expected) for item in outcomes) == 1, outcomes
         async with sessions() as db:
             assert await db.scalar(select(func.count()).select_from(Workspace)) == 1

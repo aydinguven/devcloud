@@ -16,7 +16,7 @@ from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.orchestrator.podman_service import podman_service
 from app.routes.agent_routes import reconcile_worker_inventory
-from app.routes import admin_routes
+from app.routes.admin import system as admin_system
 from app.installer.update_source import ReleaseChannel
 from app.worker_agent import WorkerAgent
 from app.release_catalog import latest_release
@@ -195,7 +195,7 @@ async def test_admin_checks_installed_and_published_release_before_queueing(
             size=1024,
         )
 
-    monkeypatch.setattr(admin_routes, "_fetch_release_channel", fake_channel)
+    monkeypatch.setattr(admin_system, "_fetch_release_channel", fake_channel)
     response = await client.post(
         "/api/admin/system/release-check",
         headers=headers,
