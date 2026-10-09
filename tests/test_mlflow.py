@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 import app.routes.mlflow_routes as mlflow_module
-from app.routes.workspace_routes import _workspace_mlflow_environment
+from app.orchestrator.workspace_provisioning import workspace_mlflow_environment
 from app.integrations.mlflow import MlflowClient, MlflowConfig, MlflowConnectionError
 from app.models.mlflow_settings import MlflowSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
@@ -251,8 +251,8 @@ async def test_mlflow_settings_and_models_are_isolated_per_user(
     assert bob_settings.json()["base_url"] == "https://managed-mlflow.internal"
 
     async with TestingSessionLocal() as session:
-        alice_environment = await _workspace_mlflow_environment(session, alice_user_id)
-        bob_environment = await _workspace_mlflow_environment(session, bob_user_id)
+        alice_environment = await workspace_mlflow_environment(session, alice_user_id)
+        bob_environment = await workspace_mlflow_environment(session, bob_user_id)
     assert alice_environment == {
         "MLFLOW_TRACKING_URI": "https://managed-mlflow.internal",
         "MLFLOW_TRACKING_TOKEN": "alice-token",

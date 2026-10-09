@@ -653,12 +653,12 @@ def check_https(snapshot: _Snapshot, now: datetime) -> Component:
 
 
 def check_update(now: datetime) -> Component:
-    from app.routes.admin_routes import _read_update_status
+    from app.update_queue import read_update_status
 
     component = Component("update", "Platform güncelleme", required=False)
     if not settings.UPDATES_ENABLED:
         return component.set(DISABLED, "Güncellemeler kapalı.")
-    status = _read_update_status()
+    status = read_update_status()
     state = str(status.get("state") or "unknown")
     component.details.update(
         state=state,

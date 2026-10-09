@@ -55,8 +55,11 @@ from app.schemas.mlflow_deployment import (
 from app.schemas.mlflow import MlflowSettingsOut, MlflowSettingsUpdate, MlflowTestResult
 from app.security.secrets import encrypt_secret
 from app.workspace_catalog import flavor_enabled, resolve_flavor
-from app.routes.workspace_routes import (
+from app.orchestrator.workspace_provisioning import (
+    WorkspaceOperationError,
     delete_workspace_resources,
+)
+from app.routes.workspace_routes import (
     start_workspace_endpoint,
     stop_workspace_endpoint,
 )
@@ -910,9 +913,14 @@ async def retry_mlflow_deployment(
     if deployment.workspace_id:
         workspace = await db.get(Workspace, deployment.workspace_id)
         if workspace:
-            await delete_workspace_resources(
-                db, workspace, allow_transient=True
-            )
+            try:
+                await delete_workspace_resources(
+                    db, workspace, allow_transient=True
+                )
+            except WorkspaceOperationError as exc:
+                raise HTTPException(
+                    status_code=exc.status_code, detail=exc.detail
+                ) from exc
         deployment.workspace_id = None
     failed_build_id = None
     if deployment.build_id:
@@ -970,7 +978,7 @@ async def delete_mlflow_deployment(
                 db, workspace, allow_transient=True
             )
             deployment.workspace_id = None
-    except HTTPException as exc:
+    except WorkspaceOperationError as exc:
         deployment.status = MlflowDeploymentStatus.FAILED
         deployment.status_message = "Model deployment silinemedi; yeniden deneyin."
         deployment.error_message = str(exc.detail)[:4000]
@@ -978,7 +986,7 @@ async def delete_mlflow_deployment(
         deployment.lease_expires_at = None
         db.add(deployment)
         await db.commit()
-        raise
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     async with admission_transaction(db):
         await db.refresh(deployment)
         await enroll_model_build_cleanup(

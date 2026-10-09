@@ -1168,7 +1168,7 @@ def test_release_builder_produces_a_manifest_verified_archive(tmp_path):
 def test_update_progress_follows_plan_steps_and_rollback(tmp_path, monkeypatch):
     from app.installer.engine import InstallPlan, PlanStep
     from app.installer.progress import ProgressReporter
-    from app.routes import admin_routes
+    from app import update_queue
 
     queue = tmp_path / "update-queue"
     queue.mkdir()
@@ -1200,8 +1200,8 @@ def test_update_progress_follows_plan_steps_and_rollback(tmp_path, monkeypatch):
     assert seen[0]["percent"] < seen[1]["percent"] and seen[1]["label"] == "Servis tanımları yazılıyor"
     assert rolled_back == [True]
 
-    monkeypatch.setattr(admin_routes.settings, "UPDATE_QUEUE_ROOT", str(queue))
-    status = admin_routes._read_update_status()
+    monkeypatch.setattr(update_queue.settings, "UPDATE_QUEUE_ROOT", str(queue))
+    status = update_queue.read_update_status()
     assert status["state"] == "running"
     assert status["progress"]["phase"] == "rollback"
     assert "unit render failed" in status["progress"]["detail"]
@@ -1209,7 +1209,7 @@ def test_update_progress_follows_plan_steps_and_rollback(tmp_path, monkeypatch):
     # A progress file from an earlier update is not shown for a new request.
     old = time.time() - 600
     os.utime(progress_file, (old, old))
-    assert "progress" not in admin_routes._read_update_status()
+    assert "progress" not in update_queue.read_update_status()
 
 
 def test_applied_update_with_unpublished_worker_bundle_is_not_reported_failed(tmp_path, monkeypatch):

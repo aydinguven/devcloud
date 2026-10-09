@@ -49,14 +49,14 @@ from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
 from app.orchestrator.templates import get_template
 from app.task_health import task_health
-from app.routes.workspace_routes import (
+from app.orchestrator.workspace_provisioning import (
     QuotaExceeded,
-    _flavor_definition,
-    _template_definition,
     available_workspace_name,
     delete_workspace_resources,
+    flavor_definition,
     get_quota_error,
     schedule_and_reserve_workspace,
+    template_definition,
     workspace_runtime_image,
 )
 from app.schemas.workspace import WorkspaceCreate
@@ -897,8 +897,8 @@ async def process_mlflow_deployment(deployment_id: str) -> None:
                 container_name=workspace.container_name,
                 template_id=template.id,
                 flavor_id=flavor.id,
-                template_definition=_template_definition(template),
-                flavor_definition=_flavor_definition(flavor),
+                template_definition=template_definition(template),
+                flavor_definition=flavor_definition(flavor),
                 host_port=workspace.host_port,
                 workspace_token=workspace.workspace_token,
                 accelerator_cdi_name=workspace.accelerator_cdi_name or "",
