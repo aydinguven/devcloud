@@ -263,6 +263,17 @@ podman ps
 curl -fsS http://127.0.0.1:8000/healthz
 ```
 
+`/healthz` (process alive) and `/readyz` (database reachable) are the probes
+that systemd and Podman use. For per-component health, open the public
+**`/status`** page or call `GET /api/health`. It covers the database,
+controller storage, workers, background tasks, LDAP/AD, LiteLLM, MLflow, the
+model registry, HTTPS/TLS and platform updates. Each component reports `ok`,
+`degraded`, `down`, `disabled` or `unknown`. The endpoint answers HTTP 503
+when a required component is down, so external monitors can poll it.
+Anonymous callers get only statuses and short summaries. Administrators also
+see error messages and details (per-worker heartbeat, disk, GPU, Podman and
+inventory drift) and can bypass the 15 s cache with `?refresh=1`.
+
 See [RELEASE.md](RELEASE.md) for GitHub Actions release automation and runner
 setup, [INSTALL.md](INSTALL.md) for manual release-builder commands, and
 [AIRGAP.md](AIRGAP.md) for disconnected updates.

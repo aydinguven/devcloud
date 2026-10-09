@@ -40,6 +40,7 @@ from app.auth.ldap import (
     walk_manager_chain,
 )
 from app.models.directory_settings import DirectorySettings
+from app.task_health import task_health
 from app.models.directory_team import (
     TEAM_STATUS_DIVISION,
     TEAM_STATUS_TEAM,
@@ -467,14 +468,17 @@ async def directory_sync_background_worker(
         try:
             async with session_factory() as db:
                 summary = await run_directory_sync(db, trigger="automatic")
+            task_health.success("directory_sync")
             logger.info(
                 "Automatic directory sync: %s people, %s teams, %s units, %s users updated",
                 summary["ad_people"], summary["teams"], summary["units"], summary["updated_users"],
             )
         except DirectorySyncDisabled:
-            pass
+            task_health.success("directory_sync")
         except (DirectoryConfigurationError, DirectoryUnavailableError) as exc:
+            task_health.failure("directory_sync", exc)
             logger.warning("Automatic directory sync failed: %s", exc)
-        except Exception:  # noqa: BLE001 - keep the schedule alive
+        except Exception as exc:  # noqa: BLE001 - keep the schedule alive
+            task_health.failure("directory_sync", exc)
             logger.exception("Automatic directory sync failed")
         await asyncio.sleep(interval_hours * 3600)

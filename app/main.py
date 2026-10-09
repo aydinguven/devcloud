@@ -10,6 +10,7 @@ from sqlalchemy import select, text, update
 from app.auth.internal import hash_password
 from app.config import settings
 from app.database import AsyncSessionLocal
+from app.task_health import task_health
 from app.models.user import User, UserRole
 from app.models.node import Node, NodeStatus
 from app.proxy.router import proxy_router, model_endpoint_router
@@ -24,6 +25,7 @@ from app.routes.workspace_routes import workspace_router
 from app.routes.mlflow_routes import mlflow_router
 from app.routes.onboarding_routes import onboarding_router
 from app.routes.genai_routes import genai_admin_router, genai_router
+from app.routes.health_routes import health_router
 
 # Setup logging
 logging.basicConfig(
@@ -132,6 +134,21 @@ async def lifespan(app: FastAPI):
             AsyncSessionLocal, interval_hours=settings.DIRECTORY_SYNC_INTERVAL_HOURS
         )
     )
+    # Stale windows allow for slow iterations: a reaper cycle stops containers
+    # through workers and one deployment iteration can wait for a model build.
+    task_health.register(
+        "idle_reaper", "Çalışma süresi sınırlayıcı", reaper_task,
+        stale_after_seconds=5 * 60,
+    )
+    task_health.register(
+        "mlflow_deployments", "Model dağıtım kuyruğu", deployment_task,
+        stale_after_seconds=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS + 10 * 60,
+    )
+    task_health.register(
+        "directory_sync", "AD senkronizasyonu", directory_sync_task,
+        stale_after_seconds=60 + 3 * settings.DIRECTORY_SYNC_INTERVAL_HOURS * 3600,
+        enabled=settings.DIRECTORY_SYNC_INTERVAL_HOURS > 0,
+    )
 
     yield
     directory_sync_task.cancel()
@@ -234,4 +251,5 @@ app.include_router(model_endpoint_router)
 app.include_router(proxy_router)
 app.include_router(download_router)
 app.include_router(bootstrap_router)
+app.include_router(health_router)
 app.include_router(view_router)

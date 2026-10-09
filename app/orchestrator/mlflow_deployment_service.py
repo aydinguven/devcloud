@@ -48,6 +48,7 @@ from app.orchestrator.admission import admission_transaction
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import NoSchedulableNode, select_worker_node
 from app.orchestrator.templates import get_template
+from app.task_health import task_health
 from app.routes.workspace_routes import (
     QuotaExceeded,
     _flavor_definition,
@@ -1160,8 +1161,10 @@ async def mlflow_deployment_background_worker(check_interval_seconds: int = 2) -
                 await db.commit()
             for deployment_id in deployment_ids:
                 await process_mlflow_deployment(deployment_id)
+            task_health.success("mlflow_deployments")
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            task_health.failure("mlflow_deployments", exc)
             logger.exception("MLflow deployment worker iteration failed")
         await asyncio.sleep(check_interval_seconds)
