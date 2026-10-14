@@ -10,8 +10,9 @@ machine-managed `stable` branch.
 ## Workflows
 
 - There is no CI workflow: pull requests and merges run no tests on GitHub.
-  Run `python -m pytest -q` locally before opening a pull request and before
-  tagging a release.
+  The release workflow runs the full Python test suite (with a PostgreSQL
+  service) in parallel with the builds, and the release is published only if
+  it passes. Run `python -m pytest -q` locally before opening a pull request.
 - `.github/workflows/release-platform.yml` runs only after a manual dispatch
   from `main` or an exact `vMAJOR.MINOR.PATCH` tag. It uses a GitHub-hosted
   Ubuntu runner and performs the build in a privileged, disposable Rocky Linux
