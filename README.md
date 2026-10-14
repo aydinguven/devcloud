@@ -646,6 +646,7 @@ Run the full pytest suite with:
 ```bash
 pytest -v
 ```
+There is no CI workflow, so run it before opening a pull request or tagging a release.
 
 
 ## Workspace lifecycle and transfer limits
@@ -697,6 +698,7 @@ Limits configurable on controller and workers (configure matching values):
   overhead. Application-specific limits still apply. Reapply ingress configuration
   on existing installations to receive this change.
 
-CI runs concurrent admission tests on SQLite and a dedicated PostgreSQL service.
-For local PostgreSQL tests, set `TEST_POSTGRES_URL` to a **disposable test database**;
+Concurrent admission tests run on SQLite by default. There is no CI workflow,
+so the PostgreSQL variants run only when you point them at a database:
+set `TEST_POSTGRES_URL` (and `TEST_POSTGRESQL_URL`) to a **disposable test database**;
 these tests create and drop application tables in that database.

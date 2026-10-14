@@ -7,7 +7,7 @@
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
-- Tests: `.venv\Scripts\python -m pytest -q`.
+- Tests: `.venv\Scripts\python -m pytest -q`. There is no CI workflow; run this before every PR and tag.
 
 ## Active work
 
@@ -22,6 +22,8 @@
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
+
+- 2026-10-14: At Aydin's request `.github/workflows/ci.yml` was removed (to save time), so GitHub runs no tests on pull requests or merges, and the release workflow runs none either. The local suite (`.venv\Scripts\python -m pytest -q`) is the only test gate: run it before opening a PR and before tagging. The PostgreSQL tests (`TEST_POSTGRES_URL` / `TEST_POSTGRESQL_URL`) are skipped unless a disposable database is configured. `test_ci_runs_tests_without_write_permissions`, which only pinned `ci.yml`'s wording, was deleted with it (explicit exception to the no-test-changes rule).
 
 - 2026-10-14: TCMB Code (TCMB's Kilo Code build, `tcmb.tcmbcode`) replaces Cline in VS Code workspaces. One new template `vscode-tcmb` (Python 3 + uv + Node.js 22); `vscode-empty/python/react/java` are retired: `WorkspaceTemplate.retired` hides them from the catalog and refuses new workspaces, but they still resolve so existing workspaces start with the legacy Cline wiring. Aydin chose:
   - **Public CI build**: the Linux x64 VSIX is a GitHub release asset (`tcmb-code-<version>`), checksum-pinned in the Containerfile; images and archives are public like the others.
@@ -65,7 +67,7 @@
 - TCMB Code: the shared indexing key is readable by every TCMB Code user inside their workspace; it must be restricted to the embedding model and budgeted in LiteLLM. Recreating a container on a config change resets state outside `/home/coder/project` (extra extensions, TCMB Code chat history under `~/.local/share/kilo`).
 - The TCMB Code `KILO_DISABLE_*` switches and `kilo-code.new.model.*` settings were read from the 7.8.3 bundle, not exercised in a running container yet.
 - Workspace snapshots (all-in-one only) of a TCMB Code workspace become a plain `vscode` custom template, which gets the legacy Cline wiring instead of TCMB Code, and `podman commit` captures the rendered `~/.config/kilo/tcmb.jsonc` with its keys (Cline's `secrets.json` had the same exposure). Not addressed in 3.18.0.
-- `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step (since removed; CI is the test gate) on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
+- `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step (both since removed; the local suite is the only test gate) on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
 - The deployment background worker processes jobs one at a time, so a long image-sync wait delays other queued deployments. This was already the case during image builds.
 - `tests/test_mlflow_model_build.py::test_worker_unit_exposes_the_virtualenv_console_scripts_on_path` fails on Windows only (it asserts `os.sep` inside a Linux unit file).
 

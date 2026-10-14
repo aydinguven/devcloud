@@ -8,16 +8,6 @@ def workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
 
 
-def test_ci_runs_tests_without_write_permissions():
-    content = workflow("ci.yml")
-
-    assert "pull_request:" in content
-    assert "branches:" in content
-    assert "contents: read" in content
-    assert "python -m pytest -q" in content
-    assert "contents: write" not in content
-
-
 def test_platform_release_is_restricted_to_release_triggers_and_hosted_runner():
     content = workflow("release-platform.yml")
 
