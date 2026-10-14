@@ -93,18 +93,16 @@ async def test_admin_access_controls(client: AsyncClient):
     )
     assert integrations_page.status_code == 200
     assert (
-        "Workspace AI · Jupyter + Cline"
+        "Workspace AI · Jupyter + VS Code"
         in integrations_page.text
     )
     assert (
-        "Ortak Jupyter AI ve Cline gateway erişimini etkinleştir"
+        "Ortak Workspace AI gateway erişimini etkinleştir"
         in integrations_page.text
     )
     assert 'id="jupyter-ai-settings-form"' in integrations_page.text
     assert 'name="cline_enabled"' not in integrations_page.text
-    assert "Cline tüm VS Code workspace imajlarında hazır ve her zaman etkindir" in (
-        integrations_page.text
-    )
+    assert 'id="tcmb-code-settings-form"' in integrations_page.text
     assert 'id="jupyter-ai-model-list"' in integrations_page.text
     assert 'name="gateway_model_discovery"' in integrations_page.text
     assert "Qwen 3.6 35B (On-Prem)" in integrations_page.text

@@ -11,6 +11,7 @@ class RuntimeBackend(Protocol):
     async def start_container(self, container_name: str) -> bool: ...
     async def stop_container(self, container_name: str) -> bool: ...
     async def delete_container(self, container_name: str, storage_path: str = "") -> bool: ...
+    async def remove_container(self, container_name: str) -> bool: ...
     async def get_container_status(self, container_name: str) -> str: ...
     async def get_logs(self, container_name: str, tail: int = 100) -> str: ...
     async def port_ready(self, container_name: str, host_port: int) -> bool: ...
@@ -54,6 +55,15 @@ class AgentRuntimeBackend:
             "container.delete",
             {"container_name": container_name, "storage_path": storage_path},
         )
+        return bool(result.get("success"))
+
+    async def remove_container(self, container_name: str) -> bool:
+        """Remove only the container; the worker keeps its storage and registration.
+
+        Workers older than 3.18 reject the action, which the caller treats as
+        "keep the existing container".
+        """
+        result = await self._request("container.remove", {"container_name": container_name})
         return bool(result.get("success"))
 
     async def get_container_status(self, container_name: str) -> str:

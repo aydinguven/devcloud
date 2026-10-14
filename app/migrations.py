@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 29
+CURRENT_SCHEMA_VERSION = 30
 
 
 class MigrationError(RuntimeError):
@@ -1005,6 +1005,10 @@ async def upgrade() -> None:
             # init_db creates the portable directory_teams table.
             await _add_directory_sync_fields(conn)
             await _record_version(conn, 29, "bulk AD sync and directory teams")
+        if 30 not in applied:
+            # init_db creates the portable tcmb_code_settings table and the
+            # workspaces.ai_config_digest column.
+            await _record_version(conn, 30, "TCMB Code settings and workspace AI config digest")
 
 
 async def current_version() -> int:

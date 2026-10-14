@@ -32,18 +32,12 @@ async def test_template_and_flavor_catalogs(client: AsyncClient):
     templates = tpl_resp.json()
     tpl_ids = [t["id"] for t in templates]
     template_names = {t["id"]: t["name"] for t in templates}
-    assert "vscode-empty" in tpl_ids
-    assert "vscode-python" in tpl_ids
-    assert "vscode-react" in tpl_ids
+    assert "vscode-tcmb" in tpl_ids
     assert "jupyter-python" in tpl_ids
-    assert "vscode-java" in tpl_ids
     assert "terminal-rocky" in tpl_ids
     for tid, tname in {
-        "vscode-empty": "Boş Proje",
-        "vscode-python": "Python 3.14",
-        "vscode-react": "React/Node.js",
+        "vscode-tcmb": "TCMB Code",
         "jupyter-python": "Jupyter Notebook",
-        "vscode-java": "Java 21 LTS",
         "terminal-rocky": "Terminal (Rocky Linux 10)",
     }.items():
         assert template_names.get(tid) == tname
@@ -94,7 +88,7 @@ async def test_legacy_flavor_cannot_be_used_for_new_workspace(client: AsyncClien
     payload = {
         "name": "Legacy Flavor",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.mini",
     }
 
@@ -132,7 +126,7 @@ async def test_admin_catalog_toggles_hide_new_choices_but_preserve_existing_work
         json={
             "name": "Existing Catalog Workspace",
             "description": "Must remain restartable",
-            "template_id": "vscode-python",
+            "template_id": "vscode-tcmb",
             "flavor_id": "t1.nano",
         },
         headers=user_headers,
@@ -145,9 +139,9 @@ async def test_admin_catalog_toggles_hide_new_choices_but_preserve_existing_work
 
     image = WorkspaceImage(
         id="77777777-7777-7777-7777-777777777777",
-        template_id="vscode-python",
+        template_id="vscode-tcmb",
         display_name="Python managed",
-        image_ref="localhost/devcloud-vscode-python:latest",
+        image_ref="localhost/devcloud-vscode-tcmb:latest",
         source_type="upload",
         source_ref="python.tar",
         digest="sha256:" + "7" * 64,
@@ -182,29 +176,29 @@ async def test_admin_catalog_toggles_hide_new_choices_but_preserve_existing_work
     flavor_ids = {
         item["id"] for item in (await client.get("/api/workspaces/flavors")).json()
     }
-    assert "vscode-python" not in template_ids
+    assert "vscode-tcmb" not in template_ids
     assert "t1.nano" not in flavor_ids
     hidden_dashboard = await client.get("/", headers=user_headers)
-    assert 'data-template-id="vscode-python"' not in hidden_dashboard.text
+    assert 'data-template-id="vscode-tcmb"' not in hidden_dashboard.text
     assert 'name="flavor_id" value="t1.nano"' not in hidden_dashboard.text
 
     disabled_template_create = await client.post(
         "/api/workspaces",
         json={
             "name": "Blocked Template",
-            "template_id": "vscode-python",
+            "template_id": "vscode-tcmb",
             "flavor_id": "t1.micro",
         },
         headers=user_headers,
     )
     assert disabled_template_create.status_code == 400
-    assert disabled_template_create.json()["detail"] == "Şablon devre dışı: vscode-python"
+    assert disabled_template_create.json()["detail"] == "Şablon devre dışı: vscode-tcmb"
 
     disabled_flavor_stream = await client.post(
         "/api/workspaces/deploy-stream",
         json={
             "name": "Blocked Flavor",
-            "template_id": "vscode-empty",
+            "template_id": "terminal-rocky",
             "flavor_id": "t1.nano",
         },
         headers=user_headers,
@@ -245,10 +239,10 @@ async def test_admin_catalog_toggles_hide_new_choices_but_preserve_existing_work
     flavor_ids = {
         item["id"] for item in (await client.get("/api/workspaces/flavors")).json()
     }
-    assert "vscode-python" in template_ids
+    assert "vscode-tcmb" in template_ids
     assert "t1.nano" in flavor_ids
     restored_dashboard = await client.get("/", headers=user_headers)
-    assert 'data-template-id="vscode-python"' in restored_dashboard.text
+    assert 'data-template-id="vscode-tcmb"' in restored_dashboard.text
     assert 'name="flavor_id" value="t1.nano"' in restored_dashboard.text
 
 
@@ -261,7 +255,7 @@ async def test_workspace_lifecycle(client: AsyncClient):
     create_payload = {
         "name": "Python Analytics",
         "description": "My data project",
-        "template_id": "vscode-python",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.micro",
     }
     create_resp = await client.post("/api/workspaces", json=create_payload, headers=headers)
@@ -270,7 +264,7 @@ async def test_workspace_lifecycle(client: AsyncClient):
     ws_id = ws["id"]
     assert ws["name"] == "Python Analytics"
     assert ws["status"] == "running"
-    assert ws["template_id"] == "vscode-python"
+    assert ws["template_id"] == "vscode-tcmb"
     assert ws["flavor_id"] == "t1.micro"
     assert ws["host_port"] >= 10100
 
@@ -369,7 +363,7 @@ async def test_delete_rejects_workspace_during_deployment(client: AsyncClient, d
         description="",
         user_id=user.id,
         node_id=TEST_WORKER_ID,
-        template_id="vscode-python",
+        template_id="vscode-tcmb",
         flavor_id="t1.micro",
         container_name="devcloud-creating-test",
         host_port=11999,
@@ -411,7 +405,7 @@ async def test_workspace_creation_enforces_user_cpu_and_ram_quota(
     payload = {
         "name": "Within Quota",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
     first = await client.post("/api/workspaces", json=payload, headers=headers)
@@ -458,7 +452,7 @@ async def test_stopping_a_workspace_frees_cpu_and_ram_quota(
     payload = {
         "name": "First Workspace",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
     first = await client.post("/api/workspaces", json=payload, headers=headers)
@@ -510,7 +504,7 @@ async def test_resuming_a_workspace_rechecks_user_quota(
     payload = {
         "name": "Paused Workspace",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
     first = await client.post("/api/workspaces", json=payload, headers=headers)
@@ -559,7 +553,7 @@ async def test_resuming_is_not_blocked_by_a_full_disk_quota(
         json={
             "name": "Disk Bound",
             "description": "",
-            "template_id": "vscode-empty",
+            "template_id": "vscode-tcmb",
             "flavor_id": "t1.nano",
         },
         headers=headers,
@@ -597,7 +591,7 @@ async def test_workspace_names_are_unique_per_owner_not_globally(
     payload = {
         "name": "MyWorkspace",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
 
@@ -646,7 +640,7 @@ async def test_container_name_carries_owner_and_workspace_slug(
         json={
             "name": "Data Analysis",
             "description": "",
-            "template_id": "vscode-empty",
+            "template_id": "vscode-tcmb",
             "flavor_id": "t1.nano",
         },
         headers=headers,
@@ -676,7 +670,7 @@ async def test_freed_name_can_be_reused_after_deletion(
     payload = {
         "name": "Recycled",
         "description": "",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
     first = await client.post("/api/workspaces", json=payload, headers=headers)

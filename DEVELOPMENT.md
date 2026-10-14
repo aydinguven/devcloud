@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.17.1`.
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.17.1` (3.18.0 prepared on `feat/tcmb-code`).
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,6 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
+| Kiro / Aydin | Blocked on Linux VSIX | `feat/tcmb-code` | 3.18.0: TCMB Code VS Code image, Cline images retired | Get `tcmbcode-vscode-linux-x64-7.8.3.vsix` (the provided build is win32-x64), publish it as GitHub release `tcmb-code-7.8.3`, pin `TCMB_CODE_VSIX_SHA256` in `containers/vscode-tcmb/Containerfile`, then open the PR and release 3.18.0 (see Latest handoff) |
 | Aydin | Pending | `main` | 3.16.1 rollout | Update IDMVAIFACT1 (after the 3.16.0 steps below), wait ~1 min for the automatic AD sync (or press **AD'den senkronize et**) and check that İşletim Sistemi Yönetimi and Sunucu Altyapı Yönetimi sit under BİLGİ TEKNOLOJİLERİ ALTYAPI with Müdür: Funda Kaplan |
 | Aydin | Pending | `main` | 3.16.0 rollout | IDMVAIFACT1's 3.15.0 update applied but the worker bundle copy hit ENOSPC: free space, publish the 3.15.0 bundle manually (see Latest handoff), then update to 3.16.0 and upgrade workers |
 | Aydin | Superseded | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
@@ -21,6 +22,13 @@
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
+
+- 2026-10-14: TCMB Code (TCMB's Kilo Code build, `tcmb.tcmbcode`) replaces Cline in VS Code workspaces. One new template `vscode-tcmb` (Python 3 + uv + Node.js 22); `vscode-empty/python/react/java` are retired: `WorkspaceTemplate.retired` hides them from the catalog and refuses new workspaces, but they still resolve so existing workspaces start with the legacy Cline wiring. Aydin chose:
+  - **Public CI build**: the Linux x64 VSIX is a GitHub release asset (`tcmb-code-<version>`), checksum-pinned in the Containerfile; images and archives are public like the others.
+  - **Require the user key**: chat uses only the owner's GenAI per-user workspace key (`workspace_gateway_token`); no shared-key fallback. Without a key the config has no `apiKey`, the provider name says "anahtar yok", and deploy-stream logs a warning.
+  - Tests that hard-coded the retired templates were switched mechanically to `vscode-tcmb`, and the Cline browser smoke was replaced by a TCMB Code smoke (explicit exception to the no-test-changes rule).
+- 2026-10-14: TCMB Code config is rendered on the controller (`app/tcmb_code.py`, `workspace_ai_config` in `app/orchestrator/workspace_provisioning.py`) and sent as `tcmb_code_config` in `container.create`; the container writes `~/.config/kilo/tcmb.jsonc` (mode 600) at every start and unsets the env copy. Gateway URL, catalogue and default model come from Workspace AI; library URL, model subset and indexing (model, dimension, encrypted key) from the new `tcmb_code_settings` singleton (migration 30). `workspaces.ai_config_digest` stores the config's SHA-256; on start a TCMB Code workspace whose digest changed is recreated (`container.remove`, a 3.18 worker action that keeps storage and registration), so a newly requested key or Admin change applies after stop/start. Pre-3.18 workers ignore `tcmb_code_config` and reject `container.remove` (the controller then keeps the old container).
+- 2026-10-14: The image bakes LanceDB 0.26.2 via `npm ci` from `containers/vscode-tcmb/lancedb/package-lock.json` (`KILO_LANCEDB_PATH`), ripgrep, and offline switches (`KILO_TELEMETRY_LEVEL=off`, `KILO_DISABLE_AUTOUPDATE`, `_MODELS_FETCH`, `_SHARE`, `_SESSION_INGEST`, `_LSP_DOWNLOAD`). No keys or internal hosts in the repo or image.
 
 - 2026-10-09: Per-component health lives on a public `/status` page fed by `GET /api/health` (`app/health.py`). `/healthz` and `/readyz` are unchanged; `/readyz` stays database-only so an LDAP or LiteLLM outage never restarts the controller. Required components are database, controller storage, workers, background tasks, and LDAP/AD when it is enabled. An optional component (LiteLLM, MLflow, registry, HTTPS, update) can only degrade the overall status. Anonymous callers get statuses, summaries and latency; hosts, paths and raw errors are admin-only. Reports are cached 15 s and built single-flight. Thresholds:
   - worker heartbeat: over 60 s degraded, over 120 s down;
@@ -52,12 +60,26 @@
 
 ## Known issues and risks
 
+- TCMB Code: only the win32-x64 VSIX (bundles `bin/kilo.exe`) was provided; the image needs the linux-x64 build (`bin/kilo`). `TCMB_CODE_VSIX_SHA256` is empty, so the `vscode-tcmb` build (release workflow, `build_images.sh`, offline packager) fails until it is pinned. Do not tag 3.18.0 before that.
+- TCMB Code: the shared indexing key is readable by every TCMB Code user inside their workspace; it must be restricted to the embedding model and budgeted in LiteLLM. Recreating a container on a config change resets state outside `/home/coder/project` (extra extensions, TCMB Code chat history under `~/.local/share/kilo`).
+- The TCMB Code `KILO_DISABLE_*` switches and `kilo-code.new.model.*` settings were read from the 7.8.3 bundle, not exercised in a running container yet.
+- Workspace snapshots (all-in-one only) of a TCMB Code workspace become a plain `vscode` custom template, which gets the legacy Cline wiring instead of TCMB Code, and `podman commit` captures the rendered `~/.config/kilo/tcmb.jsonc` with its keys (Cline's `secrets.json` had the same exposure). Not addressed in 3.18.0.
 - `requirements.txt` uses open ranges. SQLAlchemy 2.1 no longer installs `greenlet`, which broke CI and the release build's pytest step (since removed; CI is the test gate) on 2026-09-29; fixed by requiring `sqlalchemy[asyncio]`. Other packages can still drift on a fresh install; consider exact pins or a constraints file.
 - The deployment background worker processes jobs one at a time, so a long image-sync wait delays other queued deployments. This was already the case during image builds.
 - `tests/test_mlflow_model_build.py::test_worker_unit_exposes_the_virtualenv_console_scripts_on_path` fails on Windows only (it asserts `os.sep` inside a Linux unit file).
 
 ## Validation
 
+- 2026-10-14 (`feat/tcmb-code`): suite 394 passed, 3 skipped, 1 known Windows-only failure (same as `main`). A disposable scratch smoke (repo fixtures, not committed) passed:
+  - Admin API validation and secrecy (no key echoed in API or page).
+  - Deploy without a user key: warning shown, no `apiKey`, shared key never sent.
+  - Key added then stop/start: `container.remove` then create with the key, and the digest is updated. Unchanged config: plain start.
+  - Retired template refused; a legacy `vscode-python` workspace still starts with Cline wiring.
+  - Podman command env/redaction. The real setup chain in Git Bash writes `tcmb.jsonc` byte-identical and unsets the env.
+  - Rendered config reproduces the provided `tcmb.jsonc` layout exactly (plus `model` and `apiKey`).
+  - `main` v29 SQLite upgrades to v30.
+  - `npm ci` accepts the LanceDB lockfile. `node --check` passes on `smoke-vscode.cjs` and `app.js`.
+  - Not validated: building the image (no Podman/Docker locally and no Linux VSIX), the CI smoke, real LiteLLM/TCMB Library/indexing, PostgreSQL migration 30, and the admin card in a browser.
 - 2026-10-09 (`feat/component-health`): suite 395 passed, 3 skipped.
   - In-process uvicorn with lifespan: `/readyz` ready; `/status` checked in headless Chromium as anonymous (5 components, no details) and as admin (10 components with tables), at 1280 and 420 px.
   - Scratch scenarios produced the expected results: a stale/full/drifted worker, an offline worker, a dead reaper task, LDAP to a blackhole IP (cut at 5 s), an unreachable MLflow, a certificate 5 days from expiry, and a failed update.
@@ -78,6 +100,16 @@
 - Still required: a real deployment of a new model version on a worker.
 
 ## Latest handoff
+
+2026-10-14 3.18.0 in progress (`feat/tcmb-code`, uncommitted on Aydin's PC): TCMB Code workspace and Cline image retirement are implemented and validated locally (see Decisions/Validation). To finish:
+1. Get `tcmbcode-vscode-linux-x64-7.8.3.vsix`.
+2. Run `sha256sum` on it and publish it with `gh release create tcmb-code-7.8.3 … --prerelease --latest=false` (command in `CONTAINERS.md`).
+3. Set `ARG TCMB_CODE_VSIX_SHA256=<sha>` in `containers/vscode-tcmb/Containerfile`.
+4. Commit, open the PR, merge, tag `v3.18.0`, and watch the `vscode-tcmb` build plus the TCMB Code smoke.
+5. Roll out per `INSTALL.md` "Rolling out TCMB Code (3.18.0)": controller and workers first, import `vscode-tcmb-3.18.0`, fill Admin > Entegrasyonlar > TCMB Code (library URL, indexing key, `bge-m3`, `1024`), and restrict the indexing key in LiteLLM.
+6. Disable the four retired images.
+
+If the CI smoke fails on activation, check the uploaded `tcmb-code-smoke.png` and the exthost log; the sidebar focus command is `kilo-code.SidebarProvider.focus`.
 
 2026-10-09 3.17.1 (#52): internal refactor, no behavior or API change. `app/routes/admin_routes.py` is now the `app/routes/admin/` package (one sub-router per area: system, images, catalog, network, nodes, integrations, users, workspaces, downloads). Workspace admission/reservation/quota logic moved to `app/orchestrator/workspace_provisioning.py`, and the update-status reader moved to `app/update_queue.py`, so no service imports a router any more. Next: optionally decouple the worker agent from `app.database` (`model_container_registry` and `mlflow_workspace` pull the DB layer into workers).
 
@@ -107,6 +139,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-14: Added the TCMB Code workspace (`vscode-tcmb`, Admin TCMB Code card, per-user key config, recreate on config change, migration 30) and retired the Cline VS Code images; prepared 3.18.0. Blocked on the Linux x64 VSIX.
 - 2026-10-09: Split the admin API into `app/routes/admin/` and moved workspace admission logic out of the routes (#52); released 3.17.1.
 - 2026-10-09: Added per-component health with a public `/status` page (#50); released 3.17.0.
 - 2026-10-09: Replaced the two per-target deploy buttons with a single **Dağıt** button (#48); released 3.16.2.

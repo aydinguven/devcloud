@@ -13,7 +13,7 @@ on:
         default: false
         type: boolean
       rebuild_workspaces:
-        description: Force workspace image rebuilds even when unchanged ("all" or space-separated names, e.g. "jupyter-python vscode-python")
+        description: Force workspace image rebuilds even when unchanged ("all" or space-separated names, e.g. "jupyter-python vscode-tcmb")
         required: false
         default: ""
         type: string
@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          all_images=(vscode-empty vscode-python vscode-react vscode-java jupyter-python terminal-rocky)
+          all_images=(vscode-tcmb jupyter-python terminal-rocky)
 
           forced=" "
           read -r -a requested <<< "${REBUILD_WORKSPACES//,/ }"
@@ -210,7 +210,7 @@ jobs:
             --tag "${local_image}" \
             "containers/${image}"
 
-      - name: Smoke test Cline in the browser extension host
+      - name: Smoke test TCMB Code in the browser extension host
         if: startsWith(matrix.image, 'vscode-')
         shell: bash
         run: |
@@ -220,12 +220,12 @@ jobs:
           NODE_PATH="${RUNNER_TEMP}/vscode-smoke/node_modules" \
             node deploy/ci/smoke-vscode.cjs "localhost/devcloud-${{ matrix.image }}:${DEVCLOUD_VERSION}"
 
-      - name: Save failed Cline browser check
+      - name: Save failed TCMB Code browser check
         if: failure() && startsWith(matrix.image, 'vscode-')
         uses: actions/upload-artifact@v4
         with:
-          name: cline-smoke-${{ matrix.image }}
-          path: ${{ runner.temp }}/cline-smoke.png
+          name: tcmb-code-smoke-${{ matrix.image }}
+          path: ${{ runner.temp }}/tcmb-code-smoke.png
           if-no-files-found: ignore
           retention-days: 1
 
@@ -273,7 +273,7 @@ jobs:
           done
 
       - name: Attach offline workspace archive
-        if: matrix.image == 'vscode-python' || matrix.image == 'jupyter-python'
+        if: matrix.image == 'vscode-tcmb' || matrix.image == 'jupyter-python'
         shell: bash
         run: |
           set -Eeuo pipefail

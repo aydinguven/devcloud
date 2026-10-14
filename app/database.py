@@ -172,6 +172,21 @@ async def ensure_workspace_columns(conn) -> None:
             current_columns = await _workspace_column_names(conn)
             if "name_key" not in current_columns:
                 raise
+    existing_columns = await _workspace_column_names(conn)
+    if "ai_config_digest" not in existing_columns:
+        # Fingerprint of the AI config a TCMB Code container was created with.
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        "ALTER TABLE workspaces ADD COLUMN ai_config_digest "
+                        "VARCHAR(64) NOT NULL DEFAULT ''"
+                    )
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _workspace_column_names(conn)
+            if "ai_config_digest" not in current_columns:
+                raise
     try:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_workspaces_node_id ON workspaces (node_id)")
@@ -301,6 +316,7 @@ async def init_db() -> None:
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401
     from app.models.jupyter_ai_settings import JupyterAiSettings  # noqa: F401
+    from app.models.tcmb_code_settings import TcmbCodeSettings  # noqa: F401
     from app.models.genai_settings import GenAiSettings  # noqa: F401
     from app.models.genai_account import GenAiAccount  # noqa: F401
     from app.models.flavor_settings import FlavorSettings  # noqa: F401

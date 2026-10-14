@@ -6,6 +6,7 @@ caller's job.
 """
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from types import SimpleNamespace
@@ -21,10 +22,13 @@ from app.integrations.mlflow import (
     config_from_record as mlflow_config_from_record,
     validate_config as validate_mlflow_config,
 )
+from app.jupyter_ai import parse_model_catalog
 from app.mlflow_workspace import environment_from_config
+from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.mlflow_deployment import MlflowDeployment
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.mlflow_settings import MlflowSettings
+from app.models.tcmb_code_settings import TcmbCodeSettings
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -42,7 +46,14 @@ from app.orchestrator.scheduler import WorkspacePlacement, select_workspace_plac
 from app.quotas import effective_quota
 from app.resource_usage import quota_violations
 from app.schemas.workspace import WorkspaceCreate
-from app.security.secrets import SecretDecryptionError
+from app.security.secrets import SecretDecryptionError, decrypt_secret
+from app.tcmb_code import (
+    TCMB_CODE_ASSISTANT,
+    config_digest,
+    parse_model_ids,
+    render_config,
+    select_models,
+)
 
 logger = logging.getLogger("devcloud.workspaces")
 
@@ -130,6 +141,88 @@ async def workspace_service_environment(
         "DISABLE_NGINX": "false",
         "GUNICORN_CMD_ARGS": f"--workers={workers}",
     }
+
+
+@dataclass(frozen=True)
+class WorkspaceAiConfig:
+    """AI wiring sent to the worker with a container.create request."""
+
+    ai_gateway_token: str = ""
+    tcmb_code_config: str = ""
+    # TCMB Code is configured but the owner has no AI Factory key yet.
+    user_key_missing: bool = False
+
+    @property
+    def digest(self) -> str:
+        return config_digest(self.tcmb_code_config)
+
+    def create_arguments(self) -> dict[str, str]:
+        arguments = {"ai_gateway_token": self.ai_gateway_token}
+        if self.tcmb_code_config:
+            # Pre-3.18 workers drop unknown keys, so this stays rolling-safe.
+            arguments["tcmb_code_config"] = self.tcmb_code_config
+        return arguments
+
+
+TCMB_CODE_MISSING_KEY_MESSAGE = (
+    "TCMB Code sohbeti için AI Factory anahtarınız yok. GenAI sekmesinden anahtar "
+    "talep edin, ardından workspace'i durdurup yeniden başlatın. Kod indeksleme "
+    "bu sırada çalışmaya devam eder."
+)
+
+
+async def workspace_ai_config(
+    db: AsyncSession,
+    template,
+    user_id: int,
+) -> WorkspaceAiConfig:
+    """Resolve the owner's AI wiring for a new or recreated container."""
+    from app.genai import workspace_gateway_token
+
+    if template is None or template.ide_type == "service":
+        return WorkspaceAiConfig()
+    if getattr(template, "ai_assistant", "") != TCMB_CODE_ASSISTANT:
+        # Jupyter and the retired Cline images keep the shared-key fallback.
+        return WorkspaceAiConfig(
+            ai_gateway_token=await workspace_gateway_token(db, user_id)
+        )
+    record = await db.get(TcmbCodeSettings, 1)
+    workspace_ai = await db.get(JupyterAiSettings, 1)
+    if (
+        record is None
+        or not record.enabled
+        or workspace_ai is None
+        or not workspace_ai.enabled
+        or not workspace_ai.gateway_url
+    ):
+        return WorkspaceAiConfig()
+    catalog = parse_model_catalog(workspace_ai.model_catalog_json, workspace_ai.model_id)
+    models, default_model = select_models(
+        catalog, parse_model_ids(record.model_ids_json), workspace_ai.model_id
+    )
+    indexing_key = ""
+    if record.indexing_enabled and record.encrypted_indexing_key:
+        try:
+            indexing_key = decrypt_secret(record.encrypted_indexing_key)
+        except SecretDecryptionError:
+            logger.warning("TCMB Code indexing key cannot be decrypted; indexing is off.")
+    # Only the owner's own key: TCMB Code never falls back to the shared key.
+    user_key = await workspace_gateway_token(db, user_id)
+    config = render_config(
+        gateway_url=workspace_ai.gateway_url,
+        models=models,
+        default_model=default_model,
+        user_key=user_key,
+        library_url=record.library_url,
+        indexing_enabled=record.indexing_enabled,
+        indexing_model=record.indexing_model,
+        indexing_dimension=record.indexing_dimension,
+        indexing_key=indexing_key,
+    )
+    return WorkspaceAiConfig(
+        tcmb_code_config=config,
+        user_key_missing=bool(config) and not user_key,
+    )
 
 
 async def sync_mlflow_deployment_status(

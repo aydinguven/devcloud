@@ -1,0 +1,8 @@
+{
+  "name": "devcloud-tcmb-lancedb",
+  "private": true,
+  "description": "LanceDB runtime that TCMB Code loads through KILO_LANCEDB_PATH for codebase indexing.",
+  "dependencies": {
+    "@lancedb/lancedb": "0.26.2"
+  }
+}

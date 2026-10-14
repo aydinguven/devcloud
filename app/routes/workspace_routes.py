@@ -15,10 +15,9 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
-from app.genai import workspace_gateway_token
 from app.models.mlflow_deployment import MlflowDeploymentStatus
 from app.orchestrator.flavors import get_flavor
-from app.orchestrator.templates import get_template, resolve_template
+from app.orchestrator.templates import get_template, is_retired, resolve_template
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.admission import admission_transaction
 from app.orchestrator.scheduler import (
@@ -29,8 +28,10 @@ from app.orchestrator.scheduler import (
 )
 from app.resource_usage import get_cluster_usage, get_user_usage
 from app.quotas import effective_quota
+from app.tcmb_code import TCMB_CODE_ASSISTANT
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.workspace_provisioning import (
+    TCMB_CODE_MISSING_KEY_MESSAGE,
     QuotaExceeded,
     WorkspaceNameConflict,
     WorkspaceOperationError,
@@ -40,6 +41,7 @@ from app.orchestrator.workspace_provisioning import (
     schedule_and_reserve_workspace,
     sync_mlflow_deployment_status,
     template_definition,
+    workspace_ai_config,
     workspace_mlflow_environment,
     workspace_runtime_image,
     workspace_service_environment,
@@ -61,6 +63,10 @@ from app.workspace_catalog import (
 
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
+RETIRED_TEMPLATE_MESSAGE = (
+    "Bu VS Code şablonu kullanımdan kaldırıldı; yeni workspace için TCMB Code "
+    "şablonunu seçin. Mevcut workspace'ler çalışmaya devam eder."
+)
 
 
 def _snapshot_ide_type(template_id: str) -> str:
@@ -169,7 +175,12 @@ async def create_workspace(
             detail="MLflow servis workspace yalnızca model deployment API'si ile oluşturulabilir.",
         )
     if not await template_enabled(db, data.template_id):
-        raise HTTPException(status_code=400, detail=f"Şablon devre dışı: {data.template_id}")
+        detail = (
+            RETIRED_TEMPLATE_MESSAGE
+            if is_retired(data.template_id)
+            else f"Şablon devre dışı: {data.template_id}"
+        )
+        raise HTTPException(status_code=400, detail=detail)
 
     flavor = await resolve_flavor(db, data.flavor_id)
     if not flavor or not await flavor_enabled(db, data.flavor_id):
@@ -193,6 +204,7 @@ async def create_workspace(
     try:
         runtime = runtime_for_node(workspace.node_id)
         image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
+        ai_config = await workspace_ai_config(db, template, current_user.id)
         container_id, storage_path = await runtime.create_workspace_container(
             workspace_id=workspace.id,
             user_id=current_user.id,
@@ -207,10 +219,11 @@ async def create_workspace(
             image_ref=image_ref,
             image_sha256=image_sha256,
             mlflow_environment=await workspace_mlflow_environment(db, current_user.id),
-            ai_gateway_token=await workspace_gateway_token(db, current_user.id),
+            **ai_config.create_arguments(),
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
+        workspace.ai_config_digest = ai_config.digest
         workspace.status = WorkspaceStatus.RUNNING
         workspace.last_started_at = datetime.now(timezone.utc)
         workspace.error_message = None
@@ -267,7 +280,11 @@ async def deploy_workspace_stream(
                 )
                 return
             if not await template_enabled(db, data.template_id):
-                await emit_error(f"Şablon devre dışı: {data.template_id}")
+                await emit_error(
+                    RETIRED_TEMPLATE_MESSAGE
+                    if is_retired(data.template_id)
+                    else f"Şablon devre dışı: {data.template_id}"
+                )
                 return
 
             flavor = await resolve_flavor(db, data.flavor_id)
@@ -310,6 +327,9 @@ async def deploy_workspace_stream(
             # Launch container with progress callback
             runtime = runtime_for_node(workspace.node_id)
             image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
+            ai_config = await workspace_ai_config(db, template, current_user.id)
+            if ai_config.user_key_missing:
+                await emit_log(TCMB_CODE_MISSING_KEY_MESSAGE, "warning")
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=current_user.id,
@@ -324,12 +344,13 @@ async def deploy_workspace_stream(
                 image_ref=image_ref,
                 image_sha256=image_sha256,
                 mlflow_environment=await workspace_mlflow_environment(db, current_user.id),
-                ai_gateway_token=await workspace_gateway_token(db, current_user.id),
+                **ai_config.create_arguments(),
                 progress_callback=emit_log,
             )
 
             workspace.container_id = container_id
             workspace.storage_path = storage_path
+            workspace.ai_config_digest = ai_config.digest
             workspace.status = WorkspaceStatus.RUNNING
             workspace.last_started_at = datetime.now(timezone.utc)
             workspace.error_message = None
@@ -428,6 +449,30 @@ async def start_workspace_endpoint(
             ws_out.web_url = f"/proxy/{workspace.id}/"
             return ws_out
 
+        template = None
+        ai_config = None
+        if container_exists:
+            template = await resolve_template(db, workspace.template_id)
+            if template and template.ai_assistant == TCMB_CODE_ASSISTANT:
+                # The keys live in the container's environment, so a newly
+                # requested AI Factory key or changed Admin settings need a
+                # new container. Project files are on the bind mount.
+                ai_config = await workspace_ai_config(db, template, workspace.user_id)
+                if ai_config.digest != (workspace.ai_config_digest or ""):
+                    try:
+                        if await runtime.remove_container(workspace.container_name):
+                            container_exists = False
+                            logger.info(
+                                "Recreating %s because its TCMB Code settings changed",
+                                workspace.container_name,
+                            )
+                    except Exception as exc:  # noqa: BLE001 - pre-3.18 workers
+                        logger.warning(
+                            "Keeping %s with its previous TCMB Code settings: %s",
+                            workspace.container_name,
+                            exc,
+                        )
+
         if container_exists:
             success = await runtime.start_container(workspace.container_name)
             if success and workspace.template_id == "mlflow-serving":
@@ -447,11 +492,13 @@ async def start_workspace_endpoint(
                 workspace.container_name,
                 workspace.storage_path,
             )
-            template = await resolve_template(db, workspace.template_id)
+            template = template or await resolve_template(db, workspace.template_id)
             flavor = await resolve_flavor(db, workspace.flavor_id)
             if not template or not flavor:
                 raise ValueError("Workspace şablonu veya kaynak profili artık bulunamıyor.")
             image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
+            if ai_config is None:
+                ai_config = await workspace_ai_config(db, template, workspace.user_id)
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=workspace.user_id,
@@ -471,14 +518,11 @@ async def start_workspace_endpoint(
                     else await workspace_mlflow_environment(db, workspace.user_id)
                 ),
                 service_environment=await workspace_service_environment(db, workspace),
-                ai_gateway_token=(
-                    ""
-                    if workspace.template_id == "mlflow-serving"
-                    else await workspace_gateway_token(db, workspace.user_id)
-                ),
+                **ai_config.create_arguments(),
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path
+            workspace.ai_config_digest = ai_config.digest
             success = True
     except (ValueError, RuntimeError, TimeoutError) as exc:
         logger.exception("Failed to start workspace %s", workspace.id)
