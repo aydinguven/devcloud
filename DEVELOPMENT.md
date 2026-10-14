@@ -13,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro / Aydin | Blocked on Linux VSIX | `feat/tcmb-code` | 3.18.0: TCMB Code VS Code image, Cline images retired | Get `tcmbcode-vscode-linux-x64-7.8.3.vsix` (the provided build is win32-x64), publish it as GitHub release `tcmb-code-7.8.3`, pin `TCMB_CODE_VSIX_SHA256` in `containers/vscode-tcmb/Containerfile`, then open the PR and release 3.18.0 (see Latest handoff) |
+| Kiro / Aydin | Blocked on Linux VSIX | `feat/tcmb-code` (PR #54) | 3.18.0: TCMB Code VS Code image, Cline images retired | Get `tcmbcode-vscode-linux-x64-7.8.3.vsix` (the provided build is win32-x64), publish it as GitHub release `tcmb-code-7.8.3`, pin `TCMB_CODE_VSIX_SHA256` in `containers/vscode-tcmb/Containerfile` on PR #54, then merge and release 3.18.0 (see Latest handoff) |
 | Aydin | Pending | `main` | 3.16.1 rollout | Update IDMVAIFACT1 (after the 3.16.0 steps below), wait ~1 min for the automatic AD sync (or press **AD'den senkronize et**) and check that İşletim Sistemi Yönetimi and Sunucu Altyapı Yönetimi sit under BİLGİ TEKNOLOJİLERİ ALTYAPI with Müdür: Funda Kaplan |
 | Aydin | Pending | `main` | 3.16.0 rollout | IDMVAIFACT1's 3.15.0 update applied but the worker bundle copy hit ENOSPC: free space, publish the 3.15.0 bundle manually (see Latest handoff), then update to 3.16.0 and upgrade workers |
 | Aydin | Superseded | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
@@ -101,11 +101,11 @@
 
 ## Latest handoff
 
-2026-10-14 3.18.0 in progress (`feat/tcmb-code`, uncommitted on Aydin's PC): TCMB Code workspace and Cline image retirement are implemented and validated locally (see Decisions/Validation). To finish:
+2026-10-14 3.18.0 in progress (PR #54, `feat/tcmb-code`, not merged): TCMB Code workspace and Cline image retirement are implemented and validated locally (see Decisions/Validation). To finish:
 1. Get `tcmbcode-vscode-linux-x64-7.8.3.vsix`.
 2. Run `sha256sum` on it and publish it with `gh release create tcmb-code-7.8.3 … --prerelease --latest=false` (command in `CONTAINERS.md`).
 3. Set `ARG TCMB_CODE_VSIX_SHA256=<sha>` in `containers/vscode-tcmb/Containerfile`.
-4. Commit, open the PR, merge, tag `v3.18.0`, and watch the `vscode-tcmb` build plus the TCMB Code smoke.
+4. Commit the pin to PR #54, merge, tag `v3.18.0`, and watch the `vscode-tcmb` build plus the TCMB Code smoke.
 5. Roll out per `INSTALL.md` "Rolling out TCMB Code (3.18.0)": controller and workers first, import `vscode-tcmb-3.18.0`, fill Admin > Entegrasyonlar > TCMB Code (library URL, indexing key, `bge-m3`, `1024`), and restrict the indexing key in LiteLLM.
 6. Disable the four retired images.
 
