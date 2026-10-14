@@ -231,11 +231,14 @@ new settings; the project directory is a bind mount and is preserved, while
 other state in the container (for example extra VS Code extensions or files
 outside the project directory) is reset. No manual `podman rm` is needed.
 
-#### Rolling out TCMB Code (3.18.0)
+#### Rolling out TCMB Code (3.18.1)
 
-1. Update the controller and then the workers to 3.18.0. Workers older than
-   3.18.0 cannot write the TCMB Code configuration.
-2. Import `ghcr.io/aydinguven/devcloud:vscode-tcmb-3.18.0` (or the matching
+3.18.0 was tagged but never published (its TCMB Code image build failed), so
+3.18.1 is the first release with TCMB Code.
+
+1. Update the controller and then the workers to 3.18.1. Older workers
+   cannot write the TCMB Code configuration.
+2. Import `ghcr.io/aydinguven/devcloud:vscode-tcmb-3.18.1` (or the matching
    quay.io tag, or the `devcloud-workspace-vscode-tcmb-*.tar.gz` release
    archive) under **Admin > Workspace Image'ları** and wait for the workers
    to synchronize it.

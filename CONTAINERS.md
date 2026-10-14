@@ -104,7 +104,7 @@ downloadable.
 ### Retired VS Code images
 
 `vscode-empty`, `vscode-python`, `vscode-react` and `vscode-java` (Cline 4.1.17)
-were retired in 3.18.0. Their definitions are no longer built, but their
+were retired in 3.18.1. Their definitions are no longer built, but their
 templates still resolve, so existing workspaces keep starting on the images
 already on the workers, with the legacy Cline wiring. They are hidden from the
 catalog and new workspaces are refused. After rolling out `vscode-tcmb`,

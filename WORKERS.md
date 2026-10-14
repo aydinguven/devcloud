@@ -105,7 +105,7 @@ is not part of the 30-second worker sync: the controller renders
 `~/.config/kilo/tcmb.jsonc` for each workspace (owner's AI Factory key,
 Workspace AI gateway and catalogue, TCMB Code Admin settings) and sends it with
 the `container.create` request; the container writes it at every start.
-Workers older than 3.18.0 ignore it, so upgrade workers before rolling out
+Workers older than 3.18.1 ignore it, so upgrade workers before rolling out
 TCMB Code. Workspaces on the retired Cline images still receive Cline's
 legacy state and `settings/providers.json` from the shared key.
 
