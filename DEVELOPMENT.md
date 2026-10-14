@@ -13,7 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro / Aydin | Blocked on Linux VSIX | `feat/tcmb-code` (PR #54) | 3.18.0: TCMB Code VS Code image, Cline images retired | Get `tcmbcode-vscode-linux-x64-7.8.3.vsix` (the provided build is win32-x64), publish it as GitHub release `tcmb-code-7.8.3`, pin `TCMB_CODE_VSIX_SHA256` in `containers/vscode-tcmb/Containerfile` on PR #54, then merge and release 3.18.0 (see Latest handoff) |
+| Kiro / Aydin | Awaiting merge | `chore/pin-tcmb-code-vsix` | 3.18.0: TCMB Code VS Code image, Cline images retired (PR #54 merged) | Aydin merges the checksum-pin PR; then Kiro tags `v3.18.0` on the merge commit and watches the `vscode-tcmb` build and TCMB Code smoke (see Latest handoff) |
 | Aydin | Pending | `main` | 3.16.1 rollout | Update IDMVAIFACT1 (after the 3.16.0 steps below), wait ~1 min for the automatic AD sync (or press **AD'den senkronize et**) and check that İşletim Sistemi Yönetimi and Sunucu Altyapı Yönetimi sit under BİLGİ TEKNOLOJİLERİ ALTYAPI with Müdür: Funda Kaplan |
 | Aydin | Pending | `main` | 3.16.0 rollout | IDMVAIFACT1's 3.15.0 update applied but the worker bundle copy hit ENOSPC: free space, publish the 3.15.0 bundle manually (see Latest handoff), then update to 3.16.0 and upgrade workers |
 | Aydin | Superseded | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
@@ -60,7 +60,7 @@
 
 ## Known issues and risks
 
-- TCMB Code: only the win32-x64 VSIX (bundles `bin/kilo.exe`) was provided; the image needs the linux-x64 build (`bin/kilo`). `TCMB_CODE_VSIX_SHA256` is empty, so the `vscode-tcmb` build (release workflow, `build_images.sh`, offline packager) fails until it is pinned. Do not tag 3.18.0 before that.
+- TCMB Code: the image has never been built yet; the first real build is the `v3.18.0` release run. The Linux x64 VSIX (`tcmb.tcmbcode@7.8.3`, ships `bin/kilo`) is the public GitHub release asset `tcmb-code-7.8.3`, pinned by SHA-256 in `containers/vscode-tcmb/Containerfile`. It was scanned before upload and contains no internal host names.
 - TCMB Code: the shared indexing key is readable by every TCMB Code user inside their workspace; it must be restricted to the embedding model and budgeted in LiteLLM. Recreating a container on a config change resets state outside `/home/coder/project` (extra extensions, TCMB Code chat history under `~/.local/share/kilo`).
 - The TCMB Code `KILO_DISABLE_*` switches and `kilo-code.new.model.*` settings were read from the 7.8.3 bundle, not exercised in a running container yet.
 - Workspace snapshots (all-in-one only) of a TCMB Code workspace become a plain `vscode` custom template, which gets the legacy Cline wiring instead of TCMB Code, and `podman commit` captures the rendered `~/.config/kilo/tcmb.jsonc` with its keys (Cline's `secrets.json` had the same exposure). Not addressed in 3.18.0.
@@ -101,12 +101,10 @@
 
 ## Latest handoff
 
-2026-10-14 3.18.0 in progress (PR #54, `feat/tcmb-code`, not merged): TCMB Code workspace and Cline image retirement are implemented and validated locally (see Decisions/Validation). To finish:
-1. Get `tcmbcode-vscode-linux-x64-7.8.3.vsix`.
-2. Run `sha256sum` on it and publish it with `gh release create tcmb-code-7.8.3 … --prerelease --latest=false` (command in `CONTAINERS.md`).
-3. Set `ARG TCMB_CODE_VSIX_SHA256=<sha>` in `containers/vscode-tcmb/Containerfile`.
-4. Commit the pin to PR #54, merge, tag `v3.18.0`, and watch the `vscode-tcmb` build plus the TCMB Code smoke.
-5. Roll out per `INSTALL.md` "Rolling out TCMB Code (3.18.0)": controller and workers first, import `vscode-tcmb-3.18.0`, fill Admin > Entegrasyonlar > TCMB Code (library URL, indexing key, `bge-m3`, `1024`), and restrict the indexing key in LiteLLM.
+2026-10-14 3.18.0 in progress: PR #54 (TCMB Code workspace, Cline image retirement) is merged into `main` (`9e77642`). The Linux x64 VSIX is published as prerelease `tcmb-code-7.8.3` (not marked latest; GitHub asset digest `sha256:b4587245…a524a67`, matches the pin). The pin is on `chore/pin-tcmb-code-vsix`. To finish:
+1. Aydin merges the checksum-pin PR.
+2. Tag `v3.18.0` on that merge commit and watch the `vscode-tcmb` build plus the TCMB Code smoke.
+3. Roll out per `INSTALL.md` "Rolling out TCMB Code (3.18.0)": controller and workers first, import `vscode-tcmb-3.18.0`, fill Admin > Entegrasyonlar > TCMB Code (library URL, indexing key, `bge-m3`, `1024`), and restrict the indexing key in LiteLLM.
 6. Disable the four retired images.
 
 If the CI smoke fails on activation, check the uploaded `tcmb-code-smoke.png` and the exthost log; the sidebar focus command is `kilo-code.SidebarProvider.focus`.
@@ -139,7 +137,7 @@ Earlier handoff:
 
 ## Session log
 
-- 2026-10-14: Added the TCMB Code workspace (`vscode-tcmb`, Admin TCMB Code card, per-user key config, recreate on config change, migration 30) and retired the Cline VS Code images; prepared 3.18.0. Blocked on the Linux x64 VSIX.
+- 2026-10-14: Added the TCMB Code workspace (`vscode-tcmb`, Admin TCMB Code card, per-user key config, recreate on config change, migration 30) and retired the Cline VS Code images; prepared 3.18.0 (PR #54, merged). Published the Linux x64 VSIX as prerelease `tcmb-code-7.8.3` and pinned its checksum.
 - 2026-10-09: Split the admin API into `app/routes/admin/` and moved workspace admission logic out of the routes (#52); released 3.17.1.
 - 2026-10-09: Added per-component health with a public `/status` page (#50); released 3.17.0.
 - 2026-10-09: Replaced the two per-target deploy buttons with a single **Dağıt** button (#48); released 3.16.2.

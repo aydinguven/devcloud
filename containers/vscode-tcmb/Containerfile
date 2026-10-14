@@ -19,7 +19,7 @@ ARG TCMB_CODE_VSIX_URL=https://github.com/aydinguven/devcloud/releases/download/
 # Required: SHA-256 of the Linux x64 VSIX above, pinned here when the VSIX is
 # published (see CONTAINERS.md). The build refuses to run without it, so an
 # unverified extension can never reach a published image.
-ARG TCMB_CODE_VSIX_SHA256=
+ARG TCMB_CODE_VSIX_SHA256=b458724533d755daa1adb4a673735a8281a782e50fa9c5920de873c63a524a67
 
 LABEL org.opencontainers.image.title="DevCloud TCMB Code workspace"
 
