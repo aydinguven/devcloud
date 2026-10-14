@@ -19,6 +19,9 @@ from typing import Any
 from app.cline import openai_compatible_base_url
 
 TCMB_CODE_ASSISTANT = "tcmb-code"
+# First worker release that accepts tcmb_code_config and knows the vscode-tcmb
+# template; older workers silently start the image with no tcmb.jsonc.
+MIN_AGENT_VERSION = "3.18.0"
 EXTENSION_ID = "tcmb.tcmbcode"
 CONFIG_SCHEMA = "https://app.kilo.ai/config.json"
 CONFIG_DIR = "/home/coder/.config/kilo"
@@ -30,6 +33,7 @@ MISSING_KEY_PROVIDER_NAME = (
     "TCMB code (anahtar yok: GenAI sekmesinden AI Factory anahtarı talep edin)"
 )
 MAX_CONFIG_LENGTH = 65536
+CONFIG_DIGEST_SALT = b"devcloud-tcmb-code-config-v2\x00"
 DEFAULT_INDEXING_MODEL = "bge-m3"
 DEFAULT_INDEXING_DIMENSION = 1024
 
@@ -129,8 +133,17 @@ def validated_config(raw: Any) -> str:
 
 
 def config_digest(config: str) -> str:
-    """Fingerprint of the rendered config; changes when a key or setting changes."""
-    return hashlib.sha256(config.encode("utf-8")).hexdigest() if config else ""
+    """Fingerprint of the rendered config; changes when a key or setting changes.
+
+    Salted with a format version: 3.18.0/3.18.1 stored the digest of the config
+    they SENT, even when a pre-3.18 worker dropped it. A new salt makes every
+    such row mismatch once, so the next start rebuilds the container.
+    """
+    if not config:
+        return ""
+    return hashlib.sha256(
+        CONFIG_DIGEST_SALT + config.encode("utf-8")
+    ).hexdigest()
 
 
 def managed_vscode_settings(config: str = "") -> str:

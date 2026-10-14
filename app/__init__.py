@@ -1,3 +1,3 @@
 """DevCloud - Self-hosted Cloud Development Environment Platform."""
 
-__version__ = "3.18.1"
+__version__ = "3.18.2"

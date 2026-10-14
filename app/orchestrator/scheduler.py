@@ -257,11 +257,15 @@ async def accelerator_availability_details(
     }
 
 
-def _agent_version_at_least(node: Node, minimum: str | None) -> bool:
+def _agent_version_at_least(
+    node: Node, minimum: str | None, allow_unknown: bool = False
+) -> bool:
     if not minimum:
         return True
     current = semantic_version(node.agent_version)
     required = semantic_version(minimum)
+    if current is None and allow_unknown:
+        return True
     return current is not None and required is not None and current >= required
 
 
@@ -272,6 +276,7 @@ async def select_workspace_placement(
     required_image: str | None = None,
     required_image_sha256: str | None = None,
     minimum_agent_version: str | None = None,
+    allow_unknown_agent_version: bool = False,
 ) -> WorkspacePlacement:
     """Pick a connected worker and, for GPU flavors, one exact free CDI slot."""
     nodes = (
@@ -298,7 +303,9 @@ async def select_workspace_placement(
         if node.schedulable
         and node.status == NodeStatus.ONLINE
         and agent_manager.is_connected(node.id)
-        and _agent_version_at_least(node, minimum_agent_version)
+        and _agent_version_at_least(
+            node, minimum_agent_version, allow_unknown_agent_version
+        )
         and node.cpu_total >= flavor.cpus
         and node.memory_total_mb >= flavor.memory_mb
         and _matches_selector(node, node_selector)
@@ -389,6 +396,21 @@ async def select_workspace_placement(
         )
 
     if not scored:
+        if minimum_agent_version and not any(
+            _agent_version_at_least(
+                node, minimum_agent_version, allow_unknown_agent_version
+            )
+            for node in nodes
+        ):
+            outdated = ", ".join(
+                f"{node.name} ({node.agent_version or 'sürüm bilinmiyor'})"
+                for node in nodes
+            )
+            raise NoSchedulableNode(
+                f"Bu şablon en az {minimum_agent_version} sürümlü bir worker gerektirir; "
+                f"kayıtlı worker'lar daha eski: {outdated}. "
+                "Admin > Node'lar sayfasından worker'ları güncelleyin."
+            )
         if flavor.accelerator_count:
             raise NoSchedulableNode(
                 "Bu GPU profili için boş ve sağlıklı NVIDIA CDI slotu bulunamadı. "

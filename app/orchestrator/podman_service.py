@@ -331,6 +331,13 @@ class PodmanService:
         tcmb_code_config = (
             validated_tcmb_code_config(tcmb_code_config) if is_tcmb_code else ""
         )
+        if is_tcmb_code and not tcmb_code_config:
+            logger.warning(
+                "TCMB Code workspace %s starts without tcmb.jsonc: the controller "
+                "sent no TCMB Code config (check Admin > Entegrasyonlar > TCMB Code "
+                "and Workspace AI).",
+                container_name,
+            )
         is_jupyter = template.ide_type == "jupyter"
         is_service = template.ide_type == "service"
 
