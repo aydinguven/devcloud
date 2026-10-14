@@ -68,6 +68,9 @@ ENV KILO_LANCEDB_PATH=/opt/tcmb/lancedb/node_modules/@lancedb/lancedb/dist/index
 USER coder
 WORKDIR /home/coder/project
 
+# The TCMB Code VSIX stores its bin/ entries as 0664 and code-server keeps the
+# zip modes, so the execute bit is restored on the bundled native tools (kilo,
+# bwrap, ffmpeg, kilo-sandbox-seccomp); otherwise the agent cannot start.
 RUN test -n "${TCMB_CODE_VSIX_SHA256}" \
         || { echo "Set TCMB_CODE_VSIX_SHA256 to pin the Linux x64 TCMB Code VSIX." >&2; exit 1; } \
     && curl -fsSL "${TCMB_CODE_VSIX_URL}" -o /tmp/tcmbcode.vsix \
@@ -75,7 +78,9 @@ RUN test -n "${TCMB_CODE_VSIX_SHA256}" \
     && code-server --install-extension /tmp/tcmbcode.vsix \
     && code-server --list-extensions --show-versions | grep -Fx "tcmb.tcmbcode@${TCMB_CODE_VERSION}" \
     && rm -f /tmp/tcmbcode.vsix \
-    && cli="$(ls -d /home/coder/.local/share/code-server/extensions/tcmb.tcmbcode-${TCMB_CODE_VERSION}*/bin/kilo)" \
+    && ext="$(ls -d /home/coder/.local/share/code-server/extensions/tcmb.tcmbcode-${TCMB_CODE_VERSION}*)" \
+    && find "${ext}/bin" -maxdepth 1 -type f ! -name '*.js' -exec chmod 0755 {} + \
+    && cli="${ext}/bin/kilo" \
     && test -x "${cli}" \
     && "${cli}" --version \
     && install -d -m 700 /home/coder/.local/share/code-server/User \

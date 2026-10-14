@@ -12,7 +12,7 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
   - **TCMB Code (VS Code)**: Python 3, `pip`, `uv`, Node.js 22 LTS, git and the TCMB Code AI assistant (TCMB's build of Kilo Code) with LanceDB codebase indexing. Chat uses the workspace owner's own AI Factory key.
   - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
 
-  The Cline-based VS Code templates (Boş Proje, Python 3.14, React/Node.js, Java 21 LTS) were retired in 3.18.0: existing workspaces keep running, new ones use TCMB Code.
+  The Cline-based VS Code templates (Boş Proje, Python 3.14, React/Node.js, Java 21 LTS) were retired in 3.18.1: existing workspaces keep running, new ones use TCMB Code.
 - **Native Linux Terminal Workspace**: A full Rocky Linux 10 shell in the browser, served by `ttyd` over the same authenticated proxy as the IDEs. The session runs inside `tmux`, so a dropped connection reattaches instead of killing running work, and the entire home directory persists across restarts. Workspaces carry no `sudo`; the image ships git, Python 3, a C/C++ toolchain, and the usual shell utilities.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)

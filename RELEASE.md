@@ -10,7 +10,8 @@ machine-managed `stable` branch.
 ## Workflows
 
 - `.github/workflows/ci.yml` runs the complete Python test suite on
-  GitHub-hosted Ubuntu runners for pushes and pull requests targeting `main`.
+  GitHub-hosted Ubuntu runners for pull requests targeting `main`. It does not
+  run again after a merge.
 - `.github/workflows/release-platform.yml` runs only after a manual dispatch
   from `main` or an exact `vMAJOR.MINOR.PATCH` tag. It uses a GitHub-hosted
   Ubuntu runner and performs the build in a privileged, disposable Rocky Linux
