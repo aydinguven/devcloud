@@ -527,6 +527,7 @@ code { color: #8d0022; }
 .log-info { color: #9fc8ea; }
 .log-success { color: #79d2b9; }
 .log-error { color: #ff9aaa; }
+.log-warning { color: #ffd28a; }
 .log-dim { color: #9caabc; }
 .pulse-dot { background: var(--primary); box-shadow: 0 0 0 0 rgba(213, 0, 50, 0.55); }
 

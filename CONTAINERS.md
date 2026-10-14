@@ -63,18 +63,53 @@ automatically.
 Workspace images are not part of the controller or worker base installation.
 An administrator imports a maintained template image under **Admin > Workspace
 Image'ları** from GHCR, another reachable OCI registry, or an OCI/Docker archive.
-All four maintained VS Code images bake in checksum-locked Cline 4.1.17 and
-disable native Chat/Copilot. Cline receives the gateway, API key, and default
-model from the controller-managed Workspace AI record at container creation.
+The maintained VS Code image is `vscode-tcmb`: code-server with Python 3, `uv`,
+Node.js 22 and TCMB Code (TCMB's build of Kilo Code), with native Chat/Copilot
+and extension auto-updates disabled. The image contains no keys or internal
+host names; at every container start DevCloud writes
+`~/.config/kilo/tcmb.jsonc` from the Workspace AI and TCMB Code Admin records,
+with the owner's AI Factory key for chat and the shared indexing key for
+embeddings. Codebase indexing loads LanceDB 0.26.2 from
+`/opt/tcmb/lancedb` (`KILO_LANCEDB_PATH`), installed with `npm ci` from the
+committed lockfile in `containers/vscode-tcmb/lancedb/`. The image also sets
+`KILO_TELEMETRY_LEVEL=off` and disables CLI auto-update, sharing, session
+ingest, models.dev fetches and LSP downloads, so nothing reaches the Internet
+from a workspace by default.
 The `terminal-rocky` image carries no IDE and no AI assistant: it is a
 digest-pinned Rocky Linux 10 base plus a checksum-locked static `ttyd`, which
 serves the shell over HTTP and WebSocket on port 7681. Because its `ide_type` is
 `terminal`, the worker leaves the image's own `ENTRYPOINT` in charge instead of
 injecting IDE environment or rewriting the container command.
-The Admin Cline toggle controls installation in each new container; existing
-Admin choices are preserved. Enable it before recreating workspaces that used
-the native Chat images. Recreating an enabled container restores the pinned
-extension without an Internet download.
+
+### Updating TCMB Code
+
+The TCMB Code VSIX is platform specific. Use the **Linux x64** build
+(`tcmbcode-vscode-linux-x64-<version>.vsix`); the win32-x64 build only ships
+`bin/kilo.exe` and cannot start its agent on Linux. The release workflow
+downloads the VSIX from a dedicated GitHub release in this repository and
+verifies its checksum, so publish it there first:
+
+    sha256sum tcmbcode-vscode-linux-x64-7.8.3.vsix
+    gh release create tcmb-code-7.8.3 tcmbcode-vscode-linux-x64-7.8.3.vsix \
+      --repo aydinguven/devcloud --prerelease --latest=false \
+      --title "TCMB Code 7.8.3 (Linux x64 VSIX)" \
+      --notes "Build input for the vscode-tcmb workspace image."
+
+Then set `TCMB_CODE_VERSION` and `TCMB_CODE_VSIX_SHA256` in
+`containers/vscode-tcmb/Containerfile` and release DevCloud as usual. The
+build refuses to run while the checksum is empty. This repository is public,
+so the VSIX release asset and the published `vscode-tcmb` images are publicly
+downloadable.
+
+### Retired VS Code images
+
+`vscode-empty`, `vscode-python`, `vscode-react` and `vscode-java` (Cline 4.1.17)
+were retired in 3.18.0. Their definitions are no longer built, but their
+templates still resolve, so existing workspaces keep starting on the images
+already on the workers, with the legacy Cline wiring. They are hidden from the
+catalog and new workspaces are refused. After rolling out `vscode-tcmb`,
+disable their entries under **Admin > Workspace Image'ları**; this hides them
+everywhere without affecting existing workspaces.
 The controller converts registry and Docker inputs to a normalized Linux/amd64
 OCI archive, records its size and SHA-256, and stores registry credentials only
 in a temporary authentication file for the duration of the import.

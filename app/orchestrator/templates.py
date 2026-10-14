@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from app.schemas.workspace import TemplateInfo
+from app.tcmb_code import TCMB_CODE_ASSISTANT
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,11 @@ class WorkspaceTemplate:
     mount_workspace: bool = True
     health_path: str = ""
     require_ready: bool = False
+    # VS Code AI assistant wiring: "" keeps the legacy Cline injection.
+    ai_assistant: str = ""
+    # Retired templates keep running their existing workspaces but are hidden
+    # from the catalog and refused for new workspaces.
+    retired: bool = False
 
     def to_schema(self) -> TemplateInfo:
         return TemplateInfo(
@@ -34,6 +40,29 @@ class WorkspaceTemplate:
 
 
 TEMPLATES: dict[str, WorkspaceTemplate] = {
+    "vscode-tcmb": WorkspaceTemplate(
+        id="vscode-tcmb",
+        name="TCMB Code",
+        description="Python 3, uv, Node.js 22 ve TCMB Code yapay zekâ asistanı yüklü VS Code ortamı.",
+        category="Genel",
+        icon="code-bracket-square",
+        default_port=8080,
+        container_workdir="/home/coder/project",
+        image_tag="localhost/devcloud-vscode-tcmb:latest",
+        features=[
+            "VS Code Web (code-server)",
+            "TCMB Code AI Asistanı",
+            "Kod tabanı indeksleme",
+            "Python 3 & uv",
+            "Node.js 22 LTS",
+            "Git & Terminal",
+        ],
+        ide_type="vscode",
+        env_vars={"DOCKER_USER": "coder"},
+        ai_assistant=TCMB_CODE_ASSISTANT,
+    ),
+    # Retired in 3.18.0 in favour of vscode-tcmb. Kept so existing workspaces
+    # still start; hidden from the catalog and refused for new workspaces.
     "vscode-empty": WorkspaceTemplate(
         id="vscode-empty",
         name="Boş Proje",
@@ -46,6 +75,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         features=["VS Code Web (code-server)", "Cline AI Assistant", "Git & Terminal", "Boş ve temiz çalışma alanı"],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
+        retired=True,
     ),
     "vscode-python": WorkspaceTemplate(
         id="vscode-python",
@@ -59,6 +89,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         features=["Python 3.14 Runtime", "VS Code Python Extension", "Cline AI Assistant", "uv & pip", "Jupyter Interactive Extension"],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
+        retired=True,
     ),
     "vscode-react": WorkspaceTemplate(
         id="vscode-react",
@@ -72,6 +103,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         features=["Node.js 22 LTS", "React & TypeScript Tooling", "Cline AI Assistant", "npm, pnpm & Yarn", "ESLint & Prettier Extensions"],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
+        retired=True,
     ),
     "jupyter-python": WorkspaceTemplate(
         id="jupyter-python",
@@ -120,6 +152,7 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         features=["OpenJDK 21 LTS", "Language Support for Java", "Cline AI Assistant", "Maven & Gradle", "Java Debugger Extension"],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
+        retired=True,
     ),
 }
 
@@ -149,16 +182,25 @@ def get_template(template_id: str) -> WorkspaceTemplate | None:
     return TEMPLATES.get(template_id)
 
 
+def is_retired(template_id: str) -> bool:
+    template = TEMPLATES.get(template_id)
+    return bool(template and template.retired)
+
+
 def list_templates() -> list[TemplateInfo]:
     return [
         template.to_schema()
         for template_id, template in TEMPLATES.items()
-        if template_id not in INTERNAL_TEMPLATE_IDS
+        if template_id not in INTERNAL_TEMPLATE_IDS and not template.retired
     ]
 
 
 def list_builtin_templates() -> list[TemplateInfo]:
-    return [TEMPLATES[template_id].to_schema() for template_id in BUILTIN_TEMPLATE_IDS]
+    return [
+        TEMPLATES[template_id].to_schema()
+        for template_id in BUILTIN_TEMPLATE_IDS
+        if not TEMPLATES[template_id].retired
+    ]
 
 
 def register_custom_template(

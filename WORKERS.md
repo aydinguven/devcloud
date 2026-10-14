@@ -88,10 +88,10 @@ recreation without a manually maintained `FORWARDED_ALLOW_IPS=*` setting.
 
 ## Workspace AI connectivity and settings rollout
 
-Jupyter AI and Cline settings are controller-managed. Every enrolled worker fetches the
+Jupyter AI settings are controller-managed. Every enrolled worker fetches the
 shared LiteLLM root URL, restricted virtual key, default model, and exact model
 catalogue on startup and every 30 seconds. New workers therefore need no local
-Jupyter AI or Cline credential file.
+Jupyter AI credential file.
 
 Use **Admin > Entegrasyonlar > Workspace AI > Seçili Modeli Test Et** before
 starting user workspaces. The controller sends a small real request through
@@ -100,10 +100,14 @@ path used by workspace containers. The gateway value must be a root URL such as
 `http://llm-gateway:5003`, without `/v1`. Model IDs must exactly match the
 LiteLLM aliases allowed for the shared key.
 
-Maintained VS Code images contain `saoudrizwan.claude-dev`. At container
-creation DevCloud writes both Cline's legacy state and current
-`settings/providers.json`, selecting the OpenAI-compatible `<gateway>/v1`
-profile with the Admin API key and model.
+The `vscode-tcmb` image contains TCMB Code (`tcmb.tcmbcode`). Its configuration
+is not part of the 30-second worker sync: the controller renders
+`~/.config/kilo/tcmb.jsonc` for each workspace (owner's AI Factory key,
+Workspace AI gateway and catalogue, TCMB Code Admin settings) and sends it with
+the `container.create` request; the container writes it at every start.
+Workers older than 3.18.0 ignore it, so upgrade workers before rolling out
+TCMB Code. Workspaces on the retired Cline images still receive Cline's
+legacy state and `settings/providers.json` from the shared key.
 
 Settings are injected when a workspace container is created. To roll changed
 settings into an existing workspace:

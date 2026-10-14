@@ -113,7 +113,9 @@ The workflow publishes:
   changed since the last published version release: an immutable,
   smoke-tested image to GHCR as `TEMPLATE-VERSION` and
   `TEMPLATE-VERSION-SHORT_SHA`, plus gzip-compressed Docker archives and
-  SHA-256 sidecars for `vscode-python` and `jupyter-python`.
+  SHA-256 sidecars for `vscode-tcmb` and `jupyter-python`. The `vscode-tcmb`
+  build needs the TCMB Code VSIX release asset and its pinned checksum first
+  (see CONTAINERS.md, "Updating TCMB Code").
 
 Workspace images have an independent lifecycle and are not embedded in platform
 bundles. A release where no workspace build context changed builds and ships

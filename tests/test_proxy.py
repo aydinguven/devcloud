@@ -32,7 +32,7 @@ async def test_proxy_unauthorized_user_access(client: AsyncClient):
     # User A creates workspace
     ws_res = await client.post(
         "/api/workspaces",
-        json={"name": "Alice WS", "template_id": "vscode-empty", "flavor_id": "t1.nano"},
+        json={"name": "Alice WS", "template_id": "vscode-tcmb", "flavor_id": "t1.nano"},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     ws_id = ws_res.json()["id"]
@@ -311,7 +311,7 @@ async def test_custom_port_path_is_dispatched_before_catch_all_proxy(client: Asy
     token = register.json()["access_token"]
     workspace = await client.post(
         "/api/workspaces",
-        json={"name": "Custom Port", "template_id": "vscode-empty", "flavor_id": "t1.nano"},
+        json={"name": "Custom Port", "template_id": "vscode-tcmb", "flavor_id": "t1.nano"},
         headers={"Authorization": f"Bearer {token}"},
     )
     workspace_id = workspace.json()["id"]
@@ -362,7 +362,7 @@ async def test_remote_custom_port_uses_worker_tunnel_and_same_public_url(
     token = register.json()["access_token"]
     workspace = await client.post(
         "/api/workspaces",
-        json={"name": "Remote Port", "template_id": "vscode-empty", "flavor_id": "t1.nano"},
+        json={"name": "Remote Port", "template_id": "vscode-tcmb", "flavor_id": "t1.nano"},
         headers={"Authorization": f"Bearer {token}"},
     )
     workspace_id = workspace.json()["id"]

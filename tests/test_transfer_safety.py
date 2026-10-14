@@ -29,7 +29,7 @@ async def test_large_file_roundtrip_is_chunked(client, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "STORAGE_ROOT", str(tmp_path))
     headers = await get_authenticated_headers(client, "large_file")
     response = await client.post("/api/workspaces", headers=headers, json={
-        "name": "large files", "template_id": "vscode-empty", "flavor_id": "t1.nano"})
+        "name": "large files", "template_id": "vscode-tcmb", "flavor_id": "t1.nano"})
     ws = response.json()
     connection = agent_manager.get(TEST_WORKER_ID)
     original = connection.request
@@ -173,7 +173,7 @@ async def test_proxy_body_larger_than_old_message_limit_is_spooled_in_chunks(cli
     monkeypatch.setattr(settings, "STORAGE_ROOT", str(tmp_path))
     headers = await get_authenticated_headers(client, "large_proxy")
     ws = (await client.post("/api/workspaces", headers=headers, json={
-        "name": "Proxy body", "template_id": "vscode-empty", "flavor_id": "t1.nano"})).json()
+        "name": "Proxy body", "template_id": "vscode-tcmb", "flavor_id": "t1.nano"})).json()
     sizes = []
     digest = hashlib.sha256()
     class Response:

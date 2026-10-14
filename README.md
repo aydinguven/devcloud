@@ -9,10 +9,10 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Podman Container Orchestration**: Rootless container lifecycle management with memory & CPU quotas.
 - **Persistent Workspace Storage**: Host bind-mounts maintain project files across container restarts and updates.
 - **Integrated Browser IDEs**:
-  - **VS Code (Empty Project)**: Clean environment with git, essential tools, and Cline.
-  - **VS Code (Python 3.14 / 3.12)**: Preloaded with Python, `pip`, `uv`, the official Python/Jupyter extensions, and Cline.
+  - **TCMB Code (VS Code)**: Python 3, `pip`, `uv`, Node.js 22 LTS, git and the TCMB Code AI assistant (TCMB's build of Kilo Code) with LanceDB codebase indexing. Chat uses the workspace owner's own AI Factory key.
   - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
-  - **VS Code (Java 21 LTS)**: Preloaded with OpenJDK 21, Maven, Gradle, Red Hat Java Language Support, and Cline.
+
+  The Cline-based VS Code templates (Boş Proje, Python 3.14, React/Node.js, Java 21 LTS) were retired in 3.18.0: existing workspaces keep running, new ones use TCMB Code.
 - **Native Linux Terminal Workspace**: A full Rocky Linux 10 shell in the browser, served by `ttyd` over the same authenticated proxy as the IDEs. The session runs inside `tmux`, so a dropped connection reattaches instead of killing running work, and the entire home directory persists across restarts. Workspaces carry no `sudo`; the image ships git, Python 3, a C/C++ toolchain, and the usual shell utilities.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
@@ -308,31 +308,39 @@ Import the resulting OCI/Docker archives, or a GHCR/internal-registry image
 reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
 enabled images from the controller; the base installation does not build them.
 Formal GitHub Releases include downloadable, checksummed offline archives for
-the maintained `vscode-python` and `jupyter-python` templates.
+the maintained `vscode-tcmb` and `jupyter-python` templates.
 
 ### Workspace AI through LiteLLM
 
 The maintained `jupyter-python` template includes Jupyter AI, Claude Code, and
-the Claude ACP adapter. Every built-in VS Code image includes Cline; native
-VS Code Chat and Copilot are disabled. Configure
-their shared gateway access under **Admin > Entegrasyonlar > Workspace AI**:
+the Claude ACP adapter. The `vscode-tcmb` template ships TCMB Code; native
+VS Code Chat and Copilot are disabled. Configure gateway access under
+**Admin > Entegrasyonlar**:
 
-1. Enter the LiteLLM root URL, for example `http://llm-gateway:5003`. Do not add
-   `/v1`; Claude Code appends its Anthropic paths and the managed Cline profile
-   uses the same root at `/v1` through its OpenAI-compatible provider.
-2. Store a restricted LiteLLM virtual key intended for all workspace users.
-   Never distribute the LiteLLM master key.
+1. **Workspace AI**: enter the LiteLLM root URL, for example
+   `http://llm-gateway:5003`. Do not add `/v1`; Claude Code appends its
+   Anthropic paths and TCMB Code uses the same root at `/v1`.
+2. Store a restricted LiteLLM virtual key for Jupyter. Never distribute the
+   LiteLLM master key. TCMB Code does not use this shared key.
 3. Publish the exact LiteLLM aliases in **Kullanıcı Model Kataloğu**, save the
-   settings, and run **Seçili Modeli Test Et**. The test calls the selected model
-   from every enabled worker and reports HTTP status and latency.
-4. Enable **Cline eklentisini etkinleştir** and start a new workspace.
-   JupyterLab opens Claude through ACP. VS Code opens Cline with the gateway
-   URL, shared API key, and default model configured in Plan and Act modes.
+   settings, and run **Seçili Modeli Test Et**. The default model is also TCMB
+   Code's default.
+4. **TCMB Code**: enable it, enter the TCMB Library URL, optionally limit the
+   catalog models offered in TCMB Code, and store the indexing key with the
+   embedding model (`bge-m3`) and vector size (`1024`). Restrict that LiteLLM
+   key to the embedding model and a budget: every TCMB Code user can read it
+   inside their workspace.
 
-Cline is checksum-locked to 4.1.17, with automatic extension updates disabled
-and its bundled legacy interface selected. New Admin configurations enable
-Cline by default; existing configurations keep their saved toggle value.
-Re-enable it in Admin if it was disabled for the native Chat experiment.
+DevCloud writes `~/.config/kilo/tcmb.jsonc` into each TCMB Code container
+every time it starts. Chat uses the owner's own AI Factory key from the
+**GenAI** tab (the per-user workspace key, so usage counts towards that
+user, team and müdürlük); there is no shared-key fallback. A user without a
+key sees a warning while the workspace is created and an "anahtar yok" hint in
+TCMB Code's model picker; after requesting a key they stop and start the
+workspace, which recreates the container with the key (project files stay on
+the bind mount). Admin changes apply the same way. Indexing uses LanceDB
+0.26.2 baked into the image (`KILO_LANCEDB_PATH`). This requires GenAI and
+Workspace AI to point at the same LiteLLM.
 Disabling Cline uses the extension manager to remove it from a workspace
 container without leaving a broken registration. Recreate affected containers
 after changing the toggle; project data remains in its bind mount.
@@ -594,11 +602,8 @@ intelligent-nobel/
 │   └── templates/               # Jinja2 HTML templates
 ├── containers/                  # Controller, worker, and workspace Containerfiles
 │   ├── build_images.sh          # Podman batch builder
-│   ├── vscode-empty/
-│   ├── vscode-python/
-│   ├── vscode-react/
+│   ├── vscode-tcmb/             # VS Code + TCMB Code (+ pinned LanceDB runtime)
 │   ├── jupyter-python/
-│   ├── vscode-java/
 │   └── terminal-rocky/
 ├── deploy/                      # Linux VM deployment scripts & systemd unit
 ├── tests/                       # Pytest test suite (Auth, Workspaces, Podman, Proxy)

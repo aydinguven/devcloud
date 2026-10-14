@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.node import Node
 from app.models.mlflow_deployment import MlflowModelBuild
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.models.tcmb_code_settings import TcmbCodeSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.model_container_registry_settings import (
     ModelContainerRegistrySettings,
@@ -35,6 +36,12 @@ from app.schemas.jupyter_ai_settings import (
     JupyterAiSettingsUpdate,
 )
 from app.schemas.mlflow import MlflowServerSettingsOut, MlflowServerSettingsUpdate
+from app.schemas.tcmb_code_settings import TcmbCodeSettingsOut, TcmbCodeSettingsUpdate
+from app.tcmb_code import (
+    DEFAULT_INDEXING_DIMENSION,
+    DEFAULT_INDEXING_MODEL,
+    parse_model_ids,
+)
 from app.schemas.model_container_registry import (
     ModelContainerRegistrySettingsOut,
     ModelContainerRegistrySettingsUpdate,
@@ -511,6 +518,127 @@ async def test_jupyter_ai_settings(
         model_id=request.model_id,
         workers=workers,
     )
+
+
+def _tcmb_code_status(
+    record: TcmbCodeSettings | None,
+    workspace_ai: JupyterAiSettings | None,
+) -> tuple[bool, str]:
+    if record is None or not record.enabled:
+        return False, ""
+    if workspace_ai is None or not workspace_ai.enabled or not workspace_ai.gateway_url:
+        return False, (
+            "Workspace AI etkin değil; TCMB Code gateway URL'sini ve model "
+            "kataloğunu oradan alır, bu yüzden workspace'lere yapılandırma gönderilmiyor."
+        )
+    if record.indexing_enabled and not record.encrypted_indexing_key:
+        return True, "Kod indeksleme için API anahtarı kayıtlı değil; indeksleme kapalı kalır."
+    return True, ""
+
+
+def _tcmb_code_settings_out(
+    record: TcmbCodeSettings | None,
+    workspace_ai: JupyterAiSettings | None,
+) -> TcmbCodeSettingsOut:
+    active, warning = _tcmb_code_status(record, workspace_ai)
+    if record is None:
+        return TcmbCodeSettingsOut(
+            managed=False,
+            enabled=False,
+            library_url="",
+            model_ids=[],
+            indexing_enabled=True,
+            indexing_model=DEFAULT_INDEXING_MODEL,
+            indexing_dimension=DEFAULT_INDEXING_DIMENSION,
+            has_indexing_key=False,
+            active=active,
+            warning=warning,
+            updated_at=None,
+        )
+    return TcmbCodeSettingsOut(
+        managed=True,
+        enabled=record.enabled,
+        library_url=record.library_url,
+        model_ids=parse_model_ids(record.model_ids_json),
+        indexing_enabled=record.indexing_enabled,
+        indexing_model=record.indexing_model,
+        indexing_dimension=record.indexing_dimension,
+        has_indexing_key=bool(record.encrypted_indexing_key),
+        active=active,
+        warning=warning,
+        updated_at=record.updated_at,
+    )
+
+
+@router.get(
+    "/tcmb-code-settings",
+    response_model=TcmbCodeSettingsOut,
+)
+async def get_tcmb_code_settings(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return TCMB Code settings without exposing the indexing key."""
+    return _tcmb_code_settings_out(
+        await db.get(TcmbCodeSettings, 1), await db.get(JupyterAiSettings, 1)
+    )
+
+
+@router.put(
+    "/tcmb-code-settings",
+    response_model=TcmbCodeSettingsOut,
+)
+async def update_tcmb_code_settings(
+    update: TcmbCodeSettingsUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Store TCMB Code settings; they apply to newly created or restarted workspaces."""
+    record = await db.get(TcmbCodeSettings, 1)
+    workspace_ai = await db.get(JupyterAiSettings, 1)
+    has_existing_key = bool(record and record.encrypted_indexing_key)
+    if update.enabled and update.indexing_enabled and (
+        (update.indexing_key is None and not has_existing_key)
+        or update.indexing_key == ""
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Kod indeksleme etkinken indeksleme API anahtarı zorunludur.",
+        )
+    if update.model_ids:
+        catalog_ids = {
+            item["model_id"]
+            for item in parse_model_catalog(
+                workspace_ai.model_catalog_json if workspace_ai else "",
+                workspace_ai.model_id if workspace_ai else "",
+            )
+        }
+        unknown = [model_id for model_id in update.model_ids if model_id not in catalog_ids]
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Workspace AI model kataloğunda olmayan model: "
+                    + ", ".join(unknown)
+                ),
+            )
+    if record is None:
+        record = TcmbCodeSettings(id=1)
+    record.enabled = update.enabled
+    record.library_url = update.library_url
+    record.model_ids_json = json.dumps(update.model_ids, ensure_ascii=False)
+    record.indexing_enabled = update.indexing_enabled
+    record.indexing_model = update.indexing_model
+    record.indexing_dimension = update.indexing_dimension
+    if update.indexing_key is not None:
+        record.encrypted_indexing_key = (
+            encrypt_secret(update.indexing_key) if update.indexing_key else ""
+        )
+    record.updated_at = datetime.now(timezone.utc)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return _tcmb_code_settings_out(record, workspace_ai)
 
 
 @router.get(

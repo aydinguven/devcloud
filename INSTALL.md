@@ -115,16 +115,17 @@ The maintained jupyter-python workspace image includes Jupyter AI 3, notebook
 magic commands, Claude Code, and the Claude ACP adapter. This preserves the
 agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
-on-prem gateway. Every maintained VS Code image also includes Cline and receives
-a Cline profile generated from the same central gateway record. Native VS Code
+on-prem gateway. The maintained VS Code image (`vscode-tcmb`) ships TCMB Code,
+configured from the same central gateway record plus the TCMB Code settings
+described below. Native VS Code
 Chat and Copilot are disabled. The `terminal-rocky` image intentionally has no
 AI assistant and needs no gateway configuration.
 
 Configure the gateway once under **Admin > Entegrasyonlar > Workspace AI ·
-Jupyter + Cline**. The controller encrypts the shared API key at
+Jupyter + VS Code**. The controller encrypts the shared API key at
 rest. Every enrolled
 worker fetches the central setting on startup and every 30 seconds, so a newly
-installed worker needs no local Jupyter AI or Cline credential
+installed worker needs no local Jupyter AI credential
 provisioning.
 The same page manages the shared model catalogue, display names, descriptions,
 and the model initially selected for a new Claude session. The default catalogue
@@ -148,7 +149,7 @@ JUPYTER_AI_MODEL_CATALOG_JSON=[]
 
 The gateway URL is the root URL, for example
 `http://llm-gateway.internal.example:5003`. Do not append `/v1`: DevCloud and
-Claude Code append `/v1/messages` and `/v1/models` as needed, while Cline uses
+Claude Code append `/v1/messages` and `/v1/models` as needed, while TCMB Code uses
 the same root at `/v1` through its OpenAI-compatible provider. A configured URL
 ending in `/v1` therefore causes requests such as `/v1/v1/messages` and usually
 returns HTTP 404. The root URL must be reachable from the workspace container
@@ -195,43 +196,65 @@ an extra `/v1`; a model-not-found response indicates that the catalogue ID does
 not match a LiteLLM alias available to the shared key.
 
 The shared gateway API key is forwarded as ANTHROPIC_AUTH_TOKEN to every Jupyter
-workspace and written into the managed Cline provider state in enabled
-VS Code workspaces. Cline uses the gateway's OpenAI-compatible `/v1` API and
-does not require GitHub or Cline account sign-in for that provider.
-This also means each workspace user can inspect and reuse the key. Use a
-gateway credential intended for this shared audience, restrict it at the
-gateway, and rotate it regularly.
+workspace (and still written into the Cline state of existing workspaces on the
+retired Cline images). This means each Jupyter user can inspect and reuse the
+key. Use a gateway credential intended for this shared audience, restrict it
+at the gateway, and rotate it regularly.
 
-Cline is pinned to 4.1.17 in every maintained VS Code image, with its legacy
-bundle selected and extension auto-updates disabled. New Admin configurations
-enable Cline by default; upgrades preserve the saved Admin choice. Enable
-**Cline eklentisini etkinleştir** if it was disabled during the native Chat
-experiment. The toggle and connection settings apply when a VS Code workspace
-container is created, so existing containers must be recreated after changes.
-If VS Code shows **Restricted Mode**, use **Workspaces: Manage Workspace Trust**
-to trust your project before using Cline.
+#### TCMB Code
 
-#### Returning from native Chat to Cline (3.6.6)
+The `vscode-tcmb` image ships TCMB Code, TCMB's build of Kilo Code. Configure
+it under **Admin > Entegrasyonlar > TCMB Code**:
 
-1. Update the controller using the published stable channel, then apply its
-   worker update and confirm the affected workers report version 3.6.6.
-2. Import the replacement image under **Admin > Workspace Image'ları**:
-   `quay.io/aaslangoren/devcloud:vscode-python-3.6.6-e0ccf03e5272`.
-   Other flavors use `vscode-empty`, `vscode-react`, `vscode-java`, or
-   `terminal-rocky` with the same version and commit suffix. Wait for the
-   assigned workers to finish synchronizing the new image.
-3. Under **Admin > Entegrasyonlar > Workspace AI**, enable shared gateway access
-   and Cline. Keep the existing gateway URL, API key, and default model. Save
-   and allow the workers' 30-second settings synchronization to complete.
-4. Stop the affected workspace, remove only its stopped container on the
-   assigned worker, then start it again from DevCloud. Keep the project bind
-   mount; do not use the dashboard Delete action.
-5. Trust the project if prompted, then open Cline in the Activity Bar. Plan and
-   Act should use the Admin model without entering credentials again.
+- **TCMB Library URL**, for example `http://library.internal.example:8765`.
+- **TCMB Code modelleri**: optional comma-separated subset of the Workspace AI
+  catalogue; empty offers the whole catalogue. The Workspace AI default model
+  is TCMB Code's default.
+- **Kod indeksleme**: embedding model (`bge-m3`), vector size (`1024`) and
+  the indexing API key. Embeddings go to the Workspace AI gateway's `/v1`
+  endpoint and are stored with LanceDB inside the workspace.
 
-The release checks Cline activation, chat-input rendering with an injected
-test profile, and clean uninstallation in all four VS Code images. It does
-not validate connectivity to your private gateway; test a prompt after rollout.
+Chat requests use the workspace owner's own AI Factory key, which they
+request on the **GenAI** tab (DevCloud issues a separate per-user workspace
+key for the same LiteLLM user and team). TCMB Code never falls back to the
+shared key, so GenAI and Workspace AI must point at the same LiteLLM. Without
+a key the user sees a warning while creating the workspace and an
+"anahtar yok" hint in TCMB Code's model picker; indexing still works.
+
+Every TCMB Code user can read the indexing key inside their own workspace.
+Restrict it in LiteLLM to the embedding model and give it a budget.
+
+DevCloud rewrites `~/.config/kilo/tcmb.jsonc` at each container start. When
+the owner's key or the Admin settings changed since the container was
+created, stopping and starting the workspace recreates the container with the
+new settings; the project directory is a bind mount and is preserved, while
+other state in the container (for example extra VS Code extensions or files
+outside the project directory) is reset. No manual `podman rm` is needed.
+
+#### Rolling out TCMB Code (3.18.0)
+
+1. Update the controller and then the workers to 3.18.0. Workers older than
+   3.18.0 cannot write the TCMB Code configuration.
+2. Import `ghcr.io/aydinguven/devcloud:vscode-tcmb-3.18.0` (or the matching
+   quay.io tag, or the `devcloud-workspace-vscode-tcmb-*.tar.gz` release
+   archive) under **Admin > Workspace Image'ları** and wait for the workers
+   to synchronize it.
+3. Under **Admin > Entegrasyonlar**, keep Workspace AI enabled, then fill in
+   and save the **TCMB Code** card.
+4. In LiteLLM, restrict the indexing key to the embedding model.
+5. Create a TCMB Code workspace as a user who has requested an AI Factory key
+   on the GenAI tab. Trust the project if prompted, open TCMB Code in the
+   Activity Bar, send a prompt, and check that the request appears under
+   that user's key in LiteLLM. Run an indexing pass and check the
+   embeddings appear under the indexing key.
+6. Disable the retired `vscode-empty`, `vscode-python`, `vscode-react` and
+   `vscode-java` images under **Admin > Workspace Image'ları**. Existing
+   workspaces on them keep running with Cline; new ones cannot be created.
+
+The release checks TCMB Code activation, its agent CLI start, chat-input
+rendering with an injected test configuration, and that LanceDB's native
+binding loads. It does not validate connectivity to your private gateway or
+TCMB Library; test both after rollout.
 
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
@@ -248,7 +271,7 @@ automatically. A future platform release publishes a new Jupyter tag only when
 its image definition (`containers/jupyter-python`) changes, or when a manual
 release forces it with `rebuild_workspaces`.
 
-When the target cannot reach an OCI registry, use the `vscode-python` and
+When the target cannot reach an OCI registry, use the `vscode-tcmb` and
 `jupyter-python` workspace archives attached to the most recent GitHub Release
 that rebuilt that image (releases that did not change a workspace do not carry
 its archive):

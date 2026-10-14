@@ -426,6 +426,7 @@ td code {
 .log-info { color: #38bdf8; }
 .log-success { color: #10b981; }
 .log-error { color: #ef4444; }
+.log-warning { color: #f59e0b; }
 .log-dim { color: #64748b; }
 
 /* Resource usage dashboard */

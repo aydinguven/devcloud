@@ -62,7 +62,7 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert "CPU" in auth_dashboard.text
     assert "RAM" in auth_dashboard.text
     for template_name in (
-        "Boş Proje", "Python 3.14", "React/Node.js", "Jupyter Notebook", "Java 21 LTS"
+        "TCMB Code", "Jupyter Notebook", "Terminal (Rocky Linux 10)"
     ):
         assert template_name in auth_dashboard.text
     assert 'class="template-card-title"' in auth_dashboard.text
@@ -71,7 +71,7 @@ async def test_view_routes_render_html(client: AsyncClient):
     create_payload = {
         "name": "Dashboard Template Test",
         "description": "Checking template render",
-        "template_id": "vscode-empty",
+        "template_id": "vscode-tcmb",
         "flavor_id": "t1.nano",
     }
     ws_res = await client.post("/api/workspaces", json=create_payload, headers=headers)

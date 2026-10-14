@@ -708,7 +708,7 @@ class WorkerAgent:
         return target
 
     async def handle_container_command(self, action: str, payload: dict) -> dict:
-        if action in {"container.start", "container.stop", "container.delete"}:
+        if action in {"container.start", "container.stop", "container.delete", "container.remove"}:
             async with self.registry_lock:
                 return await self._handle_container_command(action, payload)
         return await self._handle_container_command(action, payload)
@@ -730,6 +730,7 @@ class WorkerAgent:
                 "flavor_id", "host_port", "workspace_token",
                 "accelerator_cdi_name", "image_ref", "image_sha256",
                 "mlflow_environment", "service_environment", "ai_gateway_token",
+                "tcmb_code_config",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
             token = args.get("ai_gateway_token")
@@ -739,6 +740,14 @@ class WorkerAgent:
                 or any(character.isspace() or ord(character) < 32 for character in token)
             ):
                 args.pop("ai_gateway_token")
+            if "tcmb_code_config" in args:
+                from app.tcmb_code import validated_config
+
+                tcmb_code_config = validated_config(args["tcmb_code_config"])
+                if tcmb_code_config:
+                    args["tcmb_code_config"] = tcmb_code_config
+                else:
+                    args.pop("tcmb_code_config")
             async with self.registry_lock:
                 existing = self.registry.get(args["container_name"])
                 if isinstance(existing, dict):
@@ -783,6 +792,10 @@ class WorkerAgent:
             return {"success": await podman_service.start_container(name)}
         if action == "container.stop":
             return {"success": await podman_service.stop_container(name)}
+        if action == "container.remove":
+            # Recreate support: the registry entry and the storage stay, so the
+            # next container.create for this workspace rebuilds it in place.
+            return {"success": await podman_service.delete_container(name)}
         if action == "container.status":
             return {"status": await podman_service.get_container_status(name)}
         if action == "container.logs":

@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initDirectorySettings();
   initDirectorySync();
   initJupyterAiSettings();
+  initTcmbCodeSettings();
   initModelContainerRegistrySettings();
   initAdminMlflowSettings();
   initAdminGenAiSettings();
@@ -491,6 +492,76 @@ function initModelContainerRegistrySettings() {
       status.className = "quota-form-status quota-status-error";
     } finally {
       testButton.disabled = false;
+    }
+  });
+}
+
+function initTcmbCodeSettings() {
+  const form = document.getElementById("tcmb-code-settings-form");
+  if (!form) return;
+  const saveButton = document.getElementById("btn-save-tcmb-code");
+  const status = document.getElementById("tcmb-code-form-status");
+  const badge = document.getElementById("tcmb-code-status-badge");
+  const blocked = document.getElementById("tcmb-code-warning");
+
+  function showState(result) {
+    badge.className = `badge ${result.active ? "badge-running" : "badge-stopped"}`;
+    badge.textContent = result.active ? "Etkin" : "Devre Dışı";
+    blocked.hidden = !result.warning;
+    blocked.textContent = result.warning || "";
+    form.elements.indexing_key.placeholder = result.has_indexing_key
+      ? "Kayıtlı anahtarı korumak için boş bırakın"
+      : "İndeksleme API anahtarını girin";
+  }
+
+  fetch("/api/admin/tcmb-code-settings")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((result) => { if (result) showState(result); })
+    .catch(() => {});
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const key = String(data.get("indexing_key") || "");
+    const clearKey = form.elements.clear_indexing_key.checked;
+    const modelIds = String(data.get("model_ids") || "")
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    saveButton.disabled = true;
+    status.textContent = "Kaydediliyor...";
+    status.className = "quota-form-status";
+    try {
+      const response = await fetch("/api/admin/tcmb-code-settings", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          enabled: form.elements.enabled.checked,
+          library_url: String(data.get("library_url") || "").trim(),
+          model_ids: modelIds,
+          indexing_enabled: form.elements.indexing_enabled.checked,
+          indexing_model: String(data.get("indexing_model") || "").trim(),
+          indexing_dimension: Number.parseInt(String(data.get("indexing_dimension") || "1024"), 10),
+          indexing_key: clearKey ? "" : (key || null),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        let detail = result.detail || `Ayarlar kaydedilemedi (${response.status})`;
+        if (Array.isArray(detail)) detail = detail.map((item) => item.msg).join("; ");
+        throw new Error(detail);
+      }
+      form.elements.indexing_key.value = "";
+      form.elements.clear_indexing_key.checked = false;
+      form.elements.model_ids.value = (result.model_ids || []).join(", ");
+      showState(result);
+      status.textContent = "TCMB Code ayarları kaydedildi; yeni ve yeniden başlatılan workspace'lere uygulanacak.";
+      status.className = "quota-form-status quota-status-success";
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = "quota-form-status quota-status-error";
+    } finally {
+      saveButton.disabled = false;
     }
   });
 }

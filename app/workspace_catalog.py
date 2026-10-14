@@ -11,7 +11,7 @@ from app.orchestrator.flavors import (
     get_flavor,
     register_flavor,
 )
-from app.orchestrator.templates import list_templates, register_custom_template
+from app.orchestrator.templates import is_retired, list_templates, register_custom_template
 from app.schemas.workspace import FlavorInfo, TemplateInfo
 
 
@@ -31,7 +31,12 @@ async def _load_custom_templates(db: AsyncSession) -> None:
 
 
 async def template_enabled(db: AsyncSession, template_id: str) -> bool:
-    """Keep unmanaged templates visible; managed history requires an active image."""
+    """Keep unmanaged templates visible; managed history requires an active image.
+
+    Retired built-in templates are never enabled for new workspaces.
+    """
+    if is_retired(template_id):
+        return False
     states = (
         await db.execute(
             select(WorkspaceImage.enabled).where(
