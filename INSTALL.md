@@ -259,6 +259,33 @@ rendering with an injected test configuration, and that LanceDB's native
 binding loads. It does not validate connectivity to your private gateway or
 TCMB Library; test both after rollout.
 
+#### TCMB Code opens but is not configured
+
+TCMB Code then has no "TCMB code" provider in its model picker and falls back
+to Kilo's own cloud models. In the workspace terminal:
+
+~~~bash
+ls -la ~/.config/kilo/
+~~~
+
+- **No `tcmb.jsonc`**: DevCloud sent no configuration. Since 3.18.2 the
+  deployment log names the cause; the possible causes are:
+  - the **TCMB Code** card under **Admin > Entegrasyonlar** is not set to
+    distribute (its badge says "Devre Dışı");
+  - Workspace AI is disabled, has no gateway URL, or offers no models;
+  - the workspace's worker runs a release older than 3.18.0 (see
+    **Admin > Node'lar**). 3.18.2 no longer places new TCMB Code workspaces
+    on such workers.
+
+  Fix the cause, then stop and start the workspace. 3.18.2 rebuilds every
+  TCMB Code container created by 3.18.0/3.18.1 once on its next start,
+  because those releases could record a configuration an old worker had
+  dropped.
+- **`tcmb.jsonc` exists**: check the agent sees it with
+  `"$(ls -d ~/.local/share/code-server/extensions/tcmb.tcmbcode-*/bin/kilo)" models litellm`,
+  which lists the configured models. The folder must be trusted: in
+  Restricted Mode VS Code disables TCMB Code entirely.
+
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
 

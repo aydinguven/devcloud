@@ -28,6 +28,7 @@ from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.mlflow_deployment import MlflowDeployment
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.mlflow_settings import MlflowSettings
+from app.models.node import Node
 from app.models.tcmb_code_settings import TcmbCodeSettings
 from app.models.user import User
 from app.models.workspace import (
@@ -44,10 +45,12 @@ from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import WorkspacePlacement, select_workspace_placement
 from app.quotas import effective_quota
+from app.release_catalog import semantic_version
 from app.resource_usage import quota_violations
 from app.schemas.workspace import WorkspaceCreate
 from app.security.secrets import SecretDecryptionError, decrypt_secret
 from app.tcmb_code import (
+    MIN_AGENT_VERSION as TCMB_CODE_MIN_AGENT_VERSION,
     TCMB_CODE_ASSISTANT,
     config_digest,
     parse_model_ids,
@@ -151,6 +154,8 @@ class WorkspaceAiConfig:
     tcmb_code_config: str = ""
     # TCMB Code is configured but the owner has no AI Factory key yet.
     user_key_missing: bool = False
+    # Why a TCMB Code workspace gets no tcmb.jsonc at all (Admin-side cause).
+    tcmb_code_problem: str = ""
 
     @property
     def digest(self) -> str:
@@ -169,6 +174,68 @@ TCMB_CODE_MISSING_KEY_MESSAGE = (
     "talep edin, ardından workspace'i durdurup yeniden başlatın. Kod indeksleme "
     "bu sırada çalışmaya devam eder."
 )
+TCMB_CODE_RESTART_HINT = (
+    " Ayar düzeltildikten sonra workspace'i durdurup yeniden başlatın."
+)
+TCMB_CODE_DISABLED_MESSAGE = (
+    "TCMB Code yapılandırılmadı: Admin > Entegrasyonlar > TCMB Code kartında "
+    "\"TCMB Code yapılandırmasını workspace'lere dağıt\" kapalı."
+    + TCMB_CODE_RESTART_HINT
+)
+TCMB_CODE_NO_GATEWAY_MESSAGE = (
+    "TCMB Code yapılandırılmadı: Admin > Entegrasyonlar > Workspace AI kapalı "
+    "veya gateway adresi boş." + TCMB_CODE_RESTART_HINT
+)
+TCMB_CODE_NO_MODELS_MESSAGE = (
+    "TCMB Code yapılandırılmadı: Workspace AI model kataloğunda TCMB Code'a "
+    "sunulacak model yok." + TCMB_CODE_RESTART_HINT
+)
+
+
+def tcmb_code_worker_outdated_message(node_name: str, agent_version: str) -> str:
+    return (
+        f"TCMB Code yapılandırılmadı: worker '{node_name}' {agent_version or 'bilinmeyen sürüm'} "
+        f"çalıştırıyor; TCMB Code ayarlarını yazmak için en az {TCMB_CODE_MIN_AGENT_VERSION} "
+        "gerekir. Worker'ı güncelleyip workspace'i durdurup yeniden başlatın."
+    )
+
+
+def worker_applies_tcmb_code(node) -> bool:
+    """False only when the worker reports a release older than 3.18.0.
+
+    Such a worker drops tcmb_code_config. An unknown version is given the
+    benefit of the doubt, matching the scheduler.
+    """
+    current = semantic_version(str(getattr(node, "agent_version", "") or ""))
+    required = semantic_version(TCMB_CODE_MIN_AGENT_VERSION)
+    return current is None or required is None or current >= required
+
+
+async def applied_ai_config_digest(
+    db: AsyncSession,
+    workspace: Workspace,
+    ai_config: WorkspaceAiConfig,
+) -> str:
+    """Digest of the config the worker really wrote into the container.
+
+    A pre-3.18 worker drops ``tcmb_code_config``; recording the sent digest
+    would make the next start believe the container is current and never
+    recreate it after the worker is upgraded.
+    """
+    if not ai_config.tcmb_code_config:
+        return ""
+    node = await db.get(Node, workspace.node_id) if workspace.node_id else None
+    if node is None or not worker_applies_tcmb_code(node):
+        return ""
+    return ai_config.digest
+
+
+async def tcmb_code_worker_problem(db: AsyncSession, workspace: Workspace) -> str:
+    """Explain an outdated worker for a TCMB Code workspace, else ''."""
+    node = await db.get(Node, workspace.node_id) if workspace.node_id else None
+    if node is None or worker_applies_tcmb_code(node):
+        return ""
+    return tcmb_code_worker_outdated_message(node.name, node.agent_version or "")
 
 
 async def workspace_ai_config(
@@ -188,18 +255,16 @@ async def workspace_ai_config(
         )
     record = await db.get(TcmbCodeSettings, 1)
     workspace_ai = await db.get(JupyterAiSettings, 1)
-    if (
-        record is None
-        or not record.enabled
-        or workspace_ai is None
-        or not workspace_ai.enabled
-        or not workspace_ai.gateway_url
-    ):
-        return WorkspaceAiConfig()
+    if record is None or not record.enabled:
+        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_DISABLED_MESSAGE)
+    if workspace_ai is None or not workspace_ai.enabled or not workspace_ai.gateway_url:
+        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_NO_GATEWAY_MESSAGE)
     catalog = parse_model_catalog(workspace_ai.model_catalog_json, workspace_ai.model_id)
     models, default_model = select_models(
         catalog, parse_model_ids(record.model_ids_json), workspace_ai.model_id
     )
+    if not models:
+        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_NO_MODELS_MESSAGE)
     indexing_key = ""
     if record.indexing_enabled and record.encrypted_indexing_key:
         try:
@@ -222,6 +287,7 @@ async def workspace_ai_config(
     return WorkspaceAiConfig(
         tcmb_code_config=config,
         user_key_missing=bool(config) and not user_key,
+        tcmb_code_problem="" if config else TCMB_CODE_NO_GATEWAY_MESSAGE,
     )
 
 
@@ -443,6 +509,11 @@ async def schedule_and_reserve_workspace(
         )
     required_image = workspace_image.image_ref if workspace_image else template.image_tag
     required_sha256 = workspace_image.sha256 if workspace_image else None
+    minimum_agent_version = (
+        TCMB_CODE_MIN_AGENT_VERSION
+        if getattr(template, "ai_assistant", "") == TCMB_CODE_ASSISTANT
+        else None
+    )
     for attempt in range(5):
         try:
             async with admission_transaction(db):
@@ -459,6 +530,10 @@ async def schedule_and_reserve_workspace(
                     flavor,
                     required_image=required_image,
                     required_image_sha256=required_sha256,
+                    minimum_agent_version=minimum_agent_version,
+                    # Only a reported older version is refused: every real
+                    # worker reports one with its heartbeat.
+                    allow_unknown_agent_version=True,
                 )
                 workspace = await reserve_workspace(
                     db, data=data, current_user=user, placement=placement,

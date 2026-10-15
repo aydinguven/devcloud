@@ -35,11 +35,13 @@ from app.orchestrator.workspace_provisioning import (
     QuotaExceeded,
     WorkspaceNameConflict,
     WorkspaceOperationError,
+    applied_ai_config_digest,
     delete_workspace_resources,
     flavor_definition,
     get_resume_quota_error,
     schedule_and_reserve_workspace,
     sync_mlflow_deployment_status,
+    tcmb_code_worker_problem,
     template_definition,
     workspace_ai_config,
     workspace_mlflow_environment,
@@ -205,6 +207,8 @@ async def create_workspace(
         runtime = runtime_for_node(workspace.node_id)
         image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
         ai_config = await workspace_ai_config(db, template, current_user.id)
+        if ai_config.tcmb_code_problem:
+            logger.warning("Workspace %s: %s", workspace.id, ai_config.tcmb_code_problem)
         container_id, storage_path = await runtime.create_workspace_container(
             workspace_id=workspace.id,
             user_id=current_user.id,
@@ -223,7 +227,7 @@ async def create_workspace(
         )
         workspace.container_id = container_id
         workspace.storage_path = storage_path
-        workspace.ai_config_digest = ai_config.digest
+        workspace.ai_config_digest = await applied_ai_config_digest(db, workspace, ai_config)
         workspace.status = WorkspaceStatus.RUNNING
         workspace.last_started_at = datetime.now(timezone.utc)
         workspace.error_message = None
@@ -328,6 +332,8 @@ async def deploy_workspace_stream(
             runtime = runtime_for_node(workspace.node_id)
             image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
             ai_config = await workspace_ai_config(db, template, current_user.id)
+            if ai_config.tcmb_code_problem:
+                await emit_log(ai_config.tcmb_code_problem, "warning")
             if ai_config.user_key_missing:
                 await emit_log(TCMB_CODE_MISSING_KEY_MESSAGE, "warning")
             container_id, storage_path = await runtime.create_workspace_container(
@@ -350,7 +356,9 @@ async def deploy_workspace_stream(
 
             workspace.container_id = container_id
             workspace.storage_path = storage_path
-            workspace.ai_config_digest = ai_config.digest
+            workspace.ai_config_digest = await applied_ai_config_digest(
+                db, workspace, ai_config
+            )
             workspace.status = WorkspaceStatus.RUNNING
             workspace.last_started_at = datetime.now(timezone.utc)
             workspace.error_message = None
@@ -458,7 +466,15 @@ async def start_workspace_endpoint(
                 # requested AI Factory key or changed Admin settings need a
                 # new container. Project files are on the bind mount.
                 ai_config = await workspace_ai_config(db, template, workspace.user_id)
-                if ai_config.digest != (workspace.ai_config_digest or ""):
+                if ai_config.tcmb_code_problem:
+                    logger.warning(
+                        "Workspace %s: %s", workspace.id, ai_config.tcmb_code_problem
+                    )
+                worker_problem = await tcmb_code_worker_problem(db, workspace)
+                if worker_problem:
+                    # Recreating on this worker would drop the config again.
+                    logger.warning("Workspace %s: %s", workspace.id, worker_problem)
+                elif ai_config.digest != (workspace.ai_config_digest or ""):
                     try:
                         if await runtime.remove_container(workspace.container_name):
                             container_exists = False
@@ -522,7 +538,9 @@ async def start_workspace_endpoint(
             )
             workspace.container_id = container_id
             workspace.storage_path = storage_path
-            workspace.ai_config_digest = ai_config.digest
+            workspace.ai_config_digest = await applied_ai_config_digest(
+                db, workspace, ai_config
+            )
             success = True
     except (ValueError, RuntimeError, TimeoutError) as exc:
         logger.exception("Failed to start workspace %s", workspace.id)
