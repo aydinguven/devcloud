@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.18.1` (`v3.18.0` was tagged but its release failed and stays a draft).
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.18.2` (`v3.18.0` was tagged but its release failed and stays a draft).
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,9 +13,9 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
-| Kiro / Aydin | Awaiting merge | `fix/tcmb-code-config-guard` | 3.18.2: a TCMB Code workspace on IDMVAIFACT1 opened unconfigured; never start one silently unconfigured (PR #59) | Aydin checks the cause in the workspace (`ls -la ~/.config/kilo/`, TCMB Code card badge, worker version in Admin > Node'lar) and merges #59; Kiro tags `v3.18.2` (see Latest handoff) |
+| Aydin | Pending | `main` | 3.18.2 rollout (released 2026-10-15): TCMB Code VS Code image, Cline images retired, no TCMB Code workspace starts silently unconfigured | Update IDMVAIFACT1, then the workers, to 3.18.2 and follow `INSTALL.md` "Rolling out TCMB Code"; for the already-unconfigured workspace fix the cause it reports and stop/start it (see Latest handoff) |
 | Kiro | In progress | `feat/image-import-progress` | Progress bar for Admin > Workspace Image'ları imports (uncommitted in the main checkout; touches `app/workspace_image_service.py`, `app/routes/admin/images.py`, `app/static/js/app.js`, `app/templates/partials/admin_images.html`, `app/static/css/kurumsal.css`) | Run the suite and a scratch import check, then commit and open the PR |
-| Aydin | Pending | `main` | 3.18.1 rollout: TCMB Code VS Code image, Cline images retired (released 2026-10-14) | Superseded by 3.18.2 once released; same steps in `INSTALL.md` "Rolling out TCMB Code" |
+| Aydin | Superseded | `main` | 3.18.1 rollout: TCMB Code VS Code image, Cline images retired (released 2026-10-14) | Superseded by 3.18.2; same steps in `INSTALL.md` "Rolling out TCMB Code" |
 | Aydin | Pending | `main` | 3.16.1 rollout | Update IDMVAIFACT1 (after the 3.16.0 steps below), wait ~1 min for the automatic AD sync (or press **AD'den senkronize et**) and check that İşletim Sistemi Yönetimi and Sunucu Altyapı Yönetimi sit under BİLGİ TEKNOLOJİLERİ ALTYAPI with Müdür: Funda Kaplan |
 | Aydin | Pending | `main` | 3.16.0 rollout | IDMVAIFACT1's 3.15.0 update applied but the worker bundle copy hit ENOSPC: free space, publish the 3.15.0 bundle manually (see Latest handoff), then update to 3.16.0 and upgrade workers |
 | Aydin | Superseded | `main` | 3.15.0 rollout | Update IDMVAIFACT1 and workers; after the controller restarts the panel shows the step bar. Wait ~1 min for the automatic AD sync (or press the button) and check that İşletim Sistemi Yönetimi sits under its müdürlük |
@@ -78,6 +78,7 @@
 
 ## Validation
 
+- 2026-10-15 (`v3.18.2` on `4fc735f`, run 38685316969): local suite on the tagged commit 393 passed, 3 skipped, 1 known Windows-only failure. Release run green in ~6 min: the new `tests` job (PostgreSQL 16) passed, the Rocky 10 platform build passed, the workspace image job was skipped as intended (`containers/` unchanged), and publish succeeded. Release is marked latest with the platform update, offline and worker-offline bundles; `devcloud-update-channel.json` names 3.18.2. Not validated: the update on IDMVAIFACT1 and the 3.18.0/3.18.1 container rebuild on a real worker.
 - 2026-10-14 (`fix/tcmb-code-config-guard`, 3.18.2): suite 394 passed, 3 skipped, 1 known Windows-only failure. A throwaway scenario file (deleted) passed: card-disabled and no-gateway warnings in the deploy stream; a 3.18.2 worker gets the config and the salted digest; a 3.17.1 worker is refused for TCMB Code but still takes Jupyter; a 3.18.1-style digest rebuilds exactly once; a workspace on an old worker is not rebuilt. A temporary GitHub Actions probe (branch deleted) started the published `vscode-tcmb-3.18.1` image through `PodmanService.create_workspace_container` with rootful Podman: `tcmb.jsonc` written (mode 600), `kilo debug config` and the extension's `kilo serve` load it, `kilo models litellm` lists the configured models, and after trusting the folder the picker shows the default model. Not validated: IDMVAIFACT1 itself, real LiteLLM/TCMB Library, mixed-version multi-worker installs.
 - 2026-10-14 (`v3.18.1`, run 38575432950): all jobs green. `vscode-tcmb` built and passed the TCMB Code smoke: activation, `bin/kilo` agent start, chat input rendering and LanceDB load. Release published with the platform, offline, worker-offline and `vscode-tcmb` workspace archives; marked latest; `stable` points to `3.18.1-5db47f0fbd05`. Not yet validated: real LiteLLM chat/indexing and TCMB Library on IDMVAIFACT1, PostgreSQL migration 30.
 - 2026-10-14 (`feat/tcmb-code`): suite 394 passed, 3 skipped, 1 known Windows-only failure (same as `main`). A disposable scratch smoke (repo fixtures, not committed) passed:
@@ -111,10 +112,13 @@
 
 ## Latest handoff
 
-2026-10-14 TCMB Code opened unconfigured on IDMVAIFACT1 (Aydin's report). The published image is proven to work when DevCloud sends the config (see Validation), so the workspace never received one. 3.18.1 has three silent causes: the TCMB Code card not set to distribute, Workspace AI off/no gateway/no models, or a pre-3.18 worker (drops `tcmb_code_config`; 3.18.1 then also recorded the sent digest, so upgrading the worker and stop/start did not fix it). Next:
-1. Aydin: in the workspace terminal `ls -la ~/.config/kilo/` (no `tcmb.jsonc` confirms the above), check the TCMB Code card badge and the worker version under Admin > Node'lar.
-2. Merge PR #59 (3.18.2), then Kiro tags `v3.18.2` on the merge commit. `containers/` is unchanged, so no workspace image is rebuilt; `vscode-tcmb-3.18.1` stays the image.
-3. After updating the controller and workers, fix the reported cause and stop/start the workspace; containers created by 3.18.0/3.18.1 are rebuilt once.
+2026-10-15 3.18.2 released (#57, #58, #59; tag `v3.18.2` on `4fc735f`). It is the first release gated by the release workflow's `tests` job (PR CI is gone). No workspace image was rebuilt, so `vscode-tcmb-3.18.1` stays the TCMB Code image. Rollout (Aydin):
+1. Update IDMVAIFACT1, then the workers, to 3.18.2 (skip 3.18.1 if not yet applied). Fresh installs follow `INSTALL.md` "Rolling out TCMB Code".
+2. Re-check the unconfigured workspace's cause: TCMB Code card badge (distribute ticked), Workspace AI gateway and models, worker version under Admin > Node'lar. The deploy log now names the Admin-side cause.
+3. Stop and start that workspace. Containers created by 3.18.0/3.18.1 are rebuilt once (project files kept); then `ls -la ~/.config/kilo/` shows `tcmb.jsonc` and, after trusting the folder, TCMB Code lists the models.
+If it is still unconfigured, follow `INSTALL.md` "TCMB Code opens but is not configured".
+
+2026-10-14 TCMB Code opened unconfigured on IDMVAIFACT1 (Aydin's report). The published image is proven to work when DevCloud sends the config (see Validation), so the workspace never received one. 3.18.1 has three silent causes: the TCMB Code card not set to distribute, Workspace AI off/no gateway/no models, or a pre-3.18 worker (drops `tcmb_code_config`; 3.18.1 then also recorded the sent digest, so upgrading the worker and stop/start did not fix it). Fixed in 3.18.2 (PR #59).
 
 2026-10-14 3.18.1 released (#54, #55, #56; tag `v3.18.1` on `5db47f0`): TCMB Code workspace (`vscode-tcmb`) replaces the retired Cline VS Code images. The release run built `vscode-tcmb`, passed the TCMB Code browser smoke (activation, agent CLI start, chat input, LanceDB load), pushed the image tags, attached the offline workspace archive, published the release (marked latest) and advanced `stable`. The post-merge CI run on `main` was removed at Aydin's request; PR runs remain. Rollout (Aydin):
 1. Update IDMVAIFACT1, then the workers, to 3.18.1.
@@ -152,6 +156,7 @@ Earlier handoff:
 
 ## Session log
 
+- 2026-10-15: Ran the local suite on the #59 merge commit, tagged `v3.18.2` and watched the release run (tests job, platform build, publish all green); released 3.18.2.
 - 2026-10-14: Diagnosed TCMB Code opening unconfigured: proved the published image loads DevCloud's `tcmb.jsonc` with a CI probe, then made every no-config path visible or impossible and fixed the digest so a rebuild happens (PR #59, 3.18.2).
 - 2026-10-14: Added the TCMB Code workspace (`vscode-tcmb`, Admin TCMB Code card, per-user key config, recreate on config change, migration 30) and retired the Cline VS Code images; prepared 3.18.0 (PR #54, merged). Published the Linux x64 VSIX as prerelease `tcmb-code-7.8.3` and pinned its checksum (#55). Tagged `v3.18.0`; its `vscode-tcmb` build failed on missing execute bits in the VSIX, so prepared 3.18.1 with the fix and dropped the post-merge CI run (#56). Released 3.18.1.
 - 2026-10-09: Split the admin API into `app/routes/admin/` and moved workspace admission logic out of the routes (#52); released 3.17.1.
