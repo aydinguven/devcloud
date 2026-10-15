@@ -3,7 +3,7 @@
 ## Project snapshot
 
 - DevCloud: self-hosted browser IDE platform (FastAPI + Podman), controller plus outbound-only CPU/GPU workers, MLflow model serving.
-- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.18.2` (`v3.18.0` was tagged but its release failed and stays a draft).
+- Source: `https://github.com/aydinguven/devcloud` (GitHub by owner's choice; not on Forgejo). Default branch `main`, latest release `v3.21.0` (`v3.18.0` was tagged but its release failed and stays a draft).
 - Release process: bump `app/__init__.py` `__version__` via PR, then push tag `vX.Y.Z` on the merged `main` commit. `.github/workflows/release-platform.yml` builds the bundles, creates the GitHub Release and advances the `stable` update channel.
 - Deployment: own installer/offline bundle (`INSTALL.md`, `AIRGAP.md`, `WORKERS.md`); not a Tupperware project.
 - Local setup: `python -m venv .venv`, `.venv\Scripts\python -m pip install -r requirements.txt`, run `python run.py` (http://127.0.0.1:8000).
@@ -13,6 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
+| Aydin | Pending | `main` | 3.21.1 rollout: placement tags (migration 31), worker `/run/user/0` fix, single quota card | Update IDMVAIFACT1, then update the workers (their unit is rewritten with the real uid). Assign IDM/ODM to workers in Admin > Worker'lar > Yerleşim. Import `ghcr.io/aydinguven/devcloud:vscode-cuda-3.19.0` for CUDA workspaces. Datacenters with only GPU workers can no longer host CPU workspaces |
 | Aydin | Pending | `main` | 3.18.2 rollout (released 2026-10-15): TCMB Code VS Code image, Cline images retired, no TCMB Code workspace starts silently unconfigured | Update IDMVAIFACT1, then the workers, to 3.18.2 and follow `INSTALL.md` "Rolling out TCMB Code"; for the already-unconfigured workspace fix the cause it reports and stop/start it (see Latest handoff) |
 | Kiro | In progress | `feat/image-import-progress` | Progress bar for Admin > Workspace Image'ları imports (uncommitted in the main checkout; touches `app/workspace_image_service.py`, `app/routes/admin/images.py`, `app/static/js/app.js`, `app/templates/partials/admin_images.html`, `app/static/css/kurumsal.css`) | Run the suite and a scratch import check, then commit and open the PR |
 | Aydin | Superseded | `main` | 3.18.1 rollout: TCMB Code VS Code image, Cline images retired (released 2026-10-14) | Superseded by 3.18.2; same steps in `INSTALL.md` "Rolling out TCMB Code" |
@@ -24,6 +25,9 @@
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
+
+- 2026-10-15 (3.21.1, PR #68): native rootless workers had `XDG_RUNTIME_DIR=/run/user/0`. In system units, systemd's `%U` is the service manager's uid (0), not the `User=` account's. So `devcloud-worker.service` created a root-owned `/run/user/0`, and every Podman call failed with `mkdir /run/user/0/libpod: permission denied`; this was seen on IDMSYAPZET7 as image sync never loading. The unit now uses `{{UID}}`/`{{USER}}`, and `InstallerEngine._install_services` renders the service account's numeric uid (`_service_uid`, shared with `_prepare_images`). The install, repair and update plans all rewrite the unit, so updating a worker fixes it. Hosts patched by hand with a `runtime-dir.conf` drop-in get the same values and can keep it. The old string-pinning tests asserted `%U` and were replaced by one test that renders the installed unit. No schema change.
+- 2026-10-15 (3.21.1, PR #69): the dashboard's two user cards (usage and remaining quota) are one **Kota Kullanımı** card. Each row shows `kullanılan / toplam · X kaldı` with a usage bar that turns gold at 80% and red at 95%. Display only; `user_usage` is unchanged. No schema change.
 
 - 2026-10-15 (3.21.0): Placement tags for workers and workspaces (migration 31, `app/placement.py`).
   - **Tag catalog.** Admins manage `placement_tags` rows of two kinds. `datacenter` tags (IDM and ODM are seeded) give a worker at most one datacenter. `custom` tags are capabilities a workspace can require (the worker must carry all of them).
