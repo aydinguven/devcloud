@@ -238,6 +238,10 @@ def _interactive_command(ui: InstallerUI, installed: bool) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Hardened hosts often give root a 027/077 umask. The release tree, venv,
+    # and /opt and /var/lib parents created here must stay traversable by the
+    # unprivileged service user; secrets are written with explicit modes.
+    os.umask(0o022)
     parser = _parser()
     args = parser.parse_args(argv)
     ui = InstallerUI()
