@@ -1,8 +1,10 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.node import NodeStatus
+from app.placement import TAG_NAME_PATTERN
 
 
 class NodeCreate(BaseModel):
@@ -22,6 +24,34 @@ class NodeLabelsUpdate(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
 
 
+class NodePlacementUpdate(BaseModel):
+    """Datacenter ("" = unassigned/Any) and custom placement tags of a worker."""
+
+    datacenter: str = Field(default="", max_length=40)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+
+
+class PlacementTagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40, pattern=TAG_NAME_PATTERN)
+    kind: Literal["datacenter", "custom"] = "custom"
+    description: str = Field(default="", max_length=255)
+
+
+class PlacementTagUpdate(BaseModel):
+    description: str | None = Field(default=None, max_length=255)
+    enabled: bool | None = None
+
+
+class PlacementTagOut(BaseModel):
+    name: str
+    kind: str
+    description: str
+    enabled: bool
+    worker_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
 class NodeOut(BaseModel):
     id: str
     name: str
@@ -38,6 +68,9 @@ class NodeOut(BaseModel):
     active_containers_count: int = 0
     gpu_slots_per_device: int = 0
     labels: dict[str, str]
+    datacenter: str = ""
+    tags: list[str] = Field(default_factory=list)
+    gpu_worker: bool = False
     capabilities: dict
     inventory: list[dict] = Field(default_factory=list)
     reconciliation: dict = Field(default_factory=dict)

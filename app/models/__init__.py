@@ -5,6 +5,7 @@ from app.models.onboarding import OnboardingProgress, OnboardingSettings
 from app.models.user import User, UserRole
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.node import Node, NodeStatus
+from app.models.placement_tag import PlacementTag
 from app.models.mlflow_settings import MlflowSettings
 from app.models.model_container_registry_settings import (
     ModelContainerRegistrySettings,
@@ -39,6 +40,7 @@ __all__ = [
     "WorkspaceStatus",
     "Node",
     "NodeStatus",
+    "PlacementTag",
     "MlflowSettings",
     "ModelContainerRegistrySettings",
     "MlflowDeployment",

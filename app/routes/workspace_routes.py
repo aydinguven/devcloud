@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Annotated
 from urllib.parse import quote
-from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,8 +53,14 @@ from app.orchestrator.workspace_provisioning import (
     workspace_runtime_image,
     workspace_service_environment,
 )
+from app.placement import (
+    PlacementRequestError,
+    placement_options,
+    resolve_workspace_constraints,
+)
 from app.schemas.workspace import (
     FlavorInfo,
+    PlacementOptions,
     TemplateInfo,
     WorkspaceCreate,
     WorkspaceOut,
@@ -94,15 +100,29 @@ async def get_templates(db: Annotated[AsyncSession, Depends(get_db)]):
     return await list_enabled_templates(db)
 
 
+@workspace_router.get("/placement-options", response_model=PlacementOptions)
+async def get_placement_options(db: Annotated[AsyncSession, Depends(get_db)]):
+    """Datacenters and custom placement tags offered on the create form."""
+    return await placement_options(db)
+
+
 @workspace_router.get("/flavors", response_model=list[FlavorInfo])
-async def get_flavors(db: Annotated[AsyncSession, Depends(get_db)]):
-    """List available resource flavors."""
+async def get_flavors(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    datacenter: Annotated[str, Query(max_length=40)] = "",
+    tags: Annotated[list[str], Query()] = [],
+):
+    """List available resource flavors, optionally for a requested placement."""
+    try:
+        constraints = await resolve_workspace_constraints(db, datacenter, tags)
+    except PlacementRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     catalog = []
     for item in await list_enabled_flavors(db):
         flavor = get_flavor(item.id)
-        available, message = await flavor_availability(db, flavor)
+        available, message = await flavor_availability(db, flavor, constraints)
         details = (
-            await accelerator_availability_details(db, flavor)
+            await accelerator_availability_details(db, flavor, constraints)
             if flavor and flavor.accelerator_count
             else {}
         )
@@ -204,6 +224,8 @@ async def create_workspace(
             template=template,
             flavor=flavor,
         )
+    except PlacementRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except (QuotaExceeded, WorkspaceNameConflict) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except (NoSchedulableNode, RuntimeError) as e:
@@ -310,6 +332,10 @@ async def deploy_workspace_stream(
 
             await emit_log(f"Şablon: {template.name} ({template.image_tag})", "info")
             await emit_log(f"Çalışma alanı kaynağı: {flavor.cpus} CPU, {flavor.memory_display} RAM ({flavor.name})", "info")
+            placement_request = (data.datacenter or "Any") + (
+                f" · etiketler: {', '.join(data.tags)}" if data.tags else ""
+            )
+            await emit_log(f"Yerleşim isteği: {placement_request}", "info")
 
             try:
                 workspace, placement = await schedule_and_reserve_workspace(
@@ -320,8 +346,9 @@ async def deploy_workspace_stream(
                     flavor=flavor,
                 )
                 await emit_log(
-                    f"Worker seçildi: {placement.node.name}; host portu ayrıldı: "
-                    f"{workspace.host_port}",
+                    f"Worker seçildi: {placement.node.name}"
+                    f"{' (' + placement.node.datacenter + ')' if placement.node.datacenter else ''}"
+                    f"; host portu ayrıldı: {workspace.host_port}",
                     "info",
                 )
                 if placement.accelerator:
@@ -331,7 +358,7 @@ async def deploy_workspace_stream(
                         f"{placement.accelerator.shared_slots}",
                         "success",
                     )
-            except WorkspaceNameConflict as e:
+            except (WorkspaceNameConflict, PlacementRequestError) as e:
                 await emit_error(str(e))
                 return
             except (NoSchedulableNode, RuntimeError) as e:

@@ -42,6 +42,7 @@ from app.orchestrator.scheduler import (
     flavor_availability,
 )
 from app.orchestrator.templates import list_builtin_templates
+from app.placement import is_gpu_worker, load_tag_catalog, placement_options
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.agents.manager import AgentUnavailable
 from app.resource_usage import get_all_user_usage, get_cluster_usage, get_user_usage
@@ -71,6 +72,7 @@ def _safe_from_json(val):
         return {}
 
 templates.env.filters["from_json"] = _safe_from_json
+templates.env.tests["gpu_worker"] = is_gpu_worker
 
 view_router = APIRouter(include_in_schema=False)
 
@@ -218,6 +220,7 @@ async def dashboard_page(
             "templates": all_tpls,
             "flavors": flavor_catalog,
             "default_flavor_id": default_flavor_id,
+            "placement_options": await placement_options(db),
             "system_usage": system_usage,
             "user_usage": user_usage,
         },
@@ -654,6 +657,13 @@ async def admin_page(
                 nodes = []
 
         context["nodes"] = nodes
+        tag_catalog = await load_tag_catalog(db)
+        context["placement_tags"] = list(tag_catalog.values())
+        tag_usage: dict[str, int] = {}
+        for node in nodes:
+            for name in {*node.tags, *([node.datacenter] if node.datacenter else [])}:
+                tag_usage[name] = tag_usage.get(name, 0) + 1
+        context["placement_tag_usage"] = tag_usage
         context["download_settings"] = download_settings
         context["download_public_base_url"] = (
             download_settings.public_base_url

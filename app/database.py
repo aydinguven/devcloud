@@ -187,6 +187,23 @@ async def ensure_workspace_columns(conn) -> None:
             current_columns = await _workspace_column_names(conn)
             if "ai_config_digest" not in current_columns:
                 raise
+    placement_columns = {
+        "datacenter": "VARCHAR(40) NOT NULL DEFAULT ''",
+        "tags_json": "TEXT NOT NULL DEFAULT '[]'",
+    }
+    existing_columns = await _workspace_column_names(conn)
+    for column_name, definition in placement_columns.items():
+        if column_name in existing_columns:
+            continue
+        try:
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(f"ALTER TABLE workspaces ADD COLUMN {column_name} {definition}")
+                )
+        except (OperationalError, ProgrammingError):
+            current_columns = await _workspace_column_names(conn)
+            if column_name not in current_columns:
+                raise
     try:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_workspaces_node_id ON workspaces (node_id)")
@@ -262,6 +279,8 @@ async def ensure_node_columns(conn) -> None:
         "active_containers_count": "INTEGER DEFAULT 0",
         "gpu_slots_per_device": "INTEGER NOT NULL DEFAULT 0",
         "labels_json": "TEXT DEFAULT '{}'",
+        "datacenter": "VARCHAR(40) NOT NULL DEFAULT ''",
+        "tags_json": "TEXT NOT NULL DEFAULT '[]'",
         "capabilities_json": "TEXT DEFAULT '{}'",
         "inventory_json": "TEXT DEFAULT '[]'",
         "reconciliation_json": "TEXT DEFAULT '{}'",
@@ -302,6 +321,7 @@ async def init_db() -> None:
     from app.models.directory_settings import DirectorySettings  # noqa: F401
     from app.models.directory_team import DirectoryTeam  # noqa: F401
     from app.models.node import Node  # noqa: F401
+    from app.models.placement_tag import PlacementTag  # noqa: F401
     from app.models.mlflow_settings import MlflowSettings  # noqa: F401
     from app.models.mlflow_server_settings import MlflowServerSettings  # noqa: F401
     from app.models.model_container_registry_settings import (  # noqa: F401
