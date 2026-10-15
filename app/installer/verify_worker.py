@@ -28,14 +28,16 @@ def main() -> int:
     key_file = os.environ.get("DEVCLOUD_AGENT_KEY_FILE", "").strip()
     if bool(cert_file) != bool(key_file):
         raise RuntimeError("Worker client certificate and key must be configured together")
-    verify: bool | str | ssl.SSLContext = ca_file or True
-    certificate = (cert_file, key_file) if cert_file else None
+    # Match app.worker_agent: trust the host store (update-ca-trust) or the
+    # configured CA file, not httpx's bundled certifi list.
+    verify = ssl.create_default_context(cafile=ca_file or None)
+    if cert_file:
+        verify.load_cert_chain(certfile=cert_file, keyfile=key_file)
     deadline = time.monotonic() + 45
     last_error = "controller did not report the worker connected"
     with httpx.Client(
         timeout=3.0,
         verify=verify,
-        cert=certificate,
     ) as client:
         while time.monotonic() < deadline:
             try:
