@@ -139,6 +139,18 @@ Scheduling selects a worker only after it reports the currently enabled version
 of the image requested by the workspace template. No registry access is needed
 from worker hosts.
 
+Each workspace is pinned to the exact image it was created from. **Devre Dışı
+Bırak** only withdraws an image from new workspaces. A worker keeps every image
+that one of its workspaces is pinned to, so pinned workspaces still restart.
+Enabling or importing a version disables the template's other versions. The
+exception is MLflow model images, which are one per model version. **Sil** is
+refused while workspaces are pinned to the image, and the error names them.
+For an MLflow model image, Sil is refused while a model deployment uses it.
+Otherwise it runs the model-build cleanup, which also removes the image from
+the workers and the model registry. If a worker is offline or the registry
+refuses the delete, the reply is "pending" with the reason. The cleanup then
+keeps retrying in the background.
+
 For one-file transfer into an air gap, a connected builder can produce a
 separate checksummed image pack:
 

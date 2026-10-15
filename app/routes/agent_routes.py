@@ -14,7 +14,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.manager import agent_manager
@@ -218,17 +218,36 @@ async def worker_image_catalog(
 ):
     """Return the enabled, digest-pinned workspace image set to an enrolled worker."""
     node = await _authenticated_node(request, node_id, db)
+    # Disabling an image only withdraws it from new workspaces: a worker keeps
+    # every image that one of its existing workspaces is pinned to.
+    pinned_ids = set(
+        (
+            await db.execute(
+                select(Workspace.image_id).where(
+                    Workspace.node_id == node.id,
+                    Workspace.image_id.is_not(None),
+                )
+            )
+        ).scalars()
+    )
     records = (
         await db.execute(
             select(WorkspaceImage)
-            .where(WorkspaceImage.enabled.is_(True))
+            .where(
+                or_(
+                    WorkspaceImage.enabled.is_(True),
+                    WorkspaceImage.id.in_(pinned_ids),
+                )
+            )
             .order_by(WorkspaceImage.template_id, WorkspaceImage.created_at.desc())
         )
     ).scalars().all()
     # GPU-only images are several GB; keep them off CPU workers.
     if not _reports_nvidia_stack(node):
         records = [
-            record for record in records if not requires_accelerator(record.template_id)
+            record
+            for record in records
+            if record.id in pinned_ids or not requires_accelerator(record.template_id)
         ]
     return {
         "images": [

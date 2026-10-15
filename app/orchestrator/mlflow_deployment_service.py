@@ -319,8 +319,18 @@ async def enroll_orphaned_model_builds(db, limit: int = 20) -> int:
     return enrolled
 
 
-async def garbage_collect_model_build(db, build_id: str | None) -> bool:
-    """Persist and retry cleanup until registry, workers, and archive agree."""
+async def garbage_collect_model_build(
+    db,
+    build_id: str | None,
+    *,
+    pending: list[str] | None = None,
+) -> bool:
+    """Persist and retry cleanup until registry, workers, and archive agree.
+
+    When it returns False, ``pending`` (if given) receives one readable reason
+    per blocker, so an admin can see what the retry loop is waiting for.
+    """
+    reasons = pending if pending is not None else []
     if not build_id:
         return True
     references = (
@@ -331,6 +341,7 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
         )
     ).scalar_one()
     if references:
+        reasons.append(f"{references} model deployment bu image'ı kullanıyor.")
         return False
     build = await db.get(MlflowModelBuild, build_id)
     if build is None:
@@ -348,6 +359,9 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
             )
         ).scalar_one()
         if workspace_references:
+            reasons.append(
+                f"{workspace_references} workspace bu image'a sabitlenmiş."
+            )
             return False
     build.status = MlflowModelBuildStatus.DELETING
     build.status_message = "Model image artıkları temizleniyor."
@@ -381,14 +395,25 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
             continue
         if not agent_manager.is_connected(node.id):
             pending_worker = True
+            reasons.append(
+                f"Worker '{node.name}' çevrimdışı; image bağlandığında kaldırılacak."
+            )
             continue
         try:
             result = await agent_manager.get(node.id).request(
                 "image.remove", {"image_tag": image_ref}, timeout=130
             )
-            pending_worker = pending_worker or not bool(result.get("success"))
-        except (AgentCommandError, AgentUnavailable, TimeoutError):
+            if not bool(result.get("success")):
+                pending_worker = True
+                reasons.append(
+                    f"Worker '{node.name}' image'ı kaldıramadı: "
+                    f"{str(result.get('message') or 'bilinmeyen hata')[:300]}"
+                )
+        except (AgentCommandError, AgentUnavailable, TimeoutError) as exc:
             pending_worker = True
+            reasons.append(
+                f"Worker '{node.name}' image'ı kaldıramadı: {str(exc)[:300] or type(exc).__name__}"
+            )
 
     registry_deleted = True
     try:
@@ -398,8 +423,12 @@ async def garbage_collect_model_build(db, build_id: str | None) -> bool:
             username=registry.username,
             password=registry.password,
         )
-    except WorkspaceImageError:
+    except WorkspaceImageError as exc:
         registry_deleted = False
+        reasons.append(
+            f"Registry'deki {source_ref} silinemedi (registry hesabının silme "
+            f"yetkisini kontrol edin): {str(exc)[:300]}"
+        )
         logger.warning("Registry model image cleanup remains pending: %s", source_ref)
     if pending_worker or not registry_deleted:
         return False
