@@ -1,7 +1,9 @@
 # DevCloud installer and lifecycle guide
 
-The supported production target is Rocky Linux 10 or RHEL 10 on x86_64. Run
-the installer as root; operating-system packages come from the VM's enabled
+The supported production target is Rocky Linux or RHEL 9.x/10.x on x86_64.
+EL9 hosts run DevCloud under the AppStream `python3.12` interpreter (the
+platform `python3` is 3.9); setup installs `python3.12` and `python3.12-pip`
+from the enabled repositories when missing. Run the installer as root; operating-system packages come from the VM's enabled
 DNF repositories, including Satellite or Foreman-managed repositories.
 
 ## Start the interactive installer

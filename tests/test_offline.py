@@ -313,9 +313,9 @@ def test_worker_system_package_profile_only_bootstraps_subscription_manager(
 
 def test_system_package_profile_rejects_unsupported_release(tmp_path: Path):
     os_release = tmp_path / "os-release"
-    os_release.write_text('ID="rocky"\nVERSION_ID="9.6"\n', encoding="utf-8")
+    os_release.write_text('ID="rocky"\nVERSION_ID="8.10"\n', encoding="utf-8")
 
-    with pytest.raises(package_offline.PackageError, match="major version 10"):
+    with pytest.raises(package_offline.PackageError, match="major versions 9 and 10"):
         package_offline.detect_system_package_profile(
             os_release,
             system_name="Linux",

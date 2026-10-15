@@ -51,10 +51,10 @@ ARCHITECTURE="$(uname -m)"
 
 case "${DISTRIBUTION_ID}" in
     rocky|rhel) ;;
-    *) fail "Only Rocky Linux 10 and RHEL 10 RPM profiles are supported; detected ${ID:-unknown}." ;;
+    *) fail "Only Rocky Linux and RHEL 9/10 RPM profiles are supported; detected ${ID:-unknown}." ;;
 esac
-[[ "${MAJOR_VERSION}" == "10" ]] || fail \
-    "This bundle supports major version 10; detected ${VERSION_ID:-unknown}."
+[[ "${MAJOR_VERSION}" == "9" || "${MAJOR_VERSION}" == "10" ]] || fail \
+    "Offline bundles support major versions 9 and 10; detected ${VERSION_ID:-unknown}."
 [[ "${ARCHITECTURE}" == "x86_64" ]] || fail \
     "This bundle supports x86_64; detected ${ARCHITECTURE}."
 

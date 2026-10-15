@@ -446,7 +446,7 @@ devcloud` after `deploy/devcloud.service` has been copied into place.
 
 ## Air-Gapped / Offline Installation
 
-DevCloud supports installation on Rocky Linux 10.x and RHEL 10.x x86_64 VMs
+DevCloud supports installation on Rocky Linux and RHEL 9.x/10.x x86_64 VMs
 that are isolated from the internet but can reach an internal Satellite or
 Foreman/Katello service. New bundles include a small distribution-matched local
 DNF repository only for bootstrapping `subscription-manager`. Python, Podman,
