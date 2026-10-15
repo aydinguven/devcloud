@@ -41,7 +41,7 @@ LINUX_PLATFORMS = (
 )
 CONTAINER_PLATFORM = "linux/amd64"
 SUPPORTED_SYSTEM_PACKAGE_TARGETS = ("rocky", "rhel")
-SUPPORTED_SYSTEM_PACKAGE_MAJOR = "10"
+SUPPORTED_SYSTEM_PACKAGE_MAJORS = ("9", "10")
 SYSTEM_REPOSITORY_PACKAGES_FILE = "REQUESTED_PACKAGES"
 BOOTSTRAP_SYSTEM_PACKAGES = ("subscription-manager",)
 SYSTEM_PACKAGES_BY_BUNDLE_ROLE = {
@@ -399,12 +399,12 @@ def detect_system_package_profile(
     major_version = version_id.split(".", 1)[0]
     if distribution_id not in SUPPORTED_SYSTEM_PACKAGE_TARGETS:
         raise PackageError(
-            "System RPM collection supports Rocky Linux 10 and RHEL 10 only; "
+            "System RPM collection supports Rocky Linux and RHEL 9/10 only; "
             f"this host reports ID={distribution_id or 'unknown'}"
         )
-    if major_version != SUPPORTED_SYSTEM_PACKAGE_MAJOR:
+    if major_version not in SUPPORTED_SYSTEM_PACKAGE_MAJORS:
         raise PackageError(
-            "System RPM collection supports major version 10 only; "
+            "System RPM collection supports major versions 9 and 10 only; "
             f"this host reports VERSION_ID={version_id or 'unknown'}"
         )
     if bundle_role not in BUNDLE_ROLES:
@@ -833,7 +833,7 @@ def verify_staged_bundle(
         expected_profile = f"{distribution_id}-{major_version}-x86_64"
         if (
             distribution_id not in SUPPORTED_SYSTEM_PACKAGE_TARGETS
-            or major_version != SUPPORTED_SYSTEM_PACKAGE_MAJOR
+            or major_version not in SUPPORTED_SYSTEM_PACKAGE_MAJORS
             or system_packages.get("architecture") != "x86_64"
             or profile_name != expected_profile
             or not isinstance(requested_packages, list)

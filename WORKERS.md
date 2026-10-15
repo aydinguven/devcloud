@@ -10,7 +10,7 @@ The short path is:
 1. Install the controller with the unified installer.
 2. Under **Admin > Worker Node'ları**, generate a one-time worker installation
    command. It is valid for 10 minutes.
-3. Run that exact command as root on the Rocky/RHEL 10 worker and enter only the
+3. Run that exact command as root on the Rocky/RHEL 9 or 10 worker and enter only the
    worker name. The controller creates the node and token automatically.
 4. Verify devcloud-worker.service is active and the node reports online.
 5. Add workspace images under **Admin > Workspace Image'ları**. The worker

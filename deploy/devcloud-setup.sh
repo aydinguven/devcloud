@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap the interactive DevCloud lifecycle installer on Rocky/RHEL 10.
+# Bootstrap the interactive DevCloud lifecycle installer on Rocky/RHEL 9 or 10.
 set -Eeuo pipefail
 
 log() {
@@ -33,10 +33,21 @@ MAJOR_VERSION="${VERSION_ID%%.*}"
 ARCHITECTURE="$(uname -m)"
 case "${DISTRIBUTION_ID}" in
     rocky|rhel) ;;
-    *) fail "Only Rocky Linux 10 and RHEL 10 are supported; detected ${ID:-unknown}." ;;
+    *) fail "Only Rocky Linux and RHEL 9/10 are supported; detected ${ID:-unknown}." ;;
 esac
-[[ "${MAJOR_VERSION}" == "10" ]] || fail \
-    "Only Rocky/RHEL major version 10 is supported; detected ${VERSION_ID:-unknown}."
+case "${MAJOR_VERSION}" in
+    10)
+        PYTHON_BIN=/usr/bin/python3
+        PYTHON_PACKAGES=(python3)
+        ;;
+    9)
+        # EL9's platform python3 is 3.9; DevCloud needs the AppStream 3.12
+        # interpreter that matches the bundled cp312 wheels.
+        PYTHON_BIN=/usr/bin/python3.12
+        PYTHON_PACKAGES=(python3.12 python3.12-pip)
+        ;;
+    *) fail "Only Rocky/RHEL major versions 9 and 10 are supported; detected ${VERSION_ID:-unknown}." ;;
+esac
 [[ "${ARCHITECTURE}" == "x86_64" ]] || fail \
     "Only x86_64 is supported; detected ${ARCHITECTURE}."
 command -v dnf >/dev/null 2>&1 || fail "DNF is required."
@@ -98,15 +109,15 @@ if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
     log "Satellite/Foreman registration detected; configured repositories will provide remaining system packages."
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-    log "Installing Python 3 from configured repositories..."
-    dnf install -y python3 || fail \
-        "Configured repositories could not install Python 3. Register this VM with Satellite/Foreman, confirm its repositories are enabled, and rerun setup."
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+    log "Installing ${PYTHON_PACKAGES[*]} from configured repositories..."
+    dnf install -y "${PYTHON_PACKAGES[@]}" || fail \
+        "Configured repositories could not install ${PYTHON_PACKAGES[*]}. Register this VM with Satellite/Foreman, confirm its BaseOS/AppStream repositories are enabled, and rerun setup."
 fi
 
 if [[ "${OFFLINE_BUNDLE}" -eq 1 ]]; then
     log "Verifying the complete offline artifact manifest..."
-    python3 "${PROJECT_DIR}/deploy/package_offline.py" \
+    "${PYTHON_BIN}" "${PROJECT_DIR}/deploy/package_offline.py" \
         --verify "${PROJECT_DIR}" \
         --check-runtime
 fi
@@ -115,4 +126,4 @@ export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 # Subprocesses that switch to the service user must not inherit an inaccessible
 # working directory such as /root/devcloud-worker.
 cd /
-exec python3 -m app.installer "$@"
+exec "${PYTHON_BIN}" -m app.installer "$@"

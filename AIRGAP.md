@@ -26,7 +26,9 @@ a Git release (or store them in an approved artifact repository).
 
 ## 1. Prepare the target VM before isolation
 
-The bootstrap bundle targets Rocky Linux 10.x or RHEL 10.x on x86_64 and
+The bootstrap bundle targets Rocky Linux or RHEL 9.x/10.x on x86_64 (built on
+the same distribution and major version as the target; CI publishes EL10
+bundles only) and
 contains only the DNF dependency closure required to install
 `subscription-manager`. Rocky and RHEL use separate bootstrap closures.
 The VM must be able to reach the organization's Satellite or Foreman/Katello

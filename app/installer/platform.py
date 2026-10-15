@@ -44,14 +44,34 @@ def detect_platform(os_release: Path = Path("/etc/os-release")) -> HostPlatform:
     )
 
 
+SUPPORTED_MAJOR_VERSIONS = ("9", "10")
+
+# EL9's platform python3 is 3.9, but DevCloud needs 3.11+ and ships cp312
+# wheels, so EL9 hosts use the AppStream python3.12 interpreter instead.
+_HOST_PYTHON_BY_MAJOR = {"9": "/usr/bin/python3.12"}
+_HOST_PYTHON_PACKAGES_BY_MAJOR = {"9": ("python3.12", "python3.12-pip")}
+
+
+def host_python(host: HostPlatform | None) -> str:
+    """Return the interpreter DevCloud runs under on this host."""
+    major = host.major_version if host else ""
+    return _HOST_PYTHON_BY_MAJOR.get(major, "/usr/bin/python3")
+
+
+def host_python_packages(host: HostPlatform | None) -> tuple[str, ...]:
+    """Return extra DNF packages that provide the host_python interpreter."""
+    major = host.major_version if host else ""
+    return _HOST_PYTHON_PACKAGES_BY_MAJOR.get(major, ())
+
+
 def validate_target(host: HostPlatform) -> None:
     if host.distribution not in {"rocky", "rhel"}:
         raise InstallerError(
-            f"Only Rocky Linux 10 and RHEL 10 are supported; detected {host.distribution or 'unknown'}."
+            f"Only Rocky Linux and RHEL 9/10 are supported; detected {host.distribution or 'unknown'}."
         )
-    if host.major_version != "10":
+    if host.major_version not in SUPPORTED_MAJOR_VERSIONS:
         raise InstallerError(
-            f"Only major version 10 is supported; detected {host.version_id or 'unknown'}."
+            f"Only major versions 9 and 10 are supported; detected {host.version_id or 'unknown'}."
         )
     if host.architecture not in {"x86_64", "amd64"}:
         raise InstallerError(

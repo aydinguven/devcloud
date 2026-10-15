@@ -97,7 +97,7 @@ def test_system_rpm_installer_is_offline_and_distribution_scoped():
     ).read_text(encoding="utf-8")
 
     assert "rocky|rhel" in installer
-    assert '[[ "${MAJOR_VERSION}" == "10" ]]' in installer
+    assert '[[ "${MAJOR_VERSION}" == "9" || "${MAJOR_VERSION}" == "10" ]]' in installer
     assert "sha256sum -c SHA256SUMS" in installer
     assert '"--disablerepo=*"' in installer
     assert '"--disable-repo=*"' in installer
@@ -126,7 +126,7 @@ def test_unified_setup_prefers_and_verifies_offline_artifacts_before_ui():
     assert "--check-runtime" in setup
     assert "Register this VM with Satellite/Foreman now" in setup
     assert "subscription-manager identity" in setup
-    assert "\ncd /\nexec python3 -m app.installer" in setup
+    assert '\ncd /\nexec "${PYTHON_BIN}" -m app.installer' in setup
 
 
 def test_installers_use_bounded_restart_helper():

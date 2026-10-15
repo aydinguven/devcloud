@@ -29,8 +29,11 @@ from app.installer.backup import create_backup, restore_backup
 from app.installer.progress import DEFAULT_QUEUE_ROOT, ProgressReporter
 from app.installer.platform import (
     CommandRunner,
+    HostPlatform,
     InstallerError,
     detect_platform,
+    host_python,
+    host_python_packages,
     validate_target,
 )
 from app.installer.state import InstallationState
@@ -226,14 +229,20 @@ class InstallerEngine:
         host = detect_platform(self.host_path("/etc/os-release"))
         validate_target(host)
         if not self.runner.exists("dnf"):
-            raise InstallerError("DNF is required on Rocky Linux 10 and RHEL 10.")
+            raise InstallerError("DNF is required on Rocky Linux and RHEL 9/10.")
         if not self.runner.exists("systemctl"):
             raise InstallerError("systemd is required.")
+
+    def _host_platform(self) -> HostPlatform | None:
+        try:
+            return detect_platform(self.host_path("/etc/os-release"))
+        except (InstallerError, OSError):
+            return None
 
     def build_install_plan(self, config: InstallConfig) -> InstallPlan:
         self._validate_config(config)
         steps = [
-            PlanStep("preflight", "Validate Rocky/RHEL 10, root access, DNF, and systemd", self.preflight),
+            PlanStep("preflight", "Validate Rocky/RHEL 9/10, root access, DNF, and systemd", self.preflight),
             PlanStep(
                 "packages",
                 "Install required operating-system packages from configured DNF repositories",
@@ -768,6 +777,7 @@ class InstallerEngine:
             "python3-pip",
             "policycoreutils-python-utils",
             "subscription-manager",
+            *host_python_packages(self._host_platform()),
         }
         if config.installs_controller:
             packages.update({"nginx", "curl", "createrepo_c", "skopeo"})
@@ -1298,7 +1308,9 @@ class InstallerEngine:
             if can_reuse and not self.runner.dry_run:
                 venv.symlink_to(previous / ".venv", target_is_directory=True)
                 return
-            self.runner.run(["python3", "-m", "venv", str(venv)])
+            self.runner.run(
+                [host_python(self._host_platform()), "-m", "venv", str(venv)]
+            )
         pip = str(venv / "bin" / "python")
         wheels = release / "offline" / "wheels"
         command = [pip, "-m", "pip", "install", "--disable-pip-version-check"]
@@ -1920,12 +1932,15 @@ class InstallerEngine:
             units.append(("devcloud.service", "devcloud-controller.service"))
         if config.installs_worker and not config.containerized_worker:
             units.append(("devcloud-worker.service", "devcloud-worker.service"))
+        python = host_python(self._host_platform())
         for source_name, target_name in units:
             template = (self.project_root / "deploy" / source_name).read_text(
                 encoding="utf-8"
             )
-            rendered = template.replace("{{USER}}", config.service_user).replace(
-                "{{PROJECT_DIR}}", str(release)
+            rendered = (
+                template.replace("{{USER}}", config.service_user)
+                .replace("{{PROJECT_DIR}}", str(release))
+                .replace("{{PYTHON}}", python)
             )
             if self.runner.dry_run:
                 self.runner.run(
