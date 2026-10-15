@@ -1957,6 +1957,21 @@ code { color: #8d0022; }
   #workspace-image-table .image-cell-actions .btn { flex: 1 1 120px; }
 }
 
+/* Result of the last toggle/delete, shown under that image's buttons. */
+#workspace-image-table .image-action-status {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 28rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
+}
+#workspace-image-table .image-cell-actions:has(.image-action-status) .admin-table-actions {
+  height: auto;
+}
+
 .workspace-card > *,
 .workspace-card [style*="display: flex"] > *,
 .model-card > * { min-width: 0; }

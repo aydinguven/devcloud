@@ -15,7 +15,8 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import func, select
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +26,12 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.node import Node, NodeStatus
 from app.models.workspace_image import WorkspaceImage
-from app.models.mlflow_deployment import MlflowModelBuild
+from app.models.mlflow_deployment import MlflowDeployment, MlflowModelBuild
+from app.orchestrator.admission import admission_transaction
+from app.orchestrator.mlflow_deployment_service import (
+    enroll_model_build_cleanup,
+    garbage_collect_model_build,
+)
 from app.models.custom_template import CustomTemplate
 from app.schemas.workspace_image import (
     WorkspaceImageOut,
@@ -151,9 +157,8 @@ async def register_workspace_image(
         )
     ).scalars().all()
     for previous in previous_images:
-        if not await _workspace_image_in_use(db, previous.id):
-            previous.enabled = False
-            db.add(previous)
+        previous.enabled = False
+        db.add(previous)
     record = WorkspaceImage(
         id=str(metadata["id"]),
         template_id=template_id,
@@ -306,20 +311,39 @@ async def upload_workspace_image_archive(
     return _workspace_image_out(record, nodes)
 
 
-async def _workspace_image_in_use(db: AsyncSession, image_id: str) -> bool:
-    workspace_count = (
-        await db.execute(
-            select(func.count(Workspace.id)).where(Workspace.image_id == image_id)
-        )
-    ).scalar_one()
-    build_count = (
-        await db.execute(
-            select(func.count(MlflowModelBuild.id)).where(
-                MlflowModelBuild.workspace_image_id == image_id
+MLFLOW_MODEL_SOURCE = "mlflow_model"
+PINNED_NAME_LIMIT = 5
+
+
+def _name_list(names: list[str]) -> str:
+    shown = ", ".join(f"'{name}'" for name in names[:PINNED_NAME_LIMIT])
+    extra = len(names) - PINNED_NAME_LIMIT
+    return shown + (f" ve {extra} diğer" if extra > 0 else "")
+
+
+async def _pinned_workspace_names(db: AsyncSession, image_id: str) -> list[str]:
+    """Existing workspaces pinned to the image; their restarts need it."""
+    return list(
+        (
+            await db.execute(
+                select(Workspace.name)
+                .where(Workspace.image_id == image_id)
+                .order_by(Workspace.name)
             )
-        )
-    ).scalar_one()
-    return bool(workspace_count or build_count)
+        ).scalars()
+    )
+
+
+async def _model_builds(db: AsyncSession, image_id: str) -> list[MlflowModelBuild]:
+    return list(
+        (
+            await db.execute(
+                select(MlflowModelBuild).where(
+                    MlflowModelBuild.workspace_image_id == image_id
+                )
+            )
+        ).scalars()
+    )
 
 
 @router.patch("/workspace-images/{image_id}", response_model=WorkspaceImageOut)
@@ -329,15 +353,18 @@ async def update_workspace_image(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    """Enable or disable an image for *new* workspaces.
+
+    Disabling never affects existing workspaces: an image they are pinned to
+    keeps being delivered to their worker (see the agent image catalog), so
+    they restart unchanged.
+    """
     record = await db.get(WorkspaceImage, image_id)
     if not record:
         raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
-    if not payload.enabled and await _workspace_image_in_use(db, record.id):
-        raise HTTPException(
-            status_code=409,
-            detail="Aktif workspace veya model build tarafından kullanılan image devre dışı bırakılamaz.",
-        )
-    if payload.enabled:
+    # Model images are one per model version, so they never supersede
+    # each other; template images allow one enabled version per template.
+    if payload.enabled and record.source_type != MLFLOW_MODEL_SOURCE:
         previous_images = (
             await db.execute(
                 select(WorkspaceImage).where(
@@ -347,9 +374,8 @@ async def update_workspace_image(
             )
         ).scalars().all()
         for previous in previous_images:
-            if not await _workspace_image_in_use(db, previous.id):
-                previous.enabled = False
-                db.add(previous)
+            previous.enabled = False
+            db.add(previous)
     record.enabled = payload.enabled
     db.add(record)
     await db.commit()
@@ -367,13 +393,72 @@ async def delete_workspace_image(
     record = await db.get(WorkspaceImage, image_id)
     if not record:
         raise HTTPException(status_code=404, detail="Workspace image bulunamadı")
-    if await _workspace_image_in_use(db, record.id):
+    builds = await _model_builds(db, record.id)
+    if builds:
+        return await _delete_model_image(db, record, builds)
+    pinned = await _pinned_workspace_names(db, record.id)
+    if pinned:
         raise HTTPException(
             status_code=409,
-            detail="Aktif workspace veya model build tarafından kullanılan image silinemez.",
+            detail=(
+                f"Bu image'a {len(pinned)} workspace sabitlenmiş: {_name_list(pinned)}. "
+                "Yeni workspace'lerde kullanılmaması için devre dışı bırakabilirsiniz; "
+                "silmek için önce bu workspace'ler silinmelidir."
+            ),
         )
     archive_path = image_archive_path(record.filename)
     await db.delete(record)
     await db.commit()
     archive_path.unlink(missing_ok=True)
     return {"deleted": True, "image_id": image_id}
+
+
+async def _delete_model_image(
+    db: AsyncSession,
+    record: WorkspaceImage,
+    builds: list[MlflowModelBuild],
+):
+    """Remove an MLflow model image through the model-build cleanup.
+
+    The cleanup also removes the image from the workers and the model
+    registry. It keeps retrying in the background when a worker is offline or
+    the registry refuses, so a pending result is reported, not an error.
+    """
+    build_ids = [build.id for build in builds]
+    deployments = list(
+        (
+            await db.execute(
+                select(MlflowDeployment.name)
+                .where(MlflowDeployment.build_id.in_(build_ids))
+                .order_by(MlflowDeployment.name)
+            )
+        ).scalars()
+    )
+    if deployments:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Bu model image'ını {len(deployments)} model deployment kullanıyor: "
+                f"{_name_list(deployments)}. Önce MLflow > Dağıtımlar sayfasından "
+                "bu deployment'ları silin; image ardından otomatik temizlenir."
+            ),
+        )
+    async with admission_transaction(db):
+        for build_id in build_ids:
+            await enroll_model_build_cleanup(db, build_id)
+    pending: list[str] = []
+    for build_id in build_ids:
+        await garbage_collect_model_build(db, build_id, pending=pending)
+    if await db.get(WorkspaceImage, record.id, populate_existing=True) is None:
+        return {"deleted": True, "image_id": record.id}
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "deleted": False,
+            "image_id": record.id,
+            "detail": (
+                "Model image temizleme kuyruğunda; arka planda yeniden denenecek. "
+                + " ".join(dict.fromkeys(pending))
+            ).strip(),
+        },
+    )

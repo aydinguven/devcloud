@@ -805,6 +805,14 @@ function initWorkspaceImageManager() {
     return `<div class="image-hash-value"><code title="${escapeHtml(fullValue)}">${escapeHtml(truncated)}</code>${copyButton}</div>`;
   };
   let lastRenderedCatalog = null;
+  // Outcome of the last action per image, rendered on that image's own row:
+  // the global status sits at the top of the page, out of sight of the card.
+  const imageMessages = new Map();
+  const renderImageMessage = (imageId) => {
+    const message = imageMessages.get(imageId);
+    if (!message) return "";
+    return `<small class="image-action-status quota-form-status ${message.error ? "quota-status-error" : "quota-status-success"}" role="status">${escapeHtml(message.text)}</small>`;
+  };
 
   async function loadImages({ force = false } = {}) {
     try {
@@ -822,8 +830,8 @@ function initWorkspaceImageManager() {
           <td data-label="Durum" class="admin-table-status"><span class="badge ${image.enabled ? "badge-running" : "badge-neutral"}">${image.enabled ? "Etkin" : "Devre Dışı"}</span></td>
           <td data-label="İşlemler" class="image-cell-actions"><div class="table-actions admin-table-actions">
             <button type="button" class="btn btn-secondary btn-sm" data-image-toggle="${escapeHtml(image.id)}" data-enabled="${image.enabled}" aria-label="${escapeHtml(image.display_name)} sürümünü ${image.enabled ? "devre dışı bırak" : "etkinleştir"}">${image.enabled ? "Devre Dışı Bırak" : "Etkinleştir"}</button>
-            <button type="button" class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}" aria-label="${escapeHtml(image.display_name)} sürümünü sil">Sil</button>
-          </div></td>
+            <button type="button" class="btn btn-danger btn-sm" data-image-delete="${escapeHtml(image.id)}" data-image-source="${escapeHtml(image.source_type)}" aria-label="${escapeHtml(image.display_name)} sürümünü sil">Sil</button>
+          </div>${renderImageMessage(image.id)}</td>
         </tr>`).join("") : '<tr><td class="table-empty" colspan="7">Henüz workspace image eklenmedi.</td></tr>';
       if ((force || !tbody.contains(document.activeElement)) && catalogMarkup !== lastRenderedCatalog) {
         tbody.innerHTML = catalogMarkup;
@@ -916,7 +924,11 @@ function initWorkspaceImageManager() {
     const action = toggle || remove;
     const row = action.closest("tr");
     const imageId = action.dataset.imageToggle || action.dataset.imageDelete;
-    if (remove && !window.confirm("Bu image arşivi controller'dan kalıcı olarak silinsin mi?")) return;
+    const confirmation = remove?.dataset.imageSource === "mlflow_model"
+      ? "Bu model image'ı controller'dan, worker'lardan ve model registry'sinden kalıcı olarak silinsin mi?"
+      : "Bu image arşivi controller'dan kalıcı olarak silinsin mi?";
+    if (remove && !window.confirm(confirmation)) return;
+    imageMessages.delete(imageId);
     action.disabled = true;
     row.setAttribute("aria-busy", "true");
     try {
@@ -927,13 +939,16 @@ function initWorkspaceImageManager() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || `İşlem başarısız (${response.status})`);
-      await loadImages({ force: true });
+      if (response.status === 202 && result.detail) {
+        imageMessages.set(imageId, { text: result.detail, error: false });
+      }
     } catch (error) {
-      setStatus(globalStatus, error.message, true);
+      imageMessages.set(imageId, { text: error.message, error: true });
     } finally {
       action.disabled = false;
       row.removeAttribute("aria-busy");
     }
+    await loadImages({ force: true });
   });
   loadImages({ force: true });
   window.setInterval(() => loadImages(), 5000);
