@@ -304,7 +304,9 @@ release forces it with `rebuild_workspaces`.
 When the target cannot reach an OCI registry, use the `vscode-tcmb` and
 `jupyter-python` workspace archives attached to the most recent GitHub Release
 that rebuilt that image (releases that did not change a workspace do not carry
-its archive):
+its archive). `vscode-cuda` has no release archive because it exceeds GitHub's
+2 GiB limit; take it from the workspace image pack
+(`deploy/package_workspace_images.py`) or `podman save` it on a connected host:
 
 ```bash
 sha256sum --check devcloud-workspace-TEMPLATE-vVERSION-SHORT_SHA.tar.gz.sha256

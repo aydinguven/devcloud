@@ -115,7 +115,9 @@ The workflow publishes:
   changed since the last published version release: an immutable,
   smoke-tested image to GHCR as `TEMPLATE-VERSION` and
   `TEMPLATE-VERSION-SHORT_SHA`, plus gzip-compressed Docker archives and
-  SHA-256 sidecars for `vscode-tcmb` and `jupyter-python`. The `vscode-tcmb`
+  SHA-256 sidecars for `vscode-tcmb` and `jupyter-python`. `vscode-cuda`
+  exceeds GitHub's 2 GiB asset limit and is registry-only; its job first
+  removes the runner's preinstalled SDKs to make disk room. The `vscode-tcmb`
   build needs the TCMB Code VSIX release asset and its pinned checksum first
   (see CONTAINERS.md, "Updating TCMB Code").
 

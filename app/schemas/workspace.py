@@ -33,6 +33,7 @@ class TemplateInfo(BaseModel):
     default_port: int
     image_tag: str
     features: list[str]
+    requires_accelerator: bool = False
 
 
 class WorkspaceCreate(BaseModel):

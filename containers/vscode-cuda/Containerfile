@@ -1,0 +1,156 @@
+# VS Code with TCMB Code and the NVIDIA CUDA toolkit, for GPU workers
+#
+# This is vscode-tcmb (Python 3, uv, Node.js 22, TCMB Code, LanceDB) plus
+# CUDA 13.4 from NVIDIA's Debian 13 repository: nvcc, the runtime and math
+# libraries, the command-line debugging/profiling tools, cuDNN 9 and NCCL.
+#
+# The NVIDIA driver is deliberately not installed. Its user-space libraries
+# (libcuda, libnvidia-ml, nvidia-smi) must match the host kernel module, so
+# the host's NVIDIA Container Toolkit injects them through the CDI device that
+# DevCloud assigns to a GPU workspace. CUDA 13.x needs host driver 580 or newer.
+#
+# Keep TCMB_CODE_VERSION, its checksum and lancedb/ identical to vscode-tcmb;
+# the release smoke test checks the version against vscode-tcmb.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.1
+FROM ${UV_IMAGE} AS uv
+
+# Same pinned code-server (Debian 13) base as vscode-tcmb.
+FROM docker.io/codercom/code-server:4.137.0@sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971
+
+ARG TCMB_CODE_VERSION=7.8.3
+ARG TCMB_CODE_VSIX_URL=https://github.com/aydinguven/devcloud/releases/download/tcmb-code-${TCMB_CODE_VERSION}/tcmbcode-vscode-linux-x64-${TCMB_CODE_VERSION}.vsix
+ARG TCMB_CODE_VSIX_SHA256=b458724533d755daa1adb4a673735a8281a782e50fa9c5920de873c63a524a67
+
+# NVIDIA's repository signing key, pinned by the keyring package checksum.
+ARG CUDA_KEYRING_URL=https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb
+ARG CUDA_KEYRING_SHA256=d0d4ef986a44400f9db33c600ef33a985175e7cc63d805a10e1839c7a1e78f5f
+ARG CUDA_VERSION=13.4
+ARG CUDA_PACKAGE_VERSION=13.4.3-1
+ARG CUDNN_PACKAGE_VERSION=9.27.0.42-1
+ARG NCCL_PACKAGE_VERSION=2.32.3-1+cuda13.4
+
+LABEL org.opencontainers.image.title="DevCloud TCMB Code CUDA workspace"
+
+USER root
+
+# Python and Node.js toolchains, plus ripgrep for the agent's code search
+# (otherwise it tries to download one at runtime, which fails offline).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    ripgrep \
+    unzip \
+    wget \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh \
+    && bash /tmp/nodesource_setup.sh \
+    && rm -f /tmp/nodesource_setup.sh \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# The same package set as NVIDIA's cuda:*-devel images (without Nsight
+# Compute), plus cuDNN and NCCL. The packages register /usr/local/cuda and
+# their ld.so.conf.d entries; cuDNN and NCCL install into the system lib dir.
+# cuDNN and NCCL are held, as in NVIDIA's images, so a later `apt upgrade`
+# cannot pull builds for another CUDA release.
+RUN cuda="$(printf '%s' "${CUDA_VERSION}" | tr . -)" \
+    && cuda_major="${CUDA_VERSION%%.*}" \
+    && curl -fsSL "${CUDA_KEYRING_URL}" -o /tmp/cuda-keyring.deb \
+    && echo "${CUDA_KEYRING_SHA256}  /tmp/cuda-keyring.deb" | sha256sum -c - \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && rm -f /tmp/cuda-keyring.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        "cuda-minimal-build-${cuda}=${CUDA_PACKAGE_VERSION}" \
+        "cuda-libraries-dev-${cuda}=${CUDA_PACKAGE_VERSION}" \
+        "cuda-command-line-tools-${cuda}=${CUDA_PACKAGE_VERSION}" \
+        "cuda-nvml-dev-${cuda}" \
+        "libcudnn9-cuda-${cuda_major}=${CUDNN_PACKAGE_VERSION}" \
+        "libcudnn9-dev-cuda-${cuda_major}=${CUDNN_PACKAGE_VERSION}" \
+        "libnccl2=${NCCL_PACKAGE_VERSION}" \
+        "libnccl-dev=${NCCL_PACKAGE_VERSION}" \
+    && apt-mark hold \
+        "libcudnn9-cuda-${cuda_major}" "libcudnn9-dev-cuda-${cuda_major}" libnccl2 libnccl-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && ldconfig \
+    && test "$(readlink -f /usr/local/cuda)" = "/usr/local/cuda-${CUDA_VERSION}" \
+    && ldconfig -p | grep -q 'libcudart\.so\.' \
+    && ldconfig -p | grep -q 'libcudnn\.so\.9' \
+    && ldconfig -p | grep -q 'libnccl\.so\.2' \
+    && if ldconfig -p | grep -Eq 'libcuda\.so\.1|libnvidia-ml\.so\.1'; then \
+        echo "A driver library is baked into the image; it must come from the host CDI device." >&2; \
+        exit 1; \
+    fi \
+    && printf '%s\n' \
+        'case ":${PATH}:" in *:/usr/local/cuda/bin:*) ;; *) PATH="/usr/local/cuda/bin:${PATH}" ;; esac' \
+        'export PATH' \
+        > /etc/profile.d/cuda.sh
+
+# DevCloud starts code-server through `bash -lc`, where Debian's /etc/profile
+# resets PATH; /etc/profile.d/cuda.sh above restores nvcc for that path.
+ENV CUDA_HOME=/usr/local/cuda \
+    PATH=/usr/local/cuda/bin:${PATH}
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+# LanceDB native runtime for codebase indexing, pinned by its lockfile. TCMB
+# Code loads it from KILO_LANCEDB_PATH instead of bundling it.
+COPY lancedb/package.json lancedb/package-lock.json /opt/tcmb/lancedb/
+RUN npm ci --prefix /opt/tcmb/lancedb --omit=dev --ignore-scripts --no-audit --no-fund \
+    && node -e 'require(process.argv[1])' \
+        /opt/tcmb/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
+    && chmod -R a+rX /opt/tcmb
+
+ENV KILO_LANCEDB_PATH=/opt/tcmb/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
+    KILO_TELEMETRY_LEVEL=off \
+    KILO_DISABLE_AUTOUPDATE=1 \
+    KILO_DISABLE_MODELS_FETCH=1 \
+    KILO_DISABLE_SHARE=1 \
+    KILO_DISABLE_SESSION_INGEST=1 \
+    KILO_DISABLE_LSP_DOWNLOAD=1
+
+USER coder
+WORKDIR /home/coder/project
+
+# Compile (not run: the builder has no GPU) a CUDA program from the same login
+# shell DevCloud uses, so a broken toolkit or PATH fails the build.
+RUN bash -lc 'nvcc --version' \
+    && printf '%s\n' \
+        '#include <cstdio>' \
+        '__global__ void k() {}' \
+        'int main() { k<<<1, 1>>>(); return cudaDeviceSynchronize() != cudaSuccess; }' \
+        > /tmp/devcloud-cuda-check.cu \
+    && bash -lc 'nvcc -o /tmp/devcloud-cuda-check /tmp/devcloud-cuda-check.cu' \
+    && rm -f /tmp/devcloud-cuda-check /tmp/devcloud-cuda-check.cu
+
+# The TCMB Code VSIX stores its bin/ entries as 0664 and code-server keeps the
+# zip modes, so the execute bit is restored on the bundled native tools (kilo,
+# bwrap, ffmpeg, kilo-sandbox-seccomp); otherwise the agent cannot start.
+RUN test -n "${TCMB_CODE_VSIX_SHA256}" \
+        || { echo "Set TCMB_CODE_VSIX_SHA256 to pin the Linux x64 TCMB Code VSIX." >&2; exit 1; } \
+    && curl -fsSL "${TCMB_CODE_VSIX_URL}" -o /tmp/tcmbcode.vsix \
+    && echo "${TCMB_CODE_VSIX_SHA256}  /tmp/tcmbcode.vsix" | sha256sum -c - \
+    && code-server --install-extension /tmp/tcmbcode.vsix \
+    && code-server --list-extensions --show-versions | grep -Fx "tcmb.tcmbcode@${TCMB_CODE_VERSION}" \
+    && rm -f /tmp/tcmbcode.vsix \
+    && ext="$(ls -d /home/coder/.local/share/code-server/extensions/tcmb.tcmbcode-${TCMB_CODE_VERSION}*)" \
+    && find "${ext}/bin" -maxdepth 1 -type f ! -name '*.js' -exec chmod 0755 {} + \
+    && cli="${ext}/bin/kilo" \
+    && test -x "${cli}" \
+    && "${cli}" --version \
+    && install -d -m 700 /home/coder/.local/share/code-server/User \
+    && printf '%s\n' \
+        '{"extensions.autoCheckUpdates":false,"extensions.autoUpdate":false,"chat.disableAIFeatures":true}' \
+        > /home/coder/.local/share/code-server/User/settings.json
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "--auth", "none", "/home/coder/project"]

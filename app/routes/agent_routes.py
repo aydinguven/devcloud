@@ -23,6 +23,7 @@ from app.models.node import Node, NodeStatus
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.workspace_image import WorkspaceImage
 from app.models.jupyter_ai_settings import JupyterAiSettings
+from app.orchestrator.templates import requires_accelerator
 from app.schemas.node import NodeHeartbeat
 from app.schemas.jupyter_ai_settings import WorkerJupyterAiSettings
 from app.jupyter_ai import parse_model_catalog
@@ -128,6 +129,21 @@ async def _authenticated_node(
     return node
 
 
+def _reports_nvidia_stack(node: Node) -> bool:
+    """True once the worker's heartbeat reported NVIDIA hardware.
+
+    A detected but unhealthy stack ("error") still counts, so a transient
+    driver or CDI fault does not make the worker drop and re-download its
+    GPU images.
+    """
+    try:
+        capabilities = json.loads(node.capabilities_json or "{}")
+        status = capabilities["accelerator_runtime"]["nvidia"]["status"]
+    except (ValueError, TypeError, KeyError):
+        return False
+    return status in {"ready", "error"}
+
+
 @agent_router.get("/check")
 async def worker_enrollment_check(
     request: Request,
@@ -201,7 +217,7 @@ async def worker_image_catalog(
     db: AsyncSession = Depends(get_db),
 ):
     """Return the enabled, digest-pinned workspace image set to an enrolled worker."""
-    await _authenticated_node(request, node_id, db)
+    node = await _authenticated_node(request, node_id, db)
     records = (
         await db.execute(
             select(WorkspaceImage)
@@ -209,6 +225,11 @@ async def worker_image_catalog(
             .order_by(WorkspaceImage.template_id, WorkspaceImage.created_at.desc())
         )
     ).scalars().all()
+    # GPU-only images are several GB; keep them off CPU workers.
+    if not _reports_nvidia_stack(node):
+        records = [
+            record for record in records if not requires_accelerator(record.template_id)
+        ]
     return {
         "images": [
             {

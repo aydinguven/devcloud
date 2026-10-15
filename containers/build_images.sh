@@ -8,13 +8,17 @@ echo "====================================================="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The TCMB Code VSIX URL and SHA-256 are pinned in the Containerfile.
-echo "1/3 Building devcloud-vscode-tcmb..."
+echo "1/4 Building devcloud-vscode-tcmb..."
 podman build -t localhost/devcloud-vscode-tcmb:latest "${SCRIPT_DIR}/vscode-tcmb"
 
-echo "2/3 Building devcloud-jupyter-python..."
+# Large (CUDA toolkit, cuDNN, NCCL); only GPU workers use it.
+echo "2/4 Building devcloud-vscode-cuda..."
+podman build -t localhost/devcloud-vscode-cuda:latest "${SCRIPT_DIR}/vscode-cuda"
+
+echo "3/4 Building devcloud-jupyter-python..."
 podman build -t localhost/devcloud-jupyter-python:latest "${SCRIPT_DIR}/jupyter-python"
 
-echo "3/3 Building devcloud-terminal-rocky..."
+echo "4/4 Building devcloud-terminal-rocky..."
 podman build -t localhost/devcloud-terminal-rocky:latest "${SCRIPT_DIR}/terminal-rocky"
 
 echo "====================================================="
