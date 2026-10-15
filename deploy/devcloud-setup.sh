@@ -24,6 +24,9 @@ dnf_disable_repositories_option() {
 }
 
 [[ "$(id -u)" -eq 0 ]] || fail "Run devcloud-setup as root."
+# Hardened hosts often set a 027/077 root umask; files created here must stay
+# readable by the service user (secrets are written with explicit modes).
+umask 0022
 [[ -r /etc/os-release ]] || fail "/etc/os-release is required."
 # shellcheck disable=SC1091
 source /etc/os-release
