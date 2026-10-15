@@ -1933,12 +1933,18 @@ class InstallerEngine:
         if config.installs_worker and not config.containerized_worker:
             units.append(("devcloud-worker.service", "devcloud-worker.service"))
         python = host_python(self._host_platform())
+        service_uid = (
+            self._service_uid(config)
+            if config.installs_worker and not config.containerized_worker
+            else ""
+        )
         for source_name, target_name in units:
             template = (self.project_root / "deploy" / source_name).read_text(
                 encoding="utf-8"
             )
             rendered = (
                 template.replace("{{USER}}", config.service_user)
+                .replace("{{UID}}", service_uid)
                 .replace("{{PROJECT_DIR}}", str(release))
                 .replace("{{PYTHON}}", python)
             )
@@ -2122,6 +2128,21 @@ class InstallerEngine:
             },
         )
 
+    def _service_uid(self, config: InstallConfig) -> str:
+        """Numeric uid of the rootless worker's service account."""
+        uid_result = self.runner.run(
+            ["id", "-u", config.service_user],
+            capture_output=True,
+        )
+        service_uid = (uid_result.stdout or "").strip()
+        if not service_uid.isdigit():
+            if not self.runner.dry_run:
+                raise InstallerError(
+                    f"Could not resolve the uid for service user {config.service_user}."
+                )
+            service_uid = "SERVICE_UID"
+        return service_uid
+
     def _prepare_images(self, config: InstallConfig) -> None:
         if not config.installs_worker:
             return
@@ -2133,18 +2154,7 @@ class InstallerEngine:
                 for archive in archives:
                     self.runner.run(["podman", "load", "-i", str(archive)], cwd=release)
             return
-        uid_result = self.runner.run(
-            ["id", "-u", config.service_user],
-            capture_output=True,
-        )
-        service_uid = uid_result.stdout.strip()
-        if not service_uid:
-            if not self.runner.dry_run:
-                raise InstallerError(
-                    f"Could not resolve the uid for service user {config.service_user}."
-                )
-            service_uid = "SERVICE_UID"
-        runtime_dir = f"/run/user/{service_uid}"
+        runtime_dir = f"/run/user/{self._service_uid(config)}"
         self.runner.run(
             [
                 "install",
