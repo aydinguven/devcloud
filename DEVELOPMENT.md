@@ -25,6 +25,19 @@
 
 ## Decisions
 
+- 2026-10-15: Placement tags for workers and workspaces (migration 31, `app/placement.py`).
+  - **Tag catalog.** Admins manage `placement_tags` rows of two kinds. `datacenter` tags (IDM and ODM are seeded) give a worker at most one datacenter. `custom` tags are capabilities a workspace can require (the worker must carry all of them).
+  - **Columns.** Workers store `nodes.datacenter` and `nodes.tags_json`. Workspaces store the request they were created with in `workspaces.datacenter` and `workspaces.tags_json`, where `""` means Any.
+  - **Choices Aydin made:**
+    - GPU/CPU class comes from the detected hardware (`is_gpu_worker`: reported accelerators, or NVIDIA status `ready`/`error`), not from a tag.
+    - CPU workspaces are **blocked** from GPU workers. This replaces the old soft `gpu_worker_penalty` for workspaces. `select_worker_node` (MLflow/custom image builds) passes `reserve_gpu_workers=False` and keeps the soft preference.
+    - Users pick the datacenter and tags at create time.
+    - Tags are defined in the Admin panel.
+    - The defaults are CPU and Any. An unassigned worker serves only Any workspaces.
+  - **Availability follows the request.** Flavor availability (`GET /api/workspaces/flavors?datacenter=&tags=`) and the GPU picker apply the same constraints, and the dashboard re-checks the GPU cards when the selection changes.
+  - **Existing workspaces.** Restarts stay pinned and are not re-checked against tags, so CPU workspaces already on GPU workers keep running.
+  - **Legacy labels.** The free-form `labels_json` labels stay but remain informational.
+
 - 2026-10-14: At Aydin's request `.github/workflows/ci.yml` was removed to save time, so pull requests and merges run no tests. As the agreed compromise, `release-platform.yml` has a `tests` job: the full suite on Python 3.12 with a PostgreSQL 16 service, read-only permissions. It runs in parallel with the builds, so it adds no wall time, and `publish` requires it. A failing suite therefore leaves the release as a draft and keeps `stable` where it was. Images that the build jobs already pushed stay in the registries but are not released. `test_ci_runs_tests_without_write_permissions`, which only pinned `ci.yml`'s wording, was deleted with it (explicit exception to the no-test-changes rule). Still run the local suite before opening a PR.
 
 - 2026-10-14: TCMB Code (TCMB's Kilo Code build, `tcmb.tcmbcode`) replaces Cline in VS Code workspaces. One new template `vscode-tcmb` (Python 3 + uv + Node.js 22); `vscode-empty/python/react/java` are retired: `WorkspaceTemplate.retired` hides them from the catalog and refuses new workspaces, but they still resolve so existing workspaces start with the legacy Cline wiring. Aydin chose:

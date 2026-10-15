@@ -13,6 +13,7 @@ from app.models.workspace import (
     WorkspaceStatus,
 )
 from app.models.workspace_image import WorkspaceImage
+from app.placement import PlacementConstraints, is_gpu_worker, node_matches
 from app.release_catalog import semantic_version
 from app.orchestrator.flavors import Flavor, get_flavor
 
@@ -207,7 +208,9 @@ def _free_accelerator_placements(
 
 
 async def accelerator_availability_details(
-    db: AsyncSession, flavor: Flavor
+    db: AsyncSession,
+    flavor: Flavor,
+    constraints: PlacementConstraints | None = None,
 ) -> dict[str, object]:
     """Summarize currently schedulable GPU slots for the flavor picker."""
     if not flavor.accelerator_count:
@@ -230,6 +233,7 @@ async def accelerator_availability_details(
             or not agent_manager.is_connected(node.id)
             or node.cpu_total < flavor.cpus
             or node.memory_total_mb < flavor.memory_mb
+            or not node_matches(node, constraints)
         ):
             continue
         used = allocations.get(node.id, NodeAllocation())
@@ -277,8 +281,16 @@ async def select_workspace_placement(
     required_image_sha256: str | None = None,
     minimum_agent_version: str | None = None,
     allow_unknown_agent_version: bool = False,
+    constraints: PlacementConstraints | None = None,
+    reserve_gpu_workers: bool = True,
 ) -> WorkspacePlacement:
-    """Pick a connected worker and, for GPU flavors, one exact free CDI slot."""
+    """Pick a connected worker and, for GPU flavors, one exact free CDI slot.
+
+    ``constraints`` restricts the datacenter and required custom tags. With
+    ``reserve_gpu_workers`` (workspaces), CPU flavors never land on a GPU
+    worker; internal CPU jobs such as image builds pass False and only prefer
+    CPU workers.
+    """
     nodes = (
         await db.execute(select(Node).where(Node.enabled.is_(True)))
     ).scalars().all()
@@ -309,6 +321,12 @@ async def select_workspace_placement(
         and node.cpu_total >= flavor.cpus
         and node.memory_total_mb >= flavor.memory_mb
         and _matches_selector(node, node_selector)
+        and node_matches(node, constraints)
+        and not (
+            reserve_gpu_workers
+            and not flavor.accelerator_count
+            and is_gpu_worker(node)
+        )
         and _has_workspace_image(node, required_image, required_image_sha256)
     ]
     allocations = await _allocations(db)
@@ -411,6 +429,35 @@ async def select_workspace_placement(
                 f"kayıtlı worker'lar daha eski: {outdated}. "
                 "Admin > Node'lar sayfasından worker'ları güncelleyin."
             )
+        online = [
+            node
+            for node in nodes
+            if node.schedulable
+            and node.status == NodeStatus.ONLINE
+            and agent_manager.is_connected(node.id)
+        ]
+        in_scope = [node for node in online if node_matches(node, constraints)]
+        kind = "GPU" if flavor.accelerator_count else "CPU"
+        if constraints and (constraints.datacenter or constraints.tags) and online and not in_scope:
+            raise NoSchedulableNode(
+                f"İstenen yerleşim için çevrimiçi worker yok ({constraints.describe()}). "
+                "Farklı bir veri merkezi/etiket seçin veya yöneticinize başvurun."
+            )
+        matching_class = [
+            node for node in in_scope
+            if is_gpu_worker(node) == bool(flavor.accelerator_count)
+        ]
+        if in_scope and not matching_class and (
+            flavor.accelerator_count or reserve_gpu_workers
+        ):
+            scope = f" ({constraints.describe()})" if constraints and (constraints.datacenter or constraints.tags) else ""
+            if flavor.accelerator_count:
+                detail = "GPU profilleri yalnızca GPU worker'larda çalışır."
+            else:
+                detail = "GPU worker'lar yalnızca GPU profillerine ayrılmıştır; bir GPU profili seçin."
+            raise NoSchedulableNode(
+                f"Uygun {kind} worker bulunamadı{scope}. {detail}"
+            )
         if flavor.accelerator_count:
             raise NoSchedulableNode(
                 "Bu GPU profili için boş ve sağlıklı NVIDIA CDI slotu bulunamadı. "
@@ -440,16 +487,19 @@ async def select_worker_node(
         node_selector=node_selector,
         required_image=required_image,
         minimum_agent_version=minimum_agent_version,
+        reserve_gpu_workers=False,
     )
     return placement.node
 
 
 async def flavor_availability(
-    db: AsyncSession, flavor: Flavor
+    db: AsyncSession,
+    flavor: Flavor,
+    constraints: PlacementConstraints | None = None,
 ) -> tuple[bool, str]:
     """Return whether a flavor has a placement now, without reserving it."""
     try:
-        await select_workspace_placement(db, flavor)
+        await select_workspace_placement(db, flavor, constraints=constraints)
     except NoSchedulableNode as exc:
         return False, str(exc)
     return True, "Kullanılabilir kapasite bulundu."

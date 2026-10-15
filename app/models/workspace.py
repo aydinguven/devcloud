@@ -158,6 +158,14 @@ class Workspace(Base):
     )
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
     auto_stop_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0 = disabled
+    # Placement request recorded at creation: datacenter ("" = Any) and the
+    # custom placement tags the chosen worker had to carry.
+    datacenter: Mapped[str] = mapped_column(
+        String(40), default="", server_default="", nullable=False
+    )
+    tags_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]", nullable=False
+    )
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -177,6 +185,12 @@ class Workspace(Base):
         """
         self.name_key = normalize_workspace_name(value)
         return value
+
+    @property
+    def tags(self) -> list[str]:
+        from app.placement import decode_tags
+
+        return decode_tags(self.tags_json)
 
     def __repr__(self) -> str:
         return f"<Workspace id={self.id} name='{self.name}' status='{self.status}'>"

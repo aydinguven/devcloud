@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 30
+CURRENT_SCHEMA_VERSION = 31
 
 
 class MigrationError(RuntimeError):
@@ -686,6 +686,30 @@ async def _add_directory_sync_fields(conn) -> None:
             )
 
 
+async def _seed_default_datacenters(conn) -> None:
+    """Seed the IDM and ODM datacenter tags once; admins manage them afterwards."""
+    from app.placement import DEFAULT_DATACENTERS
+
+    for name, description in DEFAULT_DATACENTERS:
+        exists = await conn.execute(
+            text("SELECT name FROM placement_tags WHERE name = :name"), {"name": name}
+        )
+        if exists.first():
+            continue
+        await conn.execute(
+            text(
+                "INSERT INTO placement_tags (name, kind, description, enabled, created_at) "
+                "VALUES (:name, 'datacenter', :description, :enabled, :created_at)"
+            ),
+            {
+                "name": name,
+                "description": description,
+                "enabled": True,
+                "created_at": datetime.now(timezone.utc),
+            },
+        )
+
+
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
     """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
@@ -1009,6 +1033,11 @@ async def upgrade() -> None:
             # init_db creates the portable tcmb_code_settings table and the
             # workspaces.ai_config_digest column.
             await _record_version(conn, 30, "TCMB Code settings and workspace AI config digest")
+        if 31 not in applied:
+            # init_db creates placement_tags and the node/workspace datacenter
+            # and tags_json columns.
+            await _seed_default_datacenters(conn)
+            await _record_version(conn, 31, "datacenter and placement tags")
 
 
 async def current_version() -> int:

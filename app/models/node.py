@@ -46,6 +46,14 @@ class Node(Base):
         Integer, default=0, server_default="0", nullable=False
     )
     labels_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
+    # Placement: datacenter tag name ("" = unassigned, only serves "Any"
+    # workspaces) and the custom placement tags (JSON list of names).
+    datacenter: Mapped[str] = mapped_column(
+        String(40), default="", server_default="", nullable=False
+    )
+    tags_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]", nullable=False
+    )
     capabilities_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
     inventory_json: Mapped[str] = mapped_column(Text, default="[]", nullable=True)
     reconciliation_json: Mapped[str] = mapped_column(Text, default="{}", nullable=True)
@@ -69,3 +77,9 @@ class Node(Base):
     )
 
     workspaces: Mapped[list["Workspace"]] = relationship("Workspace", back_populates="node")
+
+    @property
+    def tags(self) -> list[str]:
+        from app.placement import decode_tags
+
+        return decode_tags(self.tags_json)

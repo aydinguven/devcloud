@@ -174,3 +174,31 @@ The driver libraries and `nvidia-smi` come from the host through CDI, so
 `nvidia-smi` and `nvcc --version` both work in the workspace terminal.
 Frameworks installed with pip/uv, such as PyTorch, bring their own CUDA
 runtime wheels and only rely on the host driver.
+
+## Datacenters, placement tags and GPU/CPU workers
+
+Workspaces are placed only on workers that match three things.
+
+- **Worker class**, detected from the hardware rather than typed in. A worker
+  that reports NVIDIA hardware (healthy or not) is a **GPU** worker; any other
+  worker is a **CPU** worker. GPU flavors run only on GPU workers. CPU flavors
+  never run on GPU workers, so a cluster whose only worker has a GPU cannot
+  start CPU workspaces. Internal CPU jobs such as MLflow image builds may still
+  use a GPU worker when no CPU worker is free.
+- **Datacenter**. Admins manage datacenters under **Admin > Worker'lar >
+  Veri Merkezleri ve Yerleşim Etiketleri**; `IDM` and `ODM` are created on
+  upgrade. Assign each worker one datacenter with its **Yerleşim** button. Users
+  choose a datacenter, or **Any**, when they create a workspace. A worker with
+  no datacenter only receives **Any** workspaces.
+- **Custom tags** (optional), also admin-defined, for example `secure-net`.
+  When a user selects tags, the workspace goes only to a worker that carries
+  all of them.
+
+`Any`, `GPU` and `CPU` are reserved names. A disabled tag is no longer offered
+on the create form, but it stays valid on the workers that carry it. A tag
+cannot be deleted while it is assigned to a worker. Changing a worker's
+placement affects only new workspaces: existing workspaces stay pinned to their
+worker and keep the datacenter and tags they were created with.
+
+The older free-form key=value worker labels (**Ek etiketler**) are
+informational only and do not affect placement.

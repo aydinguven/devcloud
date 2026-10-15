@@ -17,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAdminMlflowSettings();
   initAdminGenAiSettings();
   initNodeManagement();
+  initPlacementAdmin();
   initMlflowSettings();
   initDownloadSettings();
   initSessionSettings();
@@ -1144,6 +1145,68 @@ function initWorkspaceCreationModal() {
   });
   applyTemplateFlavorRules(document.querySelector(".template-card.selected"));
 
+  // Datacenter / tag placement: GPU slot availability depends on where the
+  // workspace may land, so re-check the GPU cards whenever it changes.
+  const datacenterSelect = document.getElementById("input-datacenter");
+  const placementTagInputs = document.querySelectorAll(".input-placement-tag");
+  function selectedPlacement() {
+    return {
+      datacenter: datacenterSelect?.value || "",
+      tags: Array.from(placementTagInputs).filter((input) => input.checked).map((input) => input.value),
+    };
+  }
+  let placementRefresh = 0;
+  async function refreshGpuAvailability() {
+    const {datacenter, tags} = selectedPlacement();
+    const params = new URLSearchParams();
+    if (datacenter) params.set("datacenter", datacenter);
+    tags.forEach((tag) => params.append("tags", tag));
+    const request = ++placementRefresh;
+    try {
+      const response = await fetch(`/api/workspaces/flavors?${params}`, {cache: "no-store"});
+      if (!response.ok || request !== placementRefresh) return;
+      const catalog = await response.json();
+      catalog.forEach((item) => {
+        if (!item.accelerator_count) return;
+        const card = document.querySelector(`.flavor-card-gpu[data-flavor-id="${CSS.escape(item.id)}"]`);
+        if (!card) return;
+        const quotaOk = card.dataset.gpuQuotaOk !== "false";
+        const available = item.available !== false && quotaOk;
+        const input = card.querySelector('input[name="flavor_id"]');
+        if (input) {
+          input.disabled = !available;
+          if (!available && input.checked) input.checked = false;
+        }
+        card.classList.toggle("is-unavailable", !available);
+        const badge = card.querySelector(".gpu-flavor-availability");
+        if (badge) {
+          badge.className = `badge ${available ? "badge-running" : "badge-error"} gpu-flavor-availability`;
+          badge.textContent = available ? `${item.available_slots ?? 0} boş slot` : "Kullanılamıyor";
+        }
+        const models = card.querySelector(".gpu-flavor-models");
+        if (models) {
+          models.textContent = item.eligible_accelerator_models?.length
+            ? item.eligible_accelerator_models.join(", ")
+            : "Uygun GPU worker bekleniyor";
+        }
+        const note = card.querySelector(".gpu-flavor-unavailable");
+        if (note) {
+          note.hidden = available;
+          note.textContent = available
+            ? ""
+            : quotaOk
+              ? item.availability_message
+              : "GPU kotanız yok. Yöneticinizden GPU slot kotası isteyin.";
+        }
+      });
+      applyTemplateFlavorRules(document.querySelector(".template-card.selected"));
+    } catch (_) {
+      // Availability is advisory; the create request reports the real result.
+    }
+  }
+  datacenterSelect?.addEventListener("change", refreshGpuAvailability);
+  placementTagInputs.forEach((input) => input.addEventListener("change", refreshGpuAvailability));
+
   function appendLog(text, level = "info") {
     if (!terminal) return;
     const now = new Date().toTimeString().split(" ")[0];
@@ -1192,6 +1255,7 @@ function initWorkspaceCreationModal() {
             template_id: templateId,
             flavor_id: flavorId,
             auto_stop_minutes: autoStopMinutes,
+            ...selectedPlacement(),
           }),
         });
 
@@ -2149,6 +2213,120 @@ DEVCLOUD_NODE_TOKEN=${data.enrollment_token}</pre>
       }
     });
   }
+}
+
+function apiErrorMessage(data, fallback) {
+  const detail = data && data.detail;
+  if (Array.isArray(detail)) return detail.map((item) => item.msg).join("; ") || fallback;
+  return detail || fallback;
+}
+
+// Worker datacenter/tag assignment and the admin-managed tag catalog.
+function initPlacementAdmin() {
+  const modal = document.getElementById("node-placement-modal");
+  const form = document.getElementById("node-placement-form");
+  const nodeIdInput = document.getElementById("placement-modal-node-id");
+  const datacenterSelect = document.getElementById("placement-modal-datacenter");
+  const title = document.getElementById("node-placement-modal-title");
+  document.getElementById("btn-close-placement-modal")?.addEventListener("click", () => {
+    modal?.classList.remove("open");
+  });
+
+  document.querySelectorAll(".btn-edit-placement").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!modal) return;
+      let tags = [];
+      try {
+        tags = JSON.parse(button.dataset.tags || "[]");
+      } catch (_) {
+        tags = [];
+      }
+      nodeIdInput.value = button.dataset.nodeId;
+      datacenterSelect.value = button.dataset.datacenter || "";
+      if (title) title.textContent = `Worker Yerleşimi · ${button.dataset.nodeName || ""}`;
+      modal.querySelectorAll(".placement-modal-tag").forEach((box) => {
+        box.checked = tags.includes(box.value);
+      });
+      modal.classList.add("open");
+    });
+  });
+
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const tags = Array.from(form.querySelectorAll(".placement-modal-tag:checked")).map((box) => box.value);
+    try {
+      const response = await fetch(`/api/admin/nodes/${nodeIdInput.value}/placement`, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({datacenter: datacenterSelect.value, tags}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(data, "Yerleşim kaydedilemedi."));
+      modal.classList.remove("open");
+      window.location.reload();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  const tagForm = document.getElementById("placement-tag-form");
+  const tagStatus = document.getElementById("placement-tag-status");
+  tagForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (tagStatus) tagStatus.textContent = "";
+    try {
+      const response = await fetch("/api/admin/placement-tags", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          name: document.getElementById("placement-tag-name").value.trim(),
+          kind: document.getElementById("placement-tag-kind").value,
+          description: document.getElementById("placement-tag-description").value.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(data, "Etiket eklenemedi."));
+      window.location.reload();
+    } catch (error) {
+      if (tagStatus) tagStatus.textContent = error.message;
+      else alert(error.message);
+    }
+  });
+
+  document.querySelectorAll("#placement-tags-table tr[data-tag-name]").forEach((row) => {
+    const name = encodeURIComponent(row.dataset.tagName);
+    row.querySelector(".placement-tag-toggle")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/placement-tags/${name}`, {
+          method: "PATCH",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({enabled: button.dataset.enabled !== "true"}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(apiErrorMessage(data, "Etiket güncellenemedi."));
+        window.location.reload();
+      } catch (error) {
+        alert(error.message);
+        button.disabled = false;
+      }
+    });
+    row.querySelector(".placement-tag-delete")?.addEventListener("click", async (event) => {
+      if (!confirm(`"${row.dataset.tagName}" silinsin mi?`)) return;
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/placement-tags/${name}`, {method: "DELETE"});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(apiErrorMessage(data, "Etiket silinemedi."));
+        window.location.reload();
+      } catch (error) {
+        alert(error.message);
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function initMlflowSettings() {

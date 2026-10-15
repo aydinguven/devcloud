@@ -24,7 +24,25 @@ from app.models.workspace import Workspace
 from app.models.node import Node, NodeStatus
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.agents.manager import agent_manager
-from app.schemas.node import NodeCreate, NodeCreated, NodeOut, NodeUpdate, NodeLabelsUpdate
+from app.models.placement_tag import TAG_KIND_DATACENTER, PlacementTag
+from app.placement import (
+    PlacementRequestError,
+    encode_tags,
+    is_gpu_worker,
+    valid_tag_name,
+    validate_node_placement,
+)
+from app.schemas.node import (
+    NodeCreate,
+    NodeCreated,
+    NodeLabelsUpdate,
+    NodeOut,
+    NodePlacementUpdate,
+    NodeUpdate,
+    PlacementTagCreate,
+    PlacementTagOut,
+    PlacementTagUpdate,
+)
 from app.schemas.worker_bootstrap import WorkerBootstrapTicketCreated
 from app.release_catalog import semantic_version
 from app.worker_bootstrap import (
@@ -57,6 +75,9 @@ def _node_out(node: Node, enrollment_token: str | None = None):
         active_containers_count=node.active_containers_count,
         gpu_slots_per_device=node.gpu_slots_per_device,
         labels=json.loads(node.labels_json or "{}"),
+        datacenter=node.datacenter or "",
+        tags=node.tags,
+        gpu_worker=is_gpu_worker(node),
         capabilities=json.loads(node.capabilities_json or "{}"),
         inventory=json.loads(node.inventory_json or "[]"),
         reconciliation=json.loads(node.reconciliation_json or "{}"),
@@ -267,6 +288,143 @@ async def update_node_labels(
         "node.updated", {"node_id": node.id, "labels": data.labels}
     )
     return _node_out(node)
+
+
+@router.put("/nodes/{node_id}/placement", response_model=NodeOut)
+async def update_node_placement(
+    node_id: str,
+    data: NodePlacementUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: Assign a worker's datacenter and custom placement tags.
+
+    Only new placements are affected; workspaces already on the worker stay.
+    """
+    node = await db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Worker bulunamadı.")
+    try:
+        datacenter, tags = await validate_node_placement(db, data.datacenter, data.tags)
+    except PlacementRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    node.datacenter = datacenter
+    node.tags_json = encode_tags(tags)
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    await agent_manager.broadcast_event(
+        "node.updated", {"node_id": node.id, "datacenter": datacenter, "tags": tags}
+    )
+    return _node_out(node)
+
+
+async def _tag_worker_counts(db: AsyncSession) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for node in (await db.execute(select(Node))).scalars().all():
+        names = set(node.tags)
+        if node.datacenter:
+            names.add(node.datacenter)
+        for name in names:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _tag_out(tag: PlacementTag, counts: dict[str, int]) -> PlacementTagOut:
+    return PlacementTagOut(
+        name=tag.name,
+        kind=tag.kind,
+        description=tag.description,
+        enabled=tag.enabled,
+        worker_count=counts.get(tag.name, 0),
+    )
+
+
+@router.get("/placement-tags", response_model=list[PlacementTagOut])
+async def list_placement_tags(
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    tags = (
+        await db.execute(select(PlacementTag).order_by(PlacementTag.kind, PlacementTag.name))
+    ).scalars().all()
+    counts = await _tag_worker_counts(db)
+    return [_tag_out(tag, counts) for tag in tags]
+
+
+@router.post(
+    "/placement-tags",
+    response_model=PlacementTagOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_placement_tag(
+    data: PlacementTagCreate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    name = data.name.strip()
+    if not valid_tag_name(name):
+        raise HTTPException(
+            status_code=400,
+            detail="Bu ad ayrılmış veya geçersiz (Any, GPU ve CPU kullanılamaz).",
+        )
+    existing = (
+        await db.execute(
+            select(PlacementTag).where(func.lower(PlacementTag.name) == name.lower())
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"'{existing.name}' zaten tanımlı.")
+    tag = PlacementTag(name=name, kind=data.kind, description=data.description.strip())
+    db.add(tag)
+    await db.commit()
+    await db.refresh(tag)
+    return _tag_out(tag, {})
+
+
+@router.patch("/placement-tags/{name}", response_model=PlacementTagOut)
+async def update_placement_tag(
+    name: str,
+    data: PlacementTagUpdate,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    tag = await db.get(PlacementTag, name)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Etiket bulunamadı.")
+    if data.description is not None:
+        tag.description = data.description.strip()
+    if data.enabled is not None:
+        tag.enabled = data.enabled
+    db.add(tag)
+    await db.commit()
+    await db.refresh(tag)
+    return _tag_out(tag, await _tag_worker_counts(db))
+
+
+@router.delete("/placement-tags/{name}")
+async def delete_placement_tag(
+    name: str,
+    _admin: Annotated[User, Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Delete an unused tag; workspaces keep the value they were created with."""
+    tag = await db.get(PlacementTag, name)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Etiket bulunamadı.")
+    in_use = (await _tag_worker_counts(db)).get(tag.name, 0)
+    if in_use:
+        what = "veri merkezi" if tag.kind == TAG_KIND_DATACENTER else "etiket"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Bu {what} {in_use} worker'a atanmış. Önce worker'lardan kaldırın "
+                "veya silmek yerine devre dışı bırakın."
+            ),
+        )
+    await db.delete(tag)
+    await db.commit()
+    return {"message": f"'{name}' silindi."}
 
 
 @router.post("/nodes/{node_id}/upgrade")

@@ -42,6 +42,18 @@ class WorkspaceCreate(BaseModel):
     template_id: str
     flavor_id: str
     auto_stop_minutes: int = Field(default=0, ge=0, le=1440, description="Maximum minutes since each start, even while active; 0 disables the limit.")
+    datacenter: str = Field(default="", max_length=40, description="Datacenter tag name; empty or 'Any' places on any worker.")
+    tags: list[str] = Field(default_factory=list, max_length=10, description="Custom placement tags the worker must carry.")
+
+
+class PlacementOption(BaseModel):
+    name: str
+    description: str = ""
+
+
+class PlacementOptions(BaseModel):
+    datacenters: list[PlacementOption] = Field(default_factory=list)
+    tags: list[PlacementOption] = Field(default_factory=list)
 
 
 class WorkspaceOut(BaseModel):
@@ -70,6 +82,8 @@ class WorkspaceOut(BaseModel):
     accelerator_slot: int | None = None
     accelerator_memory_mb: int = 0
     accelerator_shared_slots: int = 0
+    datacenter: str = ""
+    tags: list[str] = Field(default_factory=list)
     web_url: str | None = None
 
     model_config = {"from_attributes": True}

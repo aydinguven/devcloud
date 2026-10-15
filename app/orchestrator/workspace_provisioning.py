@@ -44,6 +44,11 @@ from app.orchestrator.flavors import Flavor, get_flavor
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import WorkspacePlacement, select_workspace_placement
+from app.placement import (
+    PlacementConstraints,
+    encode_tags,
+    resolve_workspace_constraints,
+)
 from app.quotas import effective_quota
 from app.release_catalog import semantic_version
 from app.resource_usage import quota_violations
@@ -442,6 +447,7 @@ async def reserve_workspace(
     template,
     flavor: Flavor,
     workspace_image: WorkspaceImage | None = None,
+    constraints: PlacementConstraints | None = None,
 ) -> Workspace:
     """Atomically reserve a worker port and, when requested, one GPU slot."""
     node = placement.node
@@ -473,6 +479,8 @@ async def reserve_workspace(
             storage_path="",
             status=WorkspaceStatus.CREATING,
             auto_stop_minutes=data.auto_stop_minutes,
+            datacenter=constraints.datacenter if constraints else "",
+            tags_json=encode_tags(constraints.tags if constraints else ()),
             accelerator_device_id=accelerator.device_id if accelerator else None,
             accelerator_cdi_name=accelerator.cdi_name if accelerator else None,
             accelerator_model=accelerator.model if accelerator else None,
@@ -512,8 +520,12 @@ async def schedule_and_reserve_workspace(
     workspace_image: WorkspaceImage | None = None,
     linked_deployment: MlflowDeployment | None = None,
 ) -> tuple[Workspace, WorkspacePlacement]:
-    """Check name, user quota and placement inside one serialized reservation."""
+    """Check name, user quota and placement inside one serialized reservation.
+
+    Raises ``PlacementRequestError`` for an unknown/disabled datacenter or tag.
+    """
     user_id = current_user.id
+    constraints = await resolve_workspace_constraints(db, data.datacenter, data.tags)
     if await workspace_name_taken(db, user_id=user_id, name=data.name):
         raise WorkspaceNameConflict(WORKSPACE_NAME_CONFLICT_DETAIL)
     existing = (await db.execute(select(Workspace).where(Workspace.user_id == user_id))).scalars().all()
@@ -545,10 +557,12 @@ async def schedule_and_reserve_workspace(
                     # Only a reported older version is refused: every real
                     # worker reports one with its heartbeat.
                     allow_unknown_agent_version=True,
+                    constraints=constraints,
                 )
                 workspace = await reserve_workspace(
                     db, data=data, current_user=user, placement=placement,
                     template=template, flavor=flavor, workspace_image=workspace_image,
+                    constraints=constraints,
                 )
                 if linked_deployment is not None:
                     linked_deployment.workspace_id = workspace.id
