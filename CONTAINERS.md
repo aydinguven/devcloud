@@ -75,6 +75,19 @@ committed lockfile in `containers/vscode-tcmb/lancedb/`. The image also sets
 `KILO_TELEMETRY_LEVEL=off` and disables CLI auto-update, sharing, session
 ingest, models.dev fetches and LSP downloads, so nothing reaches the Internet
 from a workspace by default.
+The `vscode-cuda` image is `vscode-tcmb` plus NVIDIA's CUDA 13.4 toolkit from
+the Debian 13 repository: nvcc, the runtime and math libraries, the
+command-line debugging/profiling tools (the `cuda:*-devel` set without Nsight
+Compute), cuDNN 9 and NCCL, with `/usr/local/cuda/bin` on `PATH` and
+`CUDA_HOME` set. It contains no NVIDIA driver: `libcuda`, `libnvidia-ml` and
+`nvidia-smi` must match the host kernel module, so the host's NVIDIA Container
+Toolkit injects them through the CDI device the scheduler assigns, and the
+build fails if a driver library ends up in the image. CUDA 13.x needs host
+driver 580 or newer. The template is GPU-only: it is refused on CPU flavors,
+its image is synchronized only to workers that report an NVIDIA stack, and it
+is placed only on 3.19.0+ workers (older ones would not know the template and
+would start it without TCMB Code). The image is roughly 7 GB unpacked, so the
+release publishes it to the registries only, without a GitHub release archive.
 The `terminal-rocky` image carries no IDE and no AI assistant: it is a
 digest-pinned Rocky Linux 10 base plus a checksum-locked static `ttyd`, which
 serves the shell over HTTP and WebSocket on port 7681. Because its `ide_type` is
@@ -96,7 +109,10 @@ verifies its checksum, so publish it there first:
       --notes "Build input for the vscode-tcmb workspace image."
 
 Then set `TCMB_CODE_VERSION` and `TCMB_CODE_VSIX_SHA256` in
-`containers/vscode-tcmb/Containerfile` and release DevCloud as usual. The
+`containers/vscode-tcmb/Containerfile` and, to the same values,
+`containers/vscode-cuda/Containerfile` (keep `lancedb/` identical too; the
+release smoke test checks both images against the vscode-tcmb version), and
+release DevCloud as usual. The
 build refuses to run while the checksum is empty. This repository is public,
 so the VSIX release asset and the published `vscode-tcmb` images are publicly
 downloadable.

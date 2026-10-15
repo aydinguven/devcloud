@@ -25,6 +25,12 @@ class WorkspaceTemplate:
     # Retired templates keep running their existing workspaces but are hidden
     # from the catalog and refused for new workspaces.
     retired: bool = False
+    # GPU-only images: refused on CPU flavors and synchronized only to workers
+    # that report an NVIDIA stack.
+    requires_accelerator: bool = False
+    # First worker release that knows this template. An older worker would
+    # register it as a custom template and lose its built-in wiring.
+    min_agent_version: str = ""
 
     def to_schema(self) -> TemplateInfo:
         return TemplateInfo(
@@ -36,6 +42,7 @@ class WorkspaceTemplate:
             default_port=self.default_port,
             image_tag=self.image_tag,
             features=self.features,
+            requires_accelerator=self.requires_accelerator,
         )
 
 
@@ -60,6 +67,29 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
         ai_assistant=TCMB_CODE_ASSISTANT,
+    ),
+    "vscode-cuda": WorkspaceTemplate(
+        id="vscode-cuda",
+        name="TCMB Code (CUDA)",
+        description="GPU worker'lar için CUDA 13, cuDNN ve NCCL yüklü TCMB Code VS Code ortamı. GPU kaynak profili gerektirir.",
+        category="GPU",
+        icon="cpu-chip",
+        default_port=8080,
+        container_workdir="/home/coder/project",
+        image_tag="localhost/devcloud-vscode-cuda:latest",
+        features=[
+            "NVIDIA CUDA 13 Toolkit",
+            "cuDNN 9 & NCCL",
+            "VS Code Web (code-server)",
+            "TCMB Code AI Asistanı",
+            "Python 3 & uv",
+            "Node.js 22 LTS",
+        ],
+        ide_type="vscode",
+        env_vars={"DOCKER_USER": "coder"},
+        ai_assistant=TCMB_CODE_ASSISTANT,
+        requires_accelerator=True,
+        min_agent_version="3.19.0",
     ),
     # Retired in 3.18.0 in favour of vscode-tcmb. Kept so existing workspaces
     # still start; hidden from the catalog and refused for new workspaces.
@@ -185,6 +215,21 @@ def get_template(template_id: str) -> WorkspaceTemplate | None:
 def is_retired(template_id: str) -> bool:
     template = TEMPLATES.get(template_id)
     return bool(template and template.retired)
+
+
+def requires_accelerator(template_id: str) -> bool:
+    template = TEMPLATES.get(template_id)
+    return bool(template and template.requires_accelerator)
+
+
+def flavor_mismatch(template, flavor) -> str:
+    """Explain why a template cannot run on a flavor, else ''."""
+    if getattr(template, "requires_accelerator", False) and not flavor.accelerator_count:
+        return (
+            f"'{template.name}' şablonu GPU kaynak profili gerektirir; "
+            "GPU Hızlandırma bölümünden bir profil seçin."
+        )
+    return ""
 
 
 def list_templates() -> list[TemplateInfo]:

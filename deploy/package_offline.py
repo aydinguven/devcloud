@@ -58,6 +58,7 @@ SYSTEM_PACKAGES_BY_BUNDLE_ROLE = {
 SYSTEM_PACKAGES_BY_DISTRIBUTION = SYSTEM_PACKAGES_BY_BUNDLE_ROLE["server"]
 IMAGES = (
     ("devcloud-vscode-tcmb", "localhost/devcloud-vscode-tcmb:latest", "vscode-tcmb"),
+    ("devcloud-vscode-cuda", "localhost/devcloud-vscode-cuda:latest", "vscode-cuda"),
     ("devcloud-jupyter-python", "localhost/devcloud-jupyter-python:latest", "jupyter-python"),
     (
         "devcloud-terminal-rocky",

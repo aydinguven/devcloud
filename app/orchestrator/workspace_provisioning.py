@@ -487,6 +487,21 @@ async def reserve_workspace(
     return workspace
 
 
+def template_minimum_agent_version(template) -> str | None:
+    """Oldest worker release that can start this template correctly, if any."""
+    candidates = [
+        version
+        for version in (
+            TCMB_CODE_MIN_AGENT_VERSION
+            if getattr(template, "ai_assistant", "") == TCMB_CODE_ASSISTANT
+            else "",
+            getattr(template, "min_agent_version", ""),
+        )
+        if semantic_version(version)
+    ]
+    return max(candidates, key=semantic_version) if candidates else None
+
+
 async def schedule_and_reserve_workspace(
     db: AsyncSession,
     *,
@@ -509,11 +524,7 @@ async def schedule_and_reserve_workspace(
         )
     required_image = workspace_image.image_ref if workspace_image else template.image_tag
     required_sha256 = workspace_image.sha256 if workspace_image else None
-    minimum_agent_version = (
-        TCMB_CODE_MIN_AGENT_VERSION
-        if getattr(template, "ai_assistant", "") == TCMB_CODE_ASSISTANT
-        else None
-    )
+    minimum_agent_version = template_minimum_agent_version(template)
     for attempt in range(5):
         try:
             async with admission_transaction(db):

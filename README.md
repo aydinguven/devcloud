@@ -308,7 +308,9 @@ Import the resulting OCI/Docker archives, or a GHCR/internal-registry image
 reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
 enabled images from the controller; the base installation does not build them.
 Formal GitHub Releases include downloadable, checksummed offline archives for
-the maintained `vscode-tcmb` and `jupyter-python` templates.
+the maintained `vscode-tcmb` and `jupyter-python` templates. The GPU-only
+`vscode-cuda` template (TCMB Code + CUDA 13, cuDNN, NCCL) is published to the
+registries only; see WORKERS.md, "CUDA VS Code workspaces".
 
 ### Workspace AI through LiteLLM
 
@@ -603,6 +605,7 @@ intelligent-nobel/
 ├── containers/                  # Controller, worker, and workspace Containerfiles
 │   ├── build_images.sh          # Podman batch builder
 │   ├── vscode-tcmb/             # VS Code + TCMB Code (+ pinned LanceDB runtime)
+│   ├── vscode-cuda/             # vscode-tcmb + CUDA toolkit, cuDNN, NCCL (GPU workers)
 │   ├── jupyter-python/
 │   └── terminal-rocky/
 ├── deploy/                      # Linux VM deployment scripts & systemd unit

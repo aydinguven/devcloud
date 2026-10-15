@@ -17,7 +17,12 @@ from app.models.node import Node
 from app.models.workspace import Workspace, WorkspaceStatus
 from app.models.mlflow_deployment import MlflowDeploymentStatus
 from app.orchestrator.flavors import get_flavor
-from app.orchestrator.templates import get_template, is_retired, resolve_template
+from app.orchestrator.templates import (
+    flavor_mismatch,
+    get_template,
+    is_retired,
+    resolve_template,
+)
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.admission import admission_transaction
 from app.orchestrator.scheduler import (
@@ -187,6 +192,9 @@ async def create_workspace(
     flavor = await resolve_flavor(db, data.flavor_id)
     if not flavor or not await flavor_enabled(db, data.flavor_id):
         raise HTTPException(status_code=400, detail=f"Geçersiz kaynak profili ID: {data.flavor_id}")
+    mismatch = flavor_mismatch(template, flavor)
+    if mismatch:
+        raise HTTPException(status_code=400, detail=mismatch)
 
     try:
         workspace, placement = await schedule_and_reserve_workspace(
@@ -294,6 +302,10 @@ async def deploy_workspace_stream(
             flavor = await resolve_flavor(db, data.flavor_id)
             if not flavor or not await flavor_enabled(db, data.flavor_id):
                 await emit_error(f"Geçersiz kaynak profili: {data.flavor_id}")
+                return
+            mismatch = flavor_mismatch(template, flavor)
+            if mismatch:
+                await emit_error(mismatch)
                 return
 
             await emit_log(f"Şablon: {template.name} ({template.image_tag})", "info")

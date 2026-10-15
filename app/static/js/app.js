@@ -1076,6 +1076,7 @@ function initWorkspaceCreationModal() {
       if (templateInput) {
         templateInput.value = card.dataset.templateId;
       }
+      applyTemplateFlavorRules(card);
     });
   });
 
@@ -1083,6 +1084,10 @@ function initWorkspaceCreationModal() {
   const flavorCards = document.querySelectorAll(".flavor-card");
   const flavorInputs = document.querySelectorAll('input[name="flavor_id"]');
   const flavorSummary = document.getElementById("selected-flavor-summary");
+  const cpuFlavorInputs = document.querySelectorAll('.flavor-grid-cpu input[name="flavor_id"]');
+  const gpuFlavorInputs = document.querySelectorAll('.flavor-grid-gpu input[name="flavor_id"]');
+  const defaultFlavorInput = document.querySelector('input[name="flavor_id"]:checked');
+  let gpuTemplateSelected = false;
 
   function syncFlavorSelection() {
     const selectedInput = document.querySelector('input[name="flavor_id"]:checked');
@@ -1094,14 +1099,35 @@ function initWorkspaceCreationModal() {
       const selectedCard = selectedInput?.closest(".flavor-card");
       flavorSummary.textContent = selectedCard
         ? "Seçili: " + selectedCard.dataset.flavorSummary
-        : "Bir kaynak profili seçin";
+        : gpuTemplateSelected
+          ? "Bu şablon GPU profili gerektirir; şu an uygun GPU profili yok"
+          : "Bir kaynak profili seçin";
     }
+  }
+
+  // GPU-only templates (e.g. CUDA) cannot run on a CPU flavor: lock the CPU
+  // cards and move the selection to the first available GPU profile.
+  function applyTemplateFlavorRules(card) {
+    gpuTemplateSelected = card?.dataset.requiresGpu === "true";
+    cpuFlavorInputs.forEach((input) => {
+      input.disabled = gpuTemplateSelected;
+      input.closest(".flavor-card")?.classList.toggle("is-unavailable", gpuTemplateSelected);
+    });
+    const selected = document.querySelector('input[name="flavor_id"]:checked');
+    if (gpuTemplateSelected && (!selected || selected.disabled)) {
+      if (selected) selected.checked = false;
+      const firstGpu = Array.from(gpuFlavorInputs).find((input) => !input.disabled);
+      if (firstGpu) firstGpu.checked = true;
+    } else if (!gpuTemplateSelected && !selected && defaultFlavorInput) {
+      defaultFlavorInput.checked = true;
+    }
+    syncFlavorSelection();
   }
 
   flavorInputs.forEach((input) => {
     input.addEventListener("change", syncFlavorSelection);
   });
-  syncFlavorSelection();
+  applyTemplateFlavorRules(document.querySelector(".template-card.selected"));
 
   function appendLog(text, level = "info") {
     if (!terminal) return;

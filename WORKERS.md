@@ -156,3 +156,21 @@ CDI slice is always one exclusive slot regardless of the override. On a shared
 physical GPU, the flavor's VRAM value is scheduling guidance and does not
 enforce a hard memory boundary. Use MIG on DGX/HGX systems when hard isolation
 is required.
+
+### CUDA VS Code workspaces
+
+The `vscode-cuda` template (**TCMB Code (CUDA)**) is TCMB Code plus the CUDA
+13.4 toolkit, cuDNN 9 and NCCL. To use it:
+
+1. Run host NVIDIA driver 580 or newer on the GPU workers (CUDA 13.x
+   requirement) and update the workers to 3.19.0 or newer.
+2. Import `ghcr.io/aydinguven/devcloud:vscode-cuda-VERSION` under
+   **Admin > Workspace Image'ları**. Only workers whose heartbeat reports an
+   NVIDIA stack download it (about 3.5 GB compressed); CPU workers skip it.
+3. Users pick the template together with a GPU flavor such as `g1.shared`;
+   the dashboard locks the CPU flavors for it and the API refuses them.
+
+The driver libraries and `nvidia-smi` come from the host through CDI, so
+`nvidia-smi` and `nvcc --version` both work in the workspace terminal.
+Frameworks installed with pip/uv, such as PyTorch, bring their own CUDA
+runtime wheels and only rely on the host driver.

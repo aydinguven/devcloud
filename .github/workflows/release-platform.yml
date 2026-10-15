@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          all_images=(vscode-tcmb jupyter-python terminal-rocky)
+          all_images=(vscode-tcmb vscode-cuda jupyter-python terminal-rocky)
 
           forced=" "
           read -r -a requested <<< "${REBUILD_WORKSPACES//,/ }"
@@ -198,6 +198,19 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
 
+      # The CUDA image unpacks ~7 GB of toolkit libraries; reclaim the hosted
+      # runner's preinstalled SDKs first so the build and docker save fit.
+      - name: Free runner disk for the CUDA image
+        if: matrix.image == 'vscode-cuda'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift
+          docker system prune --all --force >/dev/null
+          df -h /
+
       - name: Build workspace image
         shell: bash
         run: |
@@ -272,6 +285,7 @@ jobs:
             done
           done
 
+      # vscode-cuda is registry-only: its archive exceeds the 2 GiB asset limit.
       - name: Attach offline workspace archive
         if: matrix.image == 'vscode-tcmb' || matrix.image == 'jupyter-python'
         shell: bash
