@@ -432,7 +432,7 @@ td code {
 /* Resource usage dashboard */
 .usage-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 2rem;
 }
@@ -477,16 +477,6 @@ td code {
   justify-content: center;
   width: 2rem;
 }
-.usage-icon-user {
-  background: rgba(139, 92, 246, 0.14);
-  border-color: rgba(139, 92, 246, 0.25);
-  color: #a78bfa;
-}
-.usage-icon-remaining {
-  background: rgba(16, 185, 129, 0.14);
-  border-color: rgba(16, 185, 129, 0.25);
-  color: #34d399;
-}
 .usage-row + .usage-row { margin-top: 0.85rem; }
 .usage-row-label {
   align-items: baseline;
@@ -511,8 +501,20 @@ td code {
   height: 100%;
   min-width: 0;
 }
-.usage-track-user span { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
-.usage-track-remaining span { background: linear-gradient(90deg, #059669, #34d399); }
+.usage-quota-summary {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.usage-remaining { color: var(--text-muted); font-style: normal; font-weight: 500; }
+.usage-row-quota small { text-align: left; }
+.usage-track-quota span { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+.usage-row-quota.is-warning .usage-track-quota span { background: #f59e0b; }
+.usage-row-quota.is-critical .usage-track-quota span { background: #ef4444; }
+.usage-row-quota.is-critical .usage-row-label strong { color: #f87171; }
+.usage-card-note { color: var(--text-muted); font-size: 0.72rem; margin: 0.85rem 0 0; }
 
 /* Admin quota controls */
 .quota-summary { min-width: 180px; }
