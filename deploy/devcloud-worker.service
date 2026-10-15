@@ -12,9 +12,11 @@ Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/devcloud/worker.env
-Environment=XDG_RUNTIME_DIR=/run/user/%U
+# The installer renders the service account's numeric uid. Do not use the
+# systemd uid specifier here: in system units it is 0, not the User= uid.
+Environment=XDG_RUNTIME_DIR=/run/user/{{UID}}
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:{{PROJECT_DIR}}/.venv/bin
-ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U
+ExecStartPre=+/usr/bin/install -d -o {{USER}} -g {{USER}} -m 0700 /run/user/{{UID}}
 LimitNOFILE=65535
 TimeoutStopSec=15
 

@@ -46,22 +46,38 @@ def test_only_worker_service_prepares_rootless_runtime_directory():
 
     assert "XDG_RUNTIME_DIR" not in controller
     assert "ExecStartPre" not in controller
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in worker
-    assert (
-        "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U"
-        in worker
+    assert "XDG_RUNTIME_DIR" in worker
+
+
+def test_installed_worker_unit_uses_the_service_accounts_runtime_directory(tmp_path):
+    # systemd's %U is 0 for system units regardless of User=, which pointed
+    # the rootless worker at root's /run/user/0 and broke every podman call.
+    from types import SimpleNamespace
+
+    from app.installer.engine import InstallerEngine
+    from app.installer.models import DeploymentRole, WorkerRuntime
+    from app.installer.platform import CommandRunner
+    from tests.test_installer import config
+
+    runner = CommandRunner()
+    runner.run = lambda command, **_kwargs: SimpleNamespace(
+        returncode=0, stdout="982\n" if command[:2] == ["id", "-u"] else "", stderr=""
     )
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in worker
+    engine = InstallerEngine(filesystem_root=tmp_path, runner=runner)
+    candidate = config(DeploymentRole.WORKER)
+    candidate.worker_runtime = WorkerRuntime.NATIVE
 
+    engine._install_services(candidate)
 
-def test_worker_service_uses_runtime_directory_for_configured_user():
-    service = (PROJECT_ROOT / "deploy" / "devcloud-worker.service").read_text(
+    unit = (tmp_path / "etc/systemd/system/devcloud-worker.service").read_text(
         encoding="utf-8"
     )
-
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/%U" in service
-    assert "ExecStartPre=+/usr/bin/install -d -o %U -g %G -m 0700 /run/user/%U" in service
-    assert "Environment=XDG_RUNTIME_DIR=/run/user/0" not in service
+    assert "Environment=XDG_RUNTIME_DIR=/run/user/982" in unit
+    assert (
+        "ExecStartPre=+/usr/bin/install -d -o devcloud -g devcloud -m 0700 /run/user/982"
+        in unit
+    )
+    assert "%U" not in unit and "{{UID}}" not in unit
 
 
 def test_offline_worker_installer_requires_worker_manifest_and_enrollment():
