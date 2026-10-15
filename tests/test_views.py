@@ -49,8 +49,7 @@ async def test_view_routes_render_html(client: AsyncClient):
     assert auth_dashboard.status_code == 200
     assert "Çalışma Alanlarım" in auth_dashboard.text
     assert "Toplam Sistem Kullanımı" in auth_dashboard.text
-    assert "Toplam Kullanıcı Kullanımı" in auth_dashboard.text
-    assert "Kalan Kullanıcı Kotası" in auth_dashboard.text
+    assert "Kota Kullanımı" in auth_dashboard.text
     assert "Kaynak Profili" in auth_dashboard.text
     assert "CPU ve Bellek" in auth_dashboard.text
     assert "GPU Hızlandırma" in auth_dashboard.text

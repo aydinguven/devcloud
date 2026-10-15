@@ -498,7 +498,6 @@ code { color: #8d0022; }
   padding: 1.2rem;
 }
 .usage-card:nth-child(2) { border-top-color: var(--primary); }
-.usage-card:nth-child(3) { border-top-color: var(--gold); }
 .usage-card-heading h2 { color: var(--heading); }
 .usage-eyebrow { color: #748197; }
 .usage-icon {
@@ -507,13 +506,16 @@ code { color: #8d0022; }
   border-radius: 2px;
   color: var(--secondary);
 }
-.usage-icon-user { background: var(--primary-soft); border-color: #efb2c0; color: var(--primary); }
-.usage-icon-remaining { background: #f6f2de; border-color: #dbcf90; color: #776a1d; }
 .usage-row-label strong { color: var(--heading); }
 .usage-track { background: #e2e8f0; }
 .usage-track span { background: var(--secondary); }
-.usage-track-user span { background: var(--primary); }
-.usage-track-remaining span { background: var(--gold); }
+.usage-quota-summary { color: #748197; }
+.usage-remaining { color: #748197; }
+.usage-track-quota span { background: var(--secondary); }
+.usage-row-quota.is-warning .usage-track-quota span { background: var(--gold); }
+.usage-row-quota.is-critical .usage-track-quota span { background: var(--primary); }
+.usage-row-quota.is-critical .usage-row-label strong { color: var(--primary); }
+.usage-card-note { color: #748197; }
 
 /* Modal and logs */
 .modal-backdrop { background: rgba(24, 31, 43, 0.62); backdrop-filter: blur(2px); }

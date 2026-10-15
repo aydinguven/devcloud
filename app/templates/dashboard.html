@@ -35,49 +35,29 @@
     {% endfor %}
   </article>
 
-  <article class="usage-card">
+  <article class="usage-card usage-card-quota">
     <div class="usage-card-heading">
       <div>
-        <span class="usage-eyebrow">Kotanızdan düşen güncel kullanım</span>
-        <h2>Toplam Kullanıcı Kullanımı</h2>
+        <span class="usage-eyebrow">Kullanılan ve kalan kotanız</span>
+        <h2>Kota Kullanımı</h2>
       </div>
-      <span class="usage-icon usage-icon-user">◎</span>
+      <span class="usage-quota-summary">{{ user_usage.running_workspace_count }}/{{ user_usage.workspace_count }} çalışıyor</span>
     </div>
     {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk'), ('gpu', 'GPU')] %}
       {% set metric = user_usage[key] %}
       {% set allocated = user_usage.allocated[key] if key in ['cpu', 'memory'] else None %}
-      <div class="usage-row">
-        <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.used_display }} / {{ metric.limit_display }}</strong></div>
-        <div class="usage-track usage-track-user"><span style="width: {{ metric.percent }}%;"></span></div>
+      <div class="usage-row usage-row-quota{% if metric.percent >= 95 %} is-critical{% elif metric.percent >= 80 %} is-warning{% endif %}">
+        <div class="usage-row-label">
+          <span>{{ label }}</span>
+          <strong>{{ metric.used_display }} / {{ metric.limit_display }} <em class="usage-remaining">&middot; {{ metric.remaining_display }} kaldı</em></strong>
+        </div>
+        <div class="usage-track usage-track-quota" role="progressbar" aria-label="{{ label }} kota kullanımı" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ metric.percent }}"><span style="width: {{ metric.percent }}%;"></span></div>
         {% if allocated and allocated.used > metric.used %}
-          <small>Kotanın %{{ metric.percent }} kadarı &middot; duraklatılanlar dahil {{ allocated.used_display }} ayrıldı</small>
-        {% else %}
-          <small>Kotanın %{{ metric.percent }} kadarı</small>
+          <small>Duraklatılanlar dahil {{ allocated.used_display }} ayrıldı</small>
         {% endif %}
       </div>
     {% endfor %}
-    <small style="display: block; margin-top: 0.65rem; color: var(--text-muted); font-size: 0.72rem;">
-      {{ user_usage.running_workspace_count }}/{{ user_usage.workspace_count }} çalışma alanı çalışıyor.
-      Duraklatılan çalışma alanları CPU ve RAM kotanızı serbest bırakır, disk kotasından düşmeye devam eder.
-    </small>
-  </article>
-
-  <article class="usage-card">
-    <div class="usage-card-heading">
-      <div>
-        <span class="usage-eyebrow">Yeni çalışma alanları için kullanılabilir</span>
-        <h2>Kalan Kullanıcı Kotası</h2>
-      </div>
-      <span class="usage-icon usage-icon-remaining">✓</span>
-    </div>
-    {% for key, label in [('cpu', 'CPU'), ('memory', 'RAM'), ('disk', 'Disk'), ('gpu', 'GPU')] %}
-      {% set metric = user_usage[key] %}
-      <div class="usage-row usage-row-remaining">
-        <div class="usage-row-label"><span>{{ label }}</span><strong>{{ metric.remaining_display }}</strong></div>
-        <div class="usage-track usage-track-remaining"><span style="width: {{ 100 - metric.percent }}%;"></span></div>
-        <small>Toplam {{ metric.limit_display }} üzerinden</small>
-      </div>
-    {% endfor %}
+    <p class="usage-card-note">Durdurulan çalışma alanları CPU/RAM'i serbest bırakır; disk kotadan düşmeye devam eder.</p>
   </article>
 </section>
 
