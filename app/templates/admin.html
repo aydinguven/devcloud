@@ -54,6 +54,10 @@
   {% include "partials/admin_images.html" %}
 {% endif %}
 
+{% if admin_section == 'kubernetes' %}
+  {% include "partials/admin_kubernetes.html" %}
+{% endif %}
+
 {% if admin_section in ['system', 'workspaces'] %}
 {% if admin_section == 'system' %}
 <nav class="admin-section-jumps" aria-label="Sistem bölümleri">
@@ -1606,5 +1610,8 @@ USER coder" required></textarea>
 {% if admin_section == 'users' %}
 <script src="/static/js/genai_charts.js?v={{ static_version }}"></script>
 <script src="/static/js/genai_admin_usage.js?v={{ static_version }}"></script>
+{% endif %}
+{% if admin_section == 'kubernetes' %}
+<script src="/static/js/admin_kubernetes.js?v={{ static_version }}"></script>
 {% endif %}
 {% endblock %}

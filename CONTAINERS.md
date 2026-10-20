@@ -151,6 +151,41 @@ the workers and the model registry. If a worker is offline or the registry
 refuses the delete, the reply is "pending" with the reason. The cleanup then
 keeps retrying in the background.
 
+### Kubernetes image releases
+
+The **Kubernetes** target of the MLflow deploy modal publishes a model version
+to the deploy registry (Nexus) instead of running it on DevCloud. The platform
+team re-tags the image (`X.Y.Z-RC.N` for test, `X.Y.Z-N` for prod) and deploys
+it with Helm; database credentials reach the pod through Vault, External
+Secrets and `envFrom`, never through DevCloud or the image.
+
+- Admin > Kubernetes holds the deploy registry (`host:port`, account, password,
+  an optional "do not verify TLS" switch that also allows plain HTTP, and an
+  optional conversion to Docker v2 schema 2) and the projects: a project is an
+  RFS code and a namespace, an application is one ML service bound to one
+  MLflow registered model. The image name is `rfs_code/app_name`.
+- Every AD user and admin can publish (`app.kubernetes_publish.can_publish_images`).
+  The user enters only `X.Y.Z`; a version already used by the application, or a
+  tag that already exists in the registry, is refused. DevCloud never deletes
+  anything in the deploy registry. It checks that the tag is free before the
+  build and again right before the copy, but `skopeo copy` itself would replace
+  a tag pushed in between: enable **Disable redeploy** on the Nexus hosted
+  repository so the registry enforces immutable tags.
+- The release reuses a ready build of the model version or builds it on a
+  worker as usual. A build made only for a release is **not** imported into the
+  worker image catalogue, so workers do not download it. The controller then
+  runs `skopeo copy` from the Model Container Registry tag to
+  `registry/rfs_code/app_name:X.Y.Z` with separate temporary auth files, and
+  records the digest. The intermediate tag is cleaned up once no deployment or
+  release needs it; a failed release keeps it for 24 hours so a retry does not
+  rebuild.
+- If anything fails after the copy began (or the controller restarts), the
+  release is recorded as published when its tag is in the registry, and
+  failed or requeued when it is not. A pushed tag is therefore never left
+  behind a failed release.
+- Progress and failures are on the Deployments page (Kubernetes Yayınları);
+  a failed release can be retried with the same version.
+
 For one-file transfer into an air gap, a connected builder can produce a
 separate checksummed image pack:
 

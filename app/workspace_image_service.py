@@ -39,7 +39,12 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _run_skopeo(arguments: list[str], *, environment: dict[str, str] | None = None) -> str:
+def _run_skopeo(
+    arguments: list[str],
+    *,
+    environment: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> str:
     command = [settings.SKOPEO_BIN, *arguments]
     try:
         result = subprocess.run(
@@ -47,7 +52,7 @@ def _run_skopeo(arguments: list[str], *, environment: dict[str, str] | None = No
             check=True,
             text=True,
             capture_output=True,
-            timeout=settings.WORKSPACE_IMAGE_IMPORT_TIMEOUT_SECONDS,
+            timeout=timeout or settings.WORKSPACE_IMAGE_IMPORT_TIMEOUT_SECONDS,
             env={**os.environ, **(environment or {})},
         )
     except FileNotFoundError as exc:
@@ -62,14 +67,13 @@ def _run_skopeo(arguments: list[str], *, environment: dict[str, str] | None = No
     return result.stdout
 
 
-def _registry_auth_environment(
-    source_ref: str, username: str, password: str
-) -> tuple[dict[str, str], Path | None]:
+def _write_registry_authfile(ref: str, username: str, password: str) -> Path | None:
+    """Write a 0600 containers auth file for the registry of ``ref``."""
     if not username and not password:
-        return {}, None
+        return None
     if not username or not password:
         raise WorkspaceImageError("Registry username and password must be supplied together")
-    plain_ref = source_ref.removeprefix("docker://")
+    plain_ref = ref.removeprefix("docker://")
     registry = plain_ref.split("/", 1)[0]
     if not registry or registry in {".", ".."}:
         raise WorkspaceImageError("Registry reference has no valid registry host")
@@ -86,7 +90,104 @@ def _registry_auth_environment(
         handle.close()
         auth_path.unlink(missing_ok=True)
         raise
+    return auth_path
+
+
+def _registry_auth_environment(
+    source_ref: str, username: str, password: str
+) -> tuple[dict[str, str], Path | None]:
+    auth_path = _write_registry_authfile(source_ref, username, password)
+    if auth_path is None:
+        return {}, None
     return {"REGISTRY_AUTH_FILE": str(auth_path)}, auth_path
+
+
+def _docker_ref(ref: str) -> str:
+    normalized = ref.strip()
+    if not normalized:
+        raise WorkspaceImageError("Registry image reference is required")
+    if "://" in normalized and not normalized.startswith("docker://"):
+        raise WorkspaceImageError("Only docker:// registry references are supported")
+    return normalized if normalized.startswith("docker://") else f"docker://{normalized}"
+
+
+_MISSING_IMAGE_MARKERS = ("manifest unknown", "name unknown", "not found")
+_REGISTRY_INSPECT_TIMEOUT_SECONDS = 120
+
+
+def registry_tag_digest(
+    *,
+    image_ref: str,
+    username: str = "",
+    password: str = "",
+    tls_verify: bool = True,
+) -> str | None:
+    """Return the manifest digest of a registry tag, or None when it does not exist."""
+    source = _docker_ref(image_ref)
+    arguments = ["inspect"]
+    if not tls_verify:
+        arguments.append("--tls-verify=false")
+    arguments.append(source)
+    environment, auth_path = _registry_auth_environment(source, username, password)
+    try:
+        output = _run_skopeo(
+            arguments,
+            environment=environment,
+            timeout=_REGISTRY_INSPECT_TIMEOUT_SECONDS,
+        )
+    except WorkspaceImageError as exc:
+        if any(marker in str(exc).lower() for marker in _MISSING_IMAGE_MARKERS):
+            return None
+        raise
+    finally:
+        if auth_path:
+            auth_path.unlink(missing_ok=True)
+    try:
+        digest = str(json.loads(output).get("Digest") or "")
+    except (ValueError, AttributeError) as exc:
+        raise WorkspaceImageError("skopeo returned invalid image metadata") from exc
+    if not digest:
+        raise WorkspaceImageError("skopeo did not report an image digest")
+    return digest
+
+
+def copy_registry_image(
+    *,
+    source_ref: str,
+    destination_ref: str,
+    source_username: str = "",
+    source_password: str = "",
+    destination_username: str = "",
+    destination_password: str = "",
+    destination_tls_verify: bool = True,
+    manifest_format: str = "",
+) -> None:
+    """Copy one tag between registries, each with its own ephemeral auth file."""
+    source = _docker_ref(source_ref)
+    destination = _docker_ref(destination_ref)
+    if manifest_format not in {"", "v2s2"}:
+        raise WorkspaceImageError("Unsupported manifest format")
+    auth_paths: list[Path] = []
+    try:
+        arguments = ["copy", "--remove-signatures"]
+        source_auth = _write_registry_authfile(source, source_username, source_password)
+        if source_auth:
+            auth_paths.append(source_auth)
+            arguments += ["--src-authfile", str(source_auth)]
+        destination_auth = _write_registry_authfile(
+            destination, destination_username, destination_password
+        )
+        if destination_auth:
+            auth_paths.append(destination_auth)
+            arguments += ["--dest-authfile", str(destination_auth)]
+        if not destination_tls_verify:
+            arguments.append("--dest-tls-verify=false")
+        if manifest_format:
+            arguments += ["--format", manifest_format]
+        _run_skopeo([*arguments, source, destination])
+    finally:
+        for path in auth_paths:
+            path.unlink(missing_ok=True)
 
 
 def _inspect_archive(path: Path) -> dict:

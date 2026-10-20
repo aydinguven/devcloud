@@ -11,6 +11,7 @@ import socket
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Protocol
 
 from sqlalchemy import func, or_, select, update
 
@@ -37,6 +38,7 @@ from app.models.mlflow_deployment import (
     MlflowModelBuild,
     MlflowModelBuildStatus,
 )
+from app.models.kubernetes import ImageReleaseStatus, MlflowImageRelease
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.mlflow_settings import MlflowSettings
 from app.models.node import Node, NodeStatus
@@ -257,24 +259,70 @@ def _image_tag(build: MlflowModelBuild, registry_url: str) -> str:
     )
 
 
+# A failed release keeps its build this long, so fixing the deploy registry
+# (rights, manifest format) and retrying does not rebuild the image.
+_FAILED_RELEASE_BUILD_RETENTION = timedelta(hours=24)
+
+
+def _release_pins_build():
+    """Releases that still need their build: in progress, or failed recently."""
+    return or_(
+        MlflowImageRelease.status.in_(ImageReleaseStatus.ACTIVE),
+        (MlflowImageRelease.status == ImageReleaseStatus.FAILED)
+        & (
+            MlflowImageRelease.completed_at
+            > datetime.now(timezone.utc) - _FAILED_RELEASE_BUILD_RETENTION
+        ),
+    )
+
+
+async def _model_build_references(
+    db,
+    build_id: str,
+    *,
+    excluding_deployment_id: str | None = None,
+    excluding_release_id: str | None = None,
+) -> tuple[int, int]:
+    """Count deployments and image releases that still need a build."""
+    deployment_query = select(func.count(MlflowDeployment.id)).where(
+        MlflowDeployment.build_id == build_id
+    )
+    if excluding_deployment_id:
+        deployment_query = deployment_query.where(
+            MlflowDeployment.id != excluding_deployment_id
+        )
+    # A published release does not pin its build: the copy lives in the
+    # deploy registry.
+    release_query = select(func.count(MlflowImageRelease.id)).where(
+        MlflowImageRelease.build_id == build_id,
+        _release_pins_build(),
+    )
+    if excluding_release_id:
+        release_query = release_query.where(MlflowImageRelease.id != excluding_release_id)
+    return (
+        (await db.execute(deployment_query)).scalar_one(),
+        (await db.execute(release_query)).scalar_one(),
+    )
+
+
 async def enroll_model_build_cleanup(
     db,
     build_id: str | None,
     *,
     excluding_deployment_id: str | None = None,
+    excluding_release_id: str | None = None,
 ) -> bool:
     """Mark a last-reference build for durable cleanup in the caller transaction."""
     if not build_id:
         return False
-    reference_query = select(func.count(MlflowDeployment.id)).where(
-        MlflowDeployment.build_id == build_id
-    )
-    if excluding_deployment_id:
-        reference_query = reference_query.where(
-            MlflowDeployment.id != excluding_deployment_id
+    if any(
+        await _model_build_references(
+            db,
+            build_id,
+            excluding_deployment_id=excluding_deployment_id,
+            excluding_release_id=excluding_release_id,
         )
-    references = (await db.execute(reference_query)).scalar_one()
-    if references:
+    ):
         return False
     build = await db.get(MlflowModelBuild, build_id)
     if build is None:
@@ -309,6 +357,12 @@ async def enroll_orphaned_model_builds(db, limit: int = 20) -> int:
                         ~select(MlflowDeployment.id)
                         .where(MlflowDeployment.build_id == MlflowModelBuild.id)
                         .exists(),
+                        ~select(MlflowImageRelease.id)
+                        .where(
+                            MlflowImageRelease.build_id == MlflowModelBuild.id,
+                            _release_pins_build(),
+                        )
+                        .exists(),
                     )
                     .limit(limit)
                 )
@@ -333,15 +387,15 @@ async def garbage_collect_model_build(
     reasons = pending if pending is not None else []
     if not build_id:
         return True
-    references = (
-        await db.execute(
-            select(func.count(MlflowDeployment.id)).where(
-                MlflowDeployment.build_id == build_id
-            )
-        )
-    ).scalar_one()
+    references, release_references = await _model_build_references(db, build_id)
     if references:
         reasons.append(f"{references} model deployment bu image'ı kullanıyor.")
+    if release_references:
+        reasons.append(
+            f"{release_references} Kubernetes imaj yayını bu image'ı kullanıyor "
+            "(başarısız yayınlar 24 saat tutar)."
+        )
+    if references or release_references:
         return False
     build = await db.get(MlflowModelBuild, build_id)
     if build is None:
@@ -450,62 +504,178 @@ async def garbage_collect_model_build(
     return True
 
 
-async def _ready_build(db, deployment: MlflowDeployment) -> MlflowModelBuild | None:
+_MODEL_BUILD_RECIPE = "mlflow-v1"
+
+
+class ModelBuildOwner(Protocol):
+    """What ensure_model_build needs from the job that asked for a build.
+
+    AI Factory deployments and Kubernetes image releases both own builds; each
+    keeps its own lease and progress log.
+    """
+
+    @property
+    def user_id(self) -> int: ...
+
+    @property
+    def model_name(self) -> str: ...
+
+    @property
+    def model_version(self) -> str: ...
+
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def source_uri(self) -> str: ...
+
+    @property
+    def build_id(self) -> str | None: ...
+
+    def set_build(self, db, build_id: str) -> None: ...
+
+    async def append_event(self, db, message: str, level: str = "info") -> None: ...
+
+    async def assert_lease(self, db) -> None: ...
+
+    def maintain_lease(self, build_id: str | None): ...
+
+    def cleanup_exclusion(self) -> dict[str, str]: ...
+
+
+class _DeploymentBuildOwner:
+    def __init__(self, deployment: MlflowDeployment):
+        self.row = deployment
+
+    @property
+    def user_id(self) -> int:
+        return self.row.user_id
+
+    @property
+    def model_name(self) -> str:
+        return self.row.model_name
+
+    @property
+    def model_version(self) -> str:
+        return self.row.model_version
+
+    @property
+    def run_id(self) -> str:
+        return self.row.run_id
+
+    @property
+    def source_uri(self) -> str:
+        return self.row.source_uri
+
+    @property
+    def build_id(self) -> str | None:
+        return self.row.build_id
+
+    def set_build(self, db, build_id: str) -> None:
+        self.row.build_id = build_id
+        db.add(self.row)
+
+    async def append_event(self, db, message: str, level: str = "info") -> None:
+        await append_deployment_event(db, self.row, message, level)
+
+    async def assert_lease(self, db) -> None:
+        await _assert_deployment_lease(db, self.row)
+
+    def maintain_lease(self, build_id: str | None):
+        return _maintain_deployment_lease(self.row.id, build_id)
+
+    def cleanup_exclusion(self) -> dict[str, str]:
+        return {"excluding_deployment_id": self.row.id}
+
+
+async def _ready_build(
+    db,
+    *,
+    user_id: int,
+    model_name: str,
+    model_version: str,
+    require_image: bool,
+) -> MlflowModelBuild | None:
+    query = select(MlflowModelBuild).where(
+        MlflowModelBuild.user_id == user_id,
+        MlflowModelBuild.model_name == model_name,
+        MlflowModelBuild.model_version == model_version,
+        MlflowModelBuild.recipe_version == _MODEL_BUILD_RECIPE,
+        MlflowModelBuild.status == MlflowModelBuildStatus.READY,
+    )
+    if require_image:
+        query = query.where(MlflowModelBuild.workspace_image_id.is_not(None))
     return (
         await db.execute(
-            select(MlflowModelBuild)
-            .where(
-                MlflowModelBuild.user_id == deployment.user_id,
-                MlflowModelBuild.model_name == deployment.model_name,
-                MlflowModelBuild.model_version == deployment.model_version,
-                MlflowModelBuild.recipe_version == "mlflow-v1",
-                MlflowModelBuild.status == MlflowModelBuildStatus.READY,
-                MlflowModelBuild.workspace_image_id.is_not(None),
-            )
-            .order_by(MlflowModelBuild.completed_at.desc())
-            .limit(1)
+            query.order_by(MlflowModelBuild.completed_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
 
 
-async def _build_image(
+def model_build_source_ref(
+    build: MlflowModelBuild,
+    image: WorkspaceImage | None,
+    registry_url: str,
+) -> str:
+    """The build's tag in the Model Container Registry (the intermediate registry)."""
+    return image.source_ref if image else _image_tag(build, registry_url)
+
+
+async def ensure_model_build(
     db,
-    deployment: MlflowDeployment,
+    owner: ModelBuildOwner,
     client: MlflowClient,
+    *,
+    import_image: bool = True,
 ) -> MlflowModelBuild:
+    """Reuse a ready build of the model version or build it on a worker.
+
+    ``import_image`` also copies the result into the controller image catalog
+    so workers can run it (AI Factory). Kubernetes releases only need the
+    registry tag; skipping the catalog keeps every worker from syncing a
+    multi-GB image that nothing will run on them.
+    """
     registry: ModelContainerRegistryConfig | None = None
     cached_build = None
     async with admission_transaction(db):
         registry = await effective_model_container_registry_config(db)
         validate_model_container_registry_config(registry, require_enabled=True)
-        await _assert_deployment_lease(db, deployment)
-        build = await _ready_build(db, deployment)
+        await owner.assert_lease(db)
+        build = await _ready_build(
+            db,
+            user_id=owner.user_id,
+            model_name=owner.model_name,
+            model_version=owner.model_version,
+            require_image=import_image,
+        )
         if build is not None:
-            image = await db.get(WorkspaceImage, build.workspace_image_id)
-            if image and image.enabled:
-                deployment.build_id = build.id
-                db.add(deployment)
-                await append_deployment_event(
+            usable = True
+            if import_image:
+                image = await db.get(WorkspaceImage, build.workspace_image_id)
+                usable = bool(image and image.enabled)
+            if usable:
+                owner.set_build(db, build.id)
+                await owner.append_event(
                     db,
-                    deployment,
                     "Hazır model image önbellekten kullanılıyor.",
                     "success",
                 )
                 cached_build = build
         if cached_build is None:
-            if deployment.build_id:
+            if owner.build_id:
                 await enroll_model_build_cleanup(
                     db,
-                    deployment.build_id,
-                    excluding_deployment_id=deployment.id,
+                    owner.build_id,
+                    **owner.cleanup_exclusion(),
                 )
             build = MlflowModelBuild(
-                user_id=deployment.user_id,
-                model_name=deployment.model_name,
-                model_version=deployment.model_version,
-                run_id=deployment.run_id,
-                source_uri=deployment.source_uri,
-                model_uri=f"models:/{deployment.model_name}/{deployment.model_version}",
+                user_id=owner.user_id,
+                model_name=owner.model_name,
+                model_version=owner.model_version,
+                run_id=owner.run_id,
+                source_uri=owner.source_uri,
+                model_uri=f"models:/{owner.model_name}/{owner.model_version}",
+                recipe_version=_MODEL_BUILD_RECIPE,
                 status=MlflowModelBuildStatus.BUILDING,
                 status_message="Model serving image oluşturuluyor.",
                 lease_owner=_LEASE_OWNER,
@@ -515,11 +685,9 @@ async def _build_image(
             )
             db.add(build)
             await db.flush()
-            deployment.build_id = build.id
-            db.add(deployment)
-            await append_deployment_event(
+            owner.set_build(db, build.id)
+            await owner.append_event(
                 db,
-                deployment,
                 "Model artifact'ları image build worker'ında hazırlanıyor.",
             )
     if cached_build is not None:
@@ -543,14 +711,13 @@ async def _build_image(
         )
     # Name the worker and the target tag before the long-running RPC so a build
     # that dies inside the worker can be traced to a specific host from the
-    # deployment's own progress log.
-    await append_deployment_event(
+    # owner's own progress log.
+    await owner.append_event(
         db,
-        deployment,
         f"Image build worker'ı seçildi: {node.name}; hedef image {image_tag}.",
     )
     await db.commit()
-    async with _maintain_deployment_lease(deployment.id, build.id):
+    async with owner.maintain_lease(build.id):
         result = await connection.request(
             "image.mlflow.build",
             {
@@ -577,11 +744,26 @@ async def _build_image(
             await db.commit()
             raise RuntimeError(detail)
 
-        await _assert_deployment_lease(db, deployment)
+        await owner.assert_lease(db)
+        if not import_image:
+            build.status = MlflowModelBuildStatus.READY
+            build.status_message = "Model serving image ara registry'de hazır."
+            build.error_message = None
+            build.lease_owner = ""
+            build.lease_expires_at = None
+            build.completed_at = datetime.now(timezone.utc)
+            db.add(build)
+            await owner.append_event(
+                db,
+                f"Model image oluşturuldu ve ara registry'ye yüklendi: {image_tag}.",
+                "success",
+            )
+            await db.commit()
+            return build
         build.status = MlflowModelBuildStatus.IMPORTING
         build.status_message = "Model image doğrulanıp controller kataloğuna alınıyor."
         db.add(build)
-        await append_deployment_event(db, deployment, "Model image oluşturuldu; checksum kataloğu hazırlanıyor.", "success")
+        await owner.append_event(db, "Model image oluşturuldu; checksum kataloğu hazırlanıyor.", "success")
         await db.commit()
 
         try:
@@ -597,13 +779,13 @@ async def _build_image(
                 f"Worker image'ı {image_tag} olarak push etti ancak controller "
                 f"registry'den çekemedi: {exc}"
             ) from exc
-    await _assert_deployment_lease(db, deployment)
+    await owner.assert_lease(db)
     image = WorkspaceImage(
         id=str(metadata["id"]),
         template_id="mlflow-serving",
         purpose="mlflow_model",
-        owner_user_id=deployment.user_id,
-        display_name=f"{deployment.model_name} v{deployment.model_version}",
+        owner_user_id=owner.user_id,
+        display_name=f"{owner.model_name} v{owner.model_version}",
         image_ref=str(metadata["image_ref"]),
         source_type="mlflow_model",
         source_ref=image_tag,
@@ -626,6 +808,16 @@ async def _build_image(
     db.add(build)
     await db.commit()
     return build
+
+
+async def _build_image(
+    db,
+    deployment: MlflowDeployment,
+    client: MlflowClient,
+) -> MlflowModelBuild:
+    return await ensure_model_build(
+        db, _DeploymentBuildOwner(deployment), client, import_image=True
+    )
 
 
 # A fresh model image is a multi-GB archive that every worker pulls from the

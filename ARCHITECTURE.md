@@ -132,6 +132,12 @@ root.
   resolved only for the authenticated user making tracking or registry
   requests. The controller reads experiments, runs, parameters, metrics,
   artifact metadata, and model-version lineage; write operations remain in MLflow.
+  The one exception: after a Kubernetes image release, the controller sets the
+  `aifactory.image` and `aifactory.image_digest` tags on that model version with
+  the publishing user's credentials.
+- Controller to the deploy registry (Nexus) configured in Admin > Kubernetes,
+  for Kubernetes image releases. Only the controller pushes there (`skopeo
+  copy` from the Model Container Registry); workers never connect to it.
 - Worker to image registry and package repositories as configured.
 
 When both the managed server and a user's MLflow connection are enabled,
