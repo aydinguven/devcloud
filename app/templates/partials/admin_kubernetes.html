@@ -1,0 +1,80 @@
+{% set deploy = deploy_registry_settings %}
+<section class="card admin-integration-card admin-integration-card--registry" id="deploy-registry-integration" style="margin-bottom: 2rem; border-top: 3px solid #1d4ed8;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Dağıtım Registry'si (Nexus)</h2>
+      <p class="admin-section-description">Kubernetes hedefiyle yayınlanan model imajları buraya <code>rfskodu/uygulama-adı:X.Y.Z</code> olarak yüklenir. Platform ekibi imajı RC/build numarasıyla yeniden etiketleyip dağıtır.</p>
+    </div>
+    <span id="deploy-registry-status-badge" class="badge {% if deploy and deploy.enabled %}badge-running{% else %}badge-stopped{% endif %}">{% if deploy and deploy.enabled %}Etkin{% else %}Devre Dışı{% endif %}</span>
+  </div>
+  <form id="deploy-registry-settings-form" autocomplete="off">
+    <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
+      <input type="checkbox" name="enabled" {% if deploy and deploy.enabled %}checked{% endif %}>
+      <span>Kubernetes imaj yayınını etkinleştir</span>
+    </label>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Registry adresi</span>
+        <input class="form-input" name="registry_url" value="{{ deploy.registry_url if deploy else '' }}" placeholder="btgvalmbxp1:8525">
+        <small class="form-help">Yalnızca <code>host:port</code>; <code>https://</code> veya yol eklemeyin.</small>
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Kullanıcı adı</span>
+        <input class="form-input" name="username" value="{{ deploy.username if deploy else '' }}" autocomplete="username" placeholder="aimldeployer">
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Parola</span>
+        <input class="form-input" name="password" type="password" autocomplete="new-password" placeholder="{% if deploy and deploy.has_password %}Kayıtlı parolayı korumak için boş bırakın{% else %}Registry parolasını girin{% endif %}">
+      </label>
+      <label style="display:flex;gap:.5rem;align-items:center;align-self:end;min-height:2.75rem;">
+        <input type="checkbox" name="clear_password">
+        <span>Kayıtlı parolayı temizle</span>
+      </label>
+      <label style="display:flex;gap:.5rem;align-items:center;">
+        <input type="checkbox" name="tls_verify" {% if not deploy or deploy.tls_verify %}checked{% endif %}>
+        <span>TLS sertifikasını doğrula</span>
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Manifest biçimi</span>
+        <select class="form-input" name="manifest_format">
+          <option value="" {% if not deploy or not deploy.manifest_format %}selected{% endif %}>Kaynağı koru (önerilen)</option>
+          <option value="v2s2" {% if deploy and deploy.manifest_format == 'v2s2' %}selected{% endif %}>Docker v2 schema 2'ye dönüştür</option>
+        </select>
+        <small class="form-help">Registry OCI manifest kabul etmiyorsa dönüştürün; digest değişir.</small>
+      </label>
+    </div>
+    <p class="text-muted">TLS doğrulaması kapalıyken sertifika kontrol edilmez ve registry TLS konuşmuyorsa düz HTTP kullanılır; yalnızca güvenilir iç ağda kapatın. Parola şifreli saklanır ve yalnızca controller kullanır: imajı controller kopyalar, worker'lar bu registry'ye bağlanmaz.</p>
+    {% if deploy_registry_error %}<p class="text-destructive">{{ deploy_registry_error }}</p>{% endif %}
+    <div class="table-actions">
+      <button id="btn-save-deploy-registry" type="submit" class="btn btn-primary">Registry Ayarlarını Kaydet</button>
+      <button id="btn-test-deploy-registry" type="button" class="btn btn-secondary">Bağlantıyı Test Et</button>
+      <span id="deploy-registry-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
+    <p class="text-muted">Test v2 API erişimini ve kimlik doğrulamayı kontrol eder; push yetkisi ilk gerçek yayında doğrulanır.</p>
+  </form>
+</section>
+
+<section class="card" id="k8s-projects" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Kubernetes Projeleri</h2>
+      <p class="admin-section-description">Her proje bir RFS kodu ve namespace'tir; her uygulama bir ML servisidir ve tek bir MLflow modeline bağlanır. İmaj adı <code>rfskodu/uygulama-adı</code> olur. Yayını olan projenin kodu, namespace'i ve uygulama adı değiştirilemez.</p>
+    </div>
+  </div>
+  <form id="k8s-project-form" autocomplete="off" style="margin-bottom:1rem;">
+    <input type="hidden" name="project_id">
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;"><span class="form-label">RFS kodu</span><input class="form-input" name="rfs_code" required minlength="2" maxlength="32" pattern="[a-zA-Z0-9]+" placeholder="mbnllmd"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Proje adı</span><input class="form-input" name="name" required maxlength="120" placeholder="Payguard Anomaly Detection"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Namespace</span><input class="form-input" name="namespace" required maxlength="63" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" placeholder="mbnllmd"></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Açıklama</span><input class="form-input" name="description" maxlength="2000"></label>
+      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="enabled" checked><span>Etkin</span></label>
+    </div>
+    <div class="table-actions">
+      <button id="btn-save-k8s-project" type="submit" class="btn btn-primary">Proje Ekle</button>
+      <button id="btn-cancel-k8s-project" type="button" class="btn btn-secondary" hidden>Düzenlemeyi İptal Et</button>
+      <span id="k8s-project-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+  <div id="k8s-project-list" aria-live="polite"><p class="text-muted">Projeler yükleniyor...</p></div>
+</section>

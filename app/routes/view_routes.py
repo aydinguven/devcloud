@@ -22,6 +22,12 @@ from app.models.model_container_registry_settings import (
     ModelContainerRegistrySettings,
 )
 from app.models.download_settings import DownloadSettings
+from app.models.deploy_registry_settings import DeployRegistrySettings
+from app.deploy_registry import (
+    DeployRegistryConfigurationError,
+    deploy_registry_settings_out,
+    effective_deploy_registry_config,
+)
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
 from app.models.tcmb_code_settings import TcmbCodeSettings
@@ -539,6 +545,10 @@ ADMIN_SECTIONS = {
         "title": "Entegrasyonlar",
         "description": "Harici platform bağlantılarını ve servis kimlik bilgilerini yönetin.",
     },
+    "kubernetes": {
+        "title": "Kubernetes Dağıtımı",
+        "description": "Model imajlarının yayınlandığı dağıtım registry'sini, Kubernetes projelerini ve uygulamalarını yönetin.",
+    },
     "system": {
         "title": "Sistem & Dağıtım",
         "description": "Platform güncellemelerini, offline paketleri, disk alanını ve HTTPS ayarlarını yönetin.",
@@ -721,6 +731,17 @@ async def admin_page(
         except ModelContainerRegistryConfigurationError as exc:
             context["model_container_registry_settings"] = None
             context["model_container_registry_error"] = str(exc)
+    elif section == "kubernetes":
+        deploy_record = await db.get(DeployRegistrySettings, 1)
+        try:
+            deploy_config = await effective_deploy_registry_config(db)
+            context["deploy_registry_settings"] = deploy_registry_settings_out(
+                deploy_config, deploy_record
+            )
+            context["deploy_registry_error"] = ""
+        except DeployRegistryConfigurationError as exc:
+            context["deploy_registry_settings"] = None
+            context["deploy_registry_error"] = str(exc)
     elif section == "system":
         context["session_timeout_minutes"] = await session_timeout_minutes(db)
         context["onboarding_settings"] = await db.get(OnboardingSettings, 1)

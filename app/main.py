@@ -23,6 +23,7 @@ from app.routes.worker_bootstrap_routes import bootstrap_router
 from app.routes.view_routes import view_router
 from app.routes.workspace_routes import workspace_router
 from app.routes.mlflow_routes import mlflow_router
+from app.routes.image_release_routes import image_release_router
 from app.routes.onboarding_routes import onboarding_router
 from app.routes.genai_routes import genai_admin_router, genai_router
 from app.routes.health_routes import health_router
@@ -108,6 +109,7 @@ async def lifespan(app: FastAPI):
         mlflow_deployment_background_worker,
         recover_interrupted_mlflow_deployments,
     )
+    from app.orchestrator.image_release_service import image_release_background_worker
     from app.migrations import require_current, upgrade
     from app.directory_sync import directory_sync_background_worker
 
@@ -128,6 +130,9 @@ async def lifespan(app: FastAPI):
     deployment_task = asyncio.create_task(
         mlflow_deployment_background_worker(check_interval_seconds=2)
     )
+    image_release_task = asyncio.create_task(
+        image_release_background_worker(check_interval_seconds=2)
+    )
     # Place every AD team under its müdürlük without waiting for logins.
     directory_sync_task = asyncio.create_task(
         directory_sync_background_worker(
@@ -144,6 +149,13 @@ async def lifespan(app: FastAPI):
         "mlflow_deployments", "Model dağıtım kuyruğu", deployment_task,
         stale_after_seconds=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS + 10 * 60,
     )
+    # One release can wait for a model build and then a registry copy.
+    task_health.register(
+        "image_releases", "Kubernetes imaj yayın kuyruğu", image_release_task,
+        stale_after_seconds=settings.MLFLOW_MODEL_BUILD_TIMEOUT_SECONDS
+        + settings.WORKSPACE_IMAGE_IMPORT_TIMEOUT_SECONDS
+        + 10 * 60,
+    )
     task_health.register(
         "directory_sync", "AD senkronizasyonu", directory_sync_task,
         stale_after_seconds=60 + 3 * settings.DIRECTORY_SYNC_INTERVAL_HOURS * 3600,
@@ -154,7 +166,14 @@ async def lifespan(app: FastAPI):
     directory_sync_task.cancel()
     reaper_task.cancel()
     deployment_task.cancel()
-    await asyncio.gather(reaper_task, deployment_task, directory_sync_task, return_exceptions=True)
+    image_release_task.cancel()
+    await asyncio.gather(
+        reaper_task,
+        deployment_task,
+        image_release_task,
+        directory_sync_task,
+        return_exceptions=True,
+    )
     logger.info("DevCloud shutting down...")
 
 
@@ -243,6 +262,7 @@ app.include_router(file_router)
 app.include_router(admin_router)
 app.include_router(agent_router)
 app.include_router(mlflow_router)
+app.include_router(image_release_router)
 app.include_router(onboarding_router)
 app.include_router(genai_router)
 app.include_router(genai_admin_router)

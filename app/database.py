@@ -332,6 +332,13 @@ async def init_db() -> None:
         MlflowDeploymentEvent,
         MlflowModelBuild,
     )
+    from app.models.deploy_registry_settings import DeployRegistrySettings  # noqa: F401
+    from app.models.kubernetes import (  # noqa: F401
+        K8sApplication,
+        K8sProject,
+        MlflowImageRelease,
+        MlflowImageReleaseEvent,
+    )
     from app.models.download_settings import DownloadSettings  # noqa: F401
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401

@@ -17,6 +17,14 @@ from app.models.mlflow_deployment import (
     MlflowModelBuild,
     MlflowModelBuildStatus,
 )
+from app.models.deploy_registry_settings import DeployRegistrySettings
+from app.models.kubernetes import (
+    ImageReleaseStatus,
+    K8sApplication,
+    K8sProject,
+    MlflowImageRelease,
+    MlflowImageReleaseEvent,
+)
 from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
@@ -48,6 +56,12 @@ __all__ = [
     "MlflowDeploymentStatus",
     "MlflowModelBuild",
     "MlflowModelBuildStatus",
+    "DeployRegistrySettings",
+    "ImageReleaseStatus",
+    "K8sApplication",
+    "K8sProject",
+    "MlflowImageRelease",
+    "MlflowImageReleaseEvent",
     "DownloadSettings",
     "WorkspaceImage",
     "WorkerBootstrapTicket",

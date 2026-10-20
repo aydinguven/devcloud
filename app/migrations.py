@@ -19,7 +19,7 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 31
+CURRENT_SCHEMA_VERSION = 32
 
 
 class MigrationError(RuntimeError):
@@ -1038,6 +1038,10 @@ async def upgrade() -> None:
             # and tags_json columns.
             await _seed_default_datacenters(conn)
             await _record_version(conn, 31, "datacenter and placement tags")
+        if 32 not in applied:
+            # init_db creates the portable deploy_registry_settings, k8s_projects,
+            # k8s_applications, mlflow_image_releases and event tables.
+            await _record_version(conn, 32, "Kubernetes image releases to the deploy registry")
 
 
 async def current_version() -> int:

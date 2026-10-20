@@ -31,18 +31,26 @@ workflow, once the platform team says how.
 ## Requirements
 
 ### R1 — Deploy registry (admin)
-1. Yönetim → Entegrasyonlar has a **Dağıtım Registry'si (Nexus)** card with:
-   enabled, registry `host:port` (no scheme), username, password, and a CA file
-   path on the controller.
+1. A new admin section, **Yönetim → Kubernetes**, has a **Dağıtım Registry'si
+   (Nexus)** card with these fields:
+   - enabled;
+   - registry `host:port` (no scheme, no path);
+   - username and password;
+   - **TLS sertifikasını doğrula** (on by default). When it is off, the
+     certificate is not checked and plain HTTP is allowed. No CA file is
+     needed.
+   - manifest format: keep the source manifest, or convert it to Docker v2
+     schema 2.
 2. The password is stored encrypted and never returned (`has_password` only).
    `password: null` keeps it; `""` clears it.
-3. A **Test** button logs in to the registry from the controller.
+3. A **Test** button logs in to the registry from the controller. It follows
+   the Docker Bearer token challenge that Nexus uses.
 4. It is separate from the Model Container Registry, which stays the
    intermediate registry for builds. AI Factory never deletes anything in the
    deploy registry.
 
 ### R2 — Kubernetes projects and applications (admin)
-1. A new admin section, **Kubernetes Projeleri**.
+1. The same **Yönetim → Kubernetes** section lists the projects.
 2. Project fields: RFS code (lowercase, e.g. `mbnllmd`), display name,
    namespace (DNS-1123 label, unique) and enabled. A project has one or more
    applications (one ML service = one container = one application).
@@ -67,7 +75,9 @@ workflow, once the platform team says how.
    patch + 1, or `1.0.0` if there is none.
 3. A release is refused if the same application and version already has a
    release that is not failed, or if the tag already exists in the deploy
-   registry. Tags are never overwritten.
+   registry. DevCloud never overwrites a tag on purpose. The Nexus hosted
+   repository must have "Disable redeploy" enabled, to rule out a push that
+   lands between the check and the copy.
 4. The model version is read with the user's MLflow credentials, as AI
    Factory deploys do.
 5. A ready build of the same model version is reused. Otherwise the image is
@@ -115,11 +125,13 @@ workflow, once the platform team says how.
 3. (Hakkı) How should the platform pipeline learn about a new image (webhook,
    Jenkins, ArgoCD, Jira), and with which payload? Needed for Phase 2.
 4. (Hakkı) Deploy registry details:
-   - the FQDN and CA for `btgvalmbxp1:8525`;
    - whether 8525 is the push port;
    - what `aimldeployer` may push to;
    - the redeploy policy;
-   - whether OCI manifests are accepted.
+   - whether OCI manifests are accepted. If not, select v2s2 in the admin
+     card.
+
+   A CA is no longer needed: TLS checking can be turned off.
 5. (Hakkı) Who creates namespaces, and how are they named (e.g. `mbnllmd`)?
 6. (Payguard) Is `mbnllmd/mbnllmdml-swiftanomaly:1.0.0` already in Nexus? Is
    the PostgreSQL driver listed in the MLflow model's requirements?

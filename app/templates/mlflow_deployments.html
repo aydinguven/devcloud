@@ -9,5 +9,12 @@
     <table class="table"><thead><tr><th>Deployment / Model</th><th>Hedef</th><th>Durum</th><th>Kaynak</th><th>Endpoint</th><th>İşlem</th></tr></thead><tbody id="mlflow-deployment-list-body"></tbody></table>
   </div>
 </section>
+<section id="mlflow-release-list" class="card" style="margin-top:1.5rem;">
+  <div class="card-header"><div><h2 class="card-title">Kubernetes Yayınları</h2><p class="admin-section-description">Nexus'a <code>rfskodu/uygulama:X.Y.Z</code> olarak yüklenen model imajları. Platform ekibi bunları RC/build numarasıyla etiketleyip dağıtır.</p></div></div>
+  <div id="mlflow-release-list-status" role="status">Yayınlar yükleniyor...</div>
+  <div class="data-table-shell">
+    <table class="table"><thead><tr><th>Uygulama / Model</th><th>Hedef</th><th>Versiyon</th><th>Durum</th><th>İmaj</th><th>Yayınlayan</th><th>İşlem</th></tr></thead><tbody id="mlflow-release-list-body"></tbody></table>
+  </div>
+</section>
 {% endblock %}
 {% block scripts %}<script src="/static/js/mlflow_deployments.js?v={{ static_version }}"></script>{% endblock %}
