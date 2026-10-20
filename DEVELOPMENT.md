@@ -13,6 +13,7 @@
 
 | Owner | Status | Branch | Task | Next step |
 |---|---|---|---|---|
+| Kiro | Planned | `feat/kubernetes-image-publish` | Kubernetes target: publish MLflow model images to the deploy registry (Nexus `btgvalmbxp1:8525`). Spec in `.kiro/specs/mlflow-kubernetes-publish/` | Aydin and the platform team run Phase 0 (registry access/CA, a manual push of PayguardAnomalyUnified v3, a cluster start check) and answer the spec's open questions; then implement Phase 1 |
 | Aydin | Pending | `main` | 3.21.1 rollout: placement tags (migration 31), worker `/run/user/0` fix, single quota card | Update IDMVAIFACT1, then update the workers (their unit is rewritten with the real uid). Assign IDM/ODM to workers in Admin > Worker'lar > Yerleşim. Import `ghcr.io/aydinguven/devcloud:vscode-cuda-3.19.0` for CUDA workspaces. Datacenters with only GPU workers can no longer host CPU workspaces |
 | Aydin | Pending | `main` | 3.18.2 rollout (released 2026-10-15): TCMB Code VS Code image, Cline images retired, no TCMB Code workspace starts silently unconfigured | Update IDMVAIFACT1, then the workers, to 3.18.2 and follow `INSTALL.md` "Rolling out TCMB Code"; for the already-unconfigured workspace fix the cause it reports and stop/start it (see Latest handoff) |
 | Kiro | In progress | `feat/image-import-progress` | Progress bar for Admin > Workspace Image'ları imports (uncommitted in the main checkout; touches `app/workspace_image_service.py`, `app/routes/admin/images.py`, `app/static/js/app.js`, `app/templates/partials/admin_images.html`, `app/static/css/kurumsal.css`) | Run the suite and a scratch import check, then commit and open the PR |
@@ -25,6 +26,13 @@
 | Aydin | Pending | `main` | 3.12.0 rollout | Update IDMVAIFACT1 and workers, set `TCMB_Standard_User` + priority in Admin > GenAI, then create a workspace as a GenAI user and check the key in LiteLLM |
 
 ## Decisions
+
+- 2026-10-20 (planned, spec `.kiro/specs/mlflow-kubernetes-publish/`): the Kubernetes deploy target ends at the deploy registry. AI Factory builds the MLflow model version (or reuses a ready build), then the controller runs `skopeo copy` from the intermediate registry to `btgvalmbxp1:8525/{rfs_code}/{app_name}:X.Y.Z` and records the digest. The platform team re-tags (`X.Y.Z-RC.BN` test, `X.Y.Z-BN` prod) and deploys with Helm, with secrets coming from Vault → External Secrets → `envFrom`. AI Factory never handles database credentials. Aydin chose:
+  - Publishing is open to every AD user and admin for now, through one check function so it can be limited later.
+  - Releases get their own table instead of extending `mlflow_deployments`.
+  - The modal drops the namespace, replica and flavor inputs; the namespace comes from an admin-defined Kubernetes project.
+  - After a publish, AI Factory sets `aifactory.image` and `aifactory.image_digest` tags on the MLflow model version. This is the first MLflow write.
+  - Publish-only builds are not imported into `WorkspaceImage`, so workers do not sync them.
 
 - 2026-10-15 (3.21.1, PR #68): native rootless workers had `XDG_RUNTIME_DIR=/run/user/0`. In system units, systemd's `%U` is the service manager's uid (0), not the `User=` account's. So `devcloud-worker.service` created a root-owned `/run/user/0`, and every Podman call failed with `mkdir /run/user/0/libpod: permission denied`; this was seen on IDMSYAPZET7 as image sync never loading. The unit now uses `{{UID}}`/`{{USER}}`, and `InstallerEngine._install_services` renders the service account's numeric uid (`_service_uid`, shared with `_prepare_images`). The install, repair and update plans all rewrite the unit, so updating a worker fixes it. Hosts patched by hand with a `runtime-dir.conf` drop-in get the same values and can keep it. The old string-pinning tests asserted `%U` and were replaced by one test that renders the installed unit. No schema change.
 - 2026-10-15 (3.21.1, PR #69): the dashboard's two user cards (usage and remaining quota) are one **Kota Kullanımı** card. Each row shows `kullanılan / toplam · X kaldı` with a usage bar that turns gold at 80% and red at 95%. Display only; `user_usage` is unchanged. No schema change.
