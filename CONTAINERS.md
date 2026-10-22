@@ -161,12 +161,17 @@ Secrets and `envFrom`, never through DevCloud or the image.
 
 - Admin > Kubernetes holds the deploy registry (`host:port`, account, password,
   an optional "do not verify TLS" switch that also allows plain HTTP, and an
-  optional conversion to Docker v2 schema 2) and the projects: a project is an
-  RFS code and a namespace, an application is one ML service bound to one
-  MLflow registered model. The image name is `rfs_code/app_name`.
+  optional conversion to Docker v2 schema 2) and the RFS codes. An RFS code
+  is a project with a namespace, which defaults to the code. The image name
+  is `rfs_code/app_name`.
 - Every AD user and admin can publish (`app.kubernetes_publish.can_publish_images`).
-  The user enters only `X.Y.Z`; a version already used by the application, or a
-  tag that already exists in the registry, is refused. DevCloud never deletes
+  In the deploy modal the user picks an RFS code, types the app name and
+  enters `X.Y.Z`. An app name the RFS code does not have yet is created with
+  the release and bound to that MLflow model; it must start with the RFS
+  code. An existing application only accepts the model it is bound to. Admins
+  can disable an application, rebind it to another model, or delete it while
+  it has no releases. A version already used by the application, or a tag
+  that already exists in the registry, is refused. DevCloud never deletes
   anything in the deploy registry. It checks that the tag is free before the
   build and again right before the copy, but `skopeo copy` itself would replace
   a tag pushed in between: enable **Disable redeploy** on the Nexus hosted

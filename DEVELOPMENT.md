@@ -27,6 +27,11 @@
 
 ## Decisions
 
+- 2026-10-22 (no schema change; spec `.kiro/specs/mlflow-kubernetes-publish/`): Kubernetes applications are self-service. Before, an admin had to create a project and then an application bound to the model before anyone could publish. Now the deploy modal takes an RFS code (select) and an app name (input), and `POST /api/mlflow/image-releases` takes `{project_id, app_name}` instead of `application_id`. An unknown name is created under `admission_transaction` and bound to the release's model. Aydin chose:
+  - RFS codes (projects) stay admin-only. Admin > Kubernetes is reduced to **RFS Kodları**: code, name and an optional namespace (defaults to the RFS code). Application rows can only be disabled, rebound to another model, or deleted while they have no releases. The admin create-application endpoint is gone.
+  - A new app name must start with the RFS code (`app.kubernetes_publish.app_name_fits_project`). Existing names are not re-validated.
+  - The model binding is still the only publish guard: an existing application only publishes the model it is bound to. Any AD user can open a new application under any RFS code.
+
 - 2026-10-20 (3.22.0, PR #71, migration 32; spec `.kiro/specs/mlflow-kubernetes-publish/`): the Kubernetes deploy target ends at the deploy registry. AI Factory builds the MLflow model version (or reuses a ready build), then the controller runs `skopeo copy` from the intermediate registry to `{deploy registry}/{rfs_code}/{app_name}:X.Y.Z` and records the digest. The platform team re-tags (`X.Y.Z-RC.BN` test, `X.Y.Z-BN` prod) and deploys with Helm, with secrets coming from Vault → External Secrets → `envFrom`. AI Factory never handles database credentials. Aydin chose:
   - Publishing is open to every AD user and admin for now (`app.kubernetes_publish.can_publish_images`), so it can be limited later.
   - Releases get their own tables (`mlflow_image_releases`, events) instead of extending `mlflow_deployments`; status is a plain string column.

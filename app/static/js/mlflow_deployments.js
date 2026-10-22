@@ -38,7 +38,9 @@
     const k8s = {
       badge: document.getElementById("mlflow-deploy-k8s-badge"),
       note: document.getElementById("mlflow-deploy-k8s-note"),
-      application: document.getElementById("mlflow-deploy-k8s-application"),
+      project: document.getElementById("mlflow-deploy-k8s-project"),
+      app: document.getElementById("mlflow-deploy-k8s-app"),
+      apps: document.getElementById("mlflow-deploy-k8s-apps"),
       version: document.getElementById("mlflow-deploy-k8s-version"),
       namespace: document.getElementById("mlflow-deploy-k8s-namespace"),
       last: document.getElementById("mlflow-deploy-k8s-last"),
@@ -62,7 +64,8 @@
       // A hidden required field would block the form; only the active target's fields are required.
       flavor.required = target === "ai-factory";
       name.required = target === "ai-factory";
-      k8s.application.required = target === "kubernetes";
+      k8s.project.required = target === "kubernetes";
+      k8s.app.required = target === "kubernetes";
       k8s.version.required = target === "kubernetes";
       title.textContent = info.title;
       submit.textContent = info.submit;
@@ -96,19 +99,36 @@
       flavorsLoaded = true;
     }
 
-    const selectedApplication = () => (k8sOptions?.applications || []).find(item => item.id === k8s.application.value) || null;
+    // The user picks an admin-defined RFS code and types the app name; an unknown
+    // name is created by the release and bound to this model.
+    const selectedProject = () => (k8sOptions?.projects || []).find(item => item.id === k8s.project.value) || null;
+    const projectApplications = () => (k8sOptions?.applications || []).filter(item => item.project_id === k8s.project.value);
+    const appName = () => k8s.app.value.trim().toLowerCase();
+    const existingApplication = () => projectApplications().find(item => item.app_name === appName()) || null;
     const renderK8sSummary = () => {
-      const application = selectedApplication();
+      const project = selectedProject();
+      const application = existingApplication();
       const version = k8s.version.value.trim();
-      k8s.namespace.textContent = application ? application.namespace : "—";
-      k8s.last.textContent = application ? (application.last_version || "Henüz yayın yok") : "—";
-      k8s.image.textContent = application ? `${application.image_prefix}:${RELEASE_VERSION.test(version) ? version : "X.Y.Z"}` : "—";
+      k8s.namespace.textContent = project ? project.namespace : "—";
+      k8s.last.textContent = !project || !appName() ? "—" : application ? (application.last_version || "Henüz yayın yok") : "Yeni uygulama · ilk yayın";
+      const registry = k8sOptions?.registry_url ? `${k8sOptions.registry_url}/` : "";
+      k8s.image.textContent = project ? `${registry}${project.rfs_code}/${appName() || "uygulama-adı"}:${RELEASE_VERSION.test(version) ? version : "X.Y.Z"}` : "—";
     };
-    k8s.application.addEventListener("change", () => {
-      const application = selectedApplication();
-      if (application) k8s.version.value = application.suggested_version;
+    const suggestVersion = () => {
+      k8s.version.value = existingApplication()?.suggested_version || "1.0.0";
+    };
+    const selectProject = () => {
+      const project = selectedProject();
+      const applications = projectApplications();
+      k8s.apps.innerHTML = applications.map(item => `<option value="${esc(item.app_name)}"></option>`).join("");
+      k8s.app.placeholder = project ? `${project.rfs_code}ml-uygulama` : "";
+      k8s.app.value = applications.length ? applications[0].app_name : "";
+      suggestVersion();
       renderK8sSummary();
-    });
+    };
+    k8s.project.addEventListener("change", selectProject);
+    k8s.app.addEventListener("input", renderK8sSummary);
+    k8s.app.addEventListener("change", () => { suggestVersion(); renderK8sSummary(); });
     k8s.version.addEventListener("input", renderK8sSummary);
 
     async function loadK8sOptions(model) {
@@ -117,19 +137,24 @@
       if (target === "kubernetes") submit.disabled = true;
       k8s.badge.textContent = "Kontrol ediliyor";
       k8s.badge.className = "badge badge-neutral";
-      k8s.application.innerHTML = '<option value="">Yükleniyor...</option>';
+      k8s.project.innerHTML = '<option value="">Yükleniyor...</option>';
+      k8s.apps.innerHTML = "";
+      k8s.app.value = "";
       k8s.version.value = "";
       k8s.note.hidden = true;
       renderK8sSummary();
       try {
         k8sOptions = await fetchJson(`/api/mlflow/kubernetes/options?model_name=${encodeURIComponent(model)}`);
       } catch (value) {
-        k8sOptions = {enabled: false, applications: [], message: value.message};
+        k8sOptions = {enabled: false, projects: [], applications: [], message: value.message};
       }
-      const applications = k8sOptions.applications || [];
-      k8s.application.innerHTML = applications.map(item => `<option value="${esc(item.id)}">${esc(item.repository)} · ${esc(item.project_name)}</option>`).join("")
-        || '<option value="">Bu model için uygulama yok</option>';
-      if (applications.length) k8s.version.value = applications[0].suggested_version;
+      const projects = k8sOptions.projects || [];
+      k8s.project.innerHTML = projects.map(item => `<option value="${esc(item.id)}">${esc(item.rfs_code)} · ${esc(item.name)}</option>`).join("")
+        || '<option value="">Tanımlı RFS kodu yok</option>';
+      // Default to the project this model was published under before.
+      const previous = (k8sOptions.applications || [])[0];
+      if (previous) k8s.project.value = previous.project_id;
+      selectProject();
       DEPLOY_TARGETS.kubernetes.available = Boolean(k8sOptions.enabled);
       k8s.badge.textContent = k8sOptions.enabled ? "Hazır" : "Kullanılamıyor";
       k8s.badge.className = `badge ${k8sOptions.enabled ? "badge-running" : "badge-neutral"}`;
@@ -248,13 +273,18 @@
     }
 
     async function submitRelease() {
+      const project = selectedProject();
+      const app = appName();
       const version = k8s.version.value.trim();
+      if (!project) throw new Error("Bir RFS kodu seçin.");
+      if (!app.startsWith(project.rfs_code)) throw new Error(`Uygulama adı RFS koduyla başlamalıdır (örn. ${project.rfs_code}ml-uygulama).`);
       if (!RELEASE_VERSION.test(version)) throw new Error("Versiyon X.Y.Z biçiminde olmalıdır (örn. 1.0.0).");
       const release = await fetchJson("/api/mlflow/image-releases", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          application_id: k8s.application.value,
+          project_id: project.id,
+          app_name: app,
           model_name: document.getElementById("mlflow-deploy-model-name").value,
           model_version: document.getElementById("mlflow-deploy-model-version").value,
           version,

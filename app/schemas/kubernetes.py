@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 RFS_CODE_PATTERN = re.compile(r"^[a-z0-9]{2,32}$")
 NAMESPACE_PATTERN = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -37,6 +37,15 @@ def normalize_deploy_registry_host(value: str) -> str:
 
 def _username(value: str) -> str:
     return _no_control_characters(value.strip(), "Registry kullanıcı adı")
+
+
+def _app_name(value: str) -> str:
+    value = value.lower()
+    if not APP_NAME_PATTERN.fullmatch(value):
+        raise ValueError(
+            "Uygulama adı küçük harf, rakam ve tire içermelidir (örn. mbnllmdml-swiftanomaly)."
+        )
+    return value
 
 
 class DeployRegistrySettingsUpdate(BaseModel):
@@ -100,11 +109,18 @@ class DeployRegistryTestResult(BaseModel):
 class K8sProjectWrite(BaseModel):
     rfs_code: str = Field(min_length=2, max_length=32)
     name: str = Field(min_length=1, max_length=120)
-    namespace: str = Field(min_length=1, max_length=63)
+    # Empty means the RFS code, which is always a valid DNS label.
+    namespace: str = Field(default="", max_length=63)
     description: str = Field(default="", max_length=2000)
     enabled: bool = True
 
     model_config = {"str_strip_whitespace": True}
+
+    @model_validator(mode="after")
+    def default_namespace(self):
+        if not self.namespace:
+            self.namespace = self.rfs_code
+        return self
 
     @field_validator("rfs_code", mode="after")
     @classmethod
@@ -118,7 +134,7 @@ class K8sProjectWrite(BaseModel):
     @classmethod
     def validate_namespace(cls, value: str) -> str:
         value = value.lower()
-        if not NAMESPACE_PATTERN.fullmatch(value):
+        if value and not NAMESPACE_PATTERN.fullmatch(value):
             raise ValueError(
                 "Namespace küçük harf, rakam ve tire içeren geçerli bir DNS etiketi olmalıdır."
             )
@@ -142,12 +158,7 @@ class K8sApplicationWrite(BaseModel):
     @field_validator("app_name", mode="after")
     @classmethod
     def validate_app_name(cls, value: str) -> str:
-        value = value.lower()
-        if not APP_NAME_PATTERN.fullmatch(value):
-            raise ValueError(
-                "Uygulama adı küçük harf, rakam ve tire içermelidir (örn. mbnllmdml-swiftanomaly)."
-            )
-        return value
+        return _app_name(value)
 
     @field_validator("mlflow_model_name", mode="after")
     @classmethod
@@ -191,14 +202,20 @@ class K8sProjectList(BaseModel):
     projects: list[K8sProjectOut]
 
 
-class KubernetesApplicationOption(BaseModel):
+class KubernetesProjectOption(BaseModel):
     id: str
-    app_name: str
-    project_name: str
     rfs_code: str
+    name: str
     namespace: str
+
+
+class KubernetesApplicationOption(BaseModel):
+    """An application already bound to the selected model."""
+
+    id: str
+    project_id: str
+    app_name: str
     repository: str
-    image_prefix: str
     last_version: str | None = None
     suggested_version: str
 
@@ -208,16 +225,25 @@ class KubernetesOptions(BaseModel):
     can_publish: bool
     registry_url: str
     message: str = ""
-    applications: list[KubernetesApplicationOption]
+    projects: list[KubernetesProjectOption] = []
+    applications: list[KubernetesApplicationOption] = []
 
 
 class ImageReleaseCreate(BaseModel):
-    application_id: str = Field(min_length=1, max_length=36)
+    """The application is created on its first release and bound to the model."""
+
+    project_id: str = Field(min_length=1, max_length=36)
+    app_name: str = Field(min_length=1, max_length=100)
     model_name: str = Field(min_length=1, max_length=255)
     model_version: str = Field(min_length=1, max_length=64)
     version: str = Field(min_length=5, max_length=32)
 
     model_config = {"str_strip_whitespace": True}
+
+    @field_validator("app_name", mode="after")
+    @classmethod
+    def validate_app_name(cls, value: str) -> str:
+        return _app_name(value)
 
     @field_validator("model_version")
     @classmethod

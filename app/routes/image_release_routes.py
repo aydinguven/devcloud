@@ -15,6 +15,8 @@ from app.deploy_registry import (
 )
 from app.integrations.mlflow import MlflowConfigurationError, MlflowConnectionError
 from app.kubernetes_publish import (
+    app_name_fits_project,
+    app_name_rule_message,
     can_publish_images,
     highest_version,
     image_repository,
@@ -49,6 +51,7 @@ from app.schemas.kubernetes import (
     ImageReleaseOut,
     KubernetesApplicationOption,
     KubernetesOptions,
+    KubernetesProjectOption,
 )
 
 image_release_router = APIRouter(prefix="/api/mlflow", tags=["MLflow"])
@@ -134,7 +137,7 @@ async def kubernetes_publish_options(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Applications the selected model can be published as, with suggested versions."""
+    """RFS projects to publish under, and the applications already bound to the model."""
     message = ""
     registry_url = ""
     try:
@@ -143,18 +146,21 @@ async def kubernetes_publish_options(
         registry_url = deploy.registry_url
     except DeployRegistryConfigurationError as exc:
         message = str(exc)
-    can_publish = can_publish_images(current_user)
-    if not can_publish:
+    if not can_publish_images(current_user):
         return KubernetesOptions(
             enabled=False,
             can_publish=False,
             registry_url="",
             message="Kubernetes imaj yayını için yetkiniz yok.",
-            applications=[],
         )
+    projects = (
+        await db.execute(
+            select(K8sProject).where(K8sProject.enabled.is_(True)).order_by(K8sProject.rfs_code)
+        )
+    ).scalars().all()
     rows = (
         await db.execute(
-            select(K8sApplication, K8sProject)
+            select(K8sApplication, K8sProject.rfs_code)
             .join(K8sProject, K8sProject.id == K8sApplication.project_id)
             .where(
                 K8sApplication.mlflow_model_name == model_name,
@@ -165,34 +171,75 @@ async def kubernetes_publish_options(
         )
     ).all()
     versions = await _application_versions(db, [application.id for application, _ in rows])
-    if not message and not rows:
+    if not message and not projects:
         message = (
-            "Bu model için tanımlı Kubernetes uygulaması yok. Yönetici, Yönetim → "
-            "Kubernetes bölümünden bir uygulamayı bu MLflow modeline bağlamalıdır."
+            "Henüz RFS kodu tanımlı değil. Yönetici, Yönetim → Kubernetes bölümünden "
+            "projenin RFS kodunu eklemelidir."
         )
-    applications = []
-    for application, project in rows:
-        repository = image_repository(project.rfs_code, application.app_name)
-        applications.append(
+    return KubernetesOptions(
+        enabled=bool(registry_url) and bool(projects),
+        can_publish=True,
+        registry_url=registry_url,
+        message=message,
+        projects=[
+            KubernetesProjectOption(
+                id=project.id,
+                rfs_code=project.rfs_code,
+                name=project.name,
+                namespace=project.namespace,
+            )
+            for project in projects
+        ],
+        applications=[
             KubernetesApplicationOption(
                 id=application.id,
+                project_id=application.project_id,
                 app_name=application.app_name,
-                project_name=project.name,
-                rfs_code=project.rfs_code,
-                namespace=project.namespace,
-                repository=repository,
-                image_prefix=f"{registry_url}/{repository}" if registry_url else repository,
+                repository=image_repository(rfs_code, application.app_name),
                 last_version=highest_version(versions["published"][application.id]),
                 suggested_version=suggest_next_version(versions["used"][application.id]),
             )
-        )
-    return KubernetesOptions(
-        enabled=bool(registry_url) and can_publish and bool(rows),
-        can_publish=can_publish,
-        registry_url=registry_url,
-        message=message,
-        applications=applications,
+            for application, rfs_code in rows
+        ],
     )
+
+
+async def _publish_target(
+    db: AsyncSession, payload: ImageReleaseCreate
+) -> tuple[K8sProject, K8sApplication | None]:
+    """The project and its application; None when the release is to create it."""
+    project = await db.get(K8sProject, payload.project_id, populate_existing=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Kubernetes projesi bulunamadı.")
+    if not project.enabled:
+        raise HTTPException(status_code=409, detail="Kubernetes projesi devre dışı.")
+    application = (
+        await db.execute(
+            select(K8sApplication)
+            .where(
+                K8sApplication.project_id == project.id,
+                K8sApplication.app_name == payload.app_name,
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if application is None:
+        if not app_name_fits_project(project.rfs_code, payload.app_name):
+            raise HTTPException(status_code=400, detail=app_name_rule_message(project.rfs_code))
+        return project, None
+    if not application.enabled:
+        raise HTTPException(status_code=409, detail="Kubernetes uygulaması devre dışı.")
+    # The only guard against pushing an unrelated model under another team's image name.
+    if application.mlflow_model_name != payload.model_name:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{image_repository(project.rfs_code, application.app_name)} "
+                f"{application.mlflow_model_name} modeline bağlı; başka bir model bu adla "
+                "yayınlanamaz. Farklı bir uygulama adı seçin."
+            ),
+        )
+    return project, application
 
 
 @image_release_router.post("/image-releases", response_model=ImageReleaseOut, status_code=202)
@@ -211,20 +258,8 @@ async def create_image_release(
         validate_model_container_registry_config(registry, require_enabled=True)
     except (DeployRegistryConfigurationError, ModelContainerRegistryConfigurationError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    application = await db.get(K8sApplication, payload.application_id)
-    project = await db.get(K8sProject, application.project_id) if application else None
-    if application is None or project is None:
-        raise HTTPException(status_code=404, detail="Kubernetes uygulaması bulunamadı.")
-    if not application.enabled or not project.enabled:
-        raise HTTPException(status_code=409, detail="Kubernetes uygulaması veya projesi devre dışı.")
-    if application.mlflow_model_name != payload.model_name:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"{application.app_name} uygulaması {application.mlflow_model_name} "
-                "modeline bağlı; başka bir model bu adla yayınlanamaz."
-            ),
-        )
+    # Fail fast before contacting MLflow; checked again under the admission lock.
+    await _publish_target(db, payload)
 
     client = await get_mlflow_client(db, current_user.id)
     try:
@@ -241,24 +276,35 @@ async def create_image_release(
         raise HTTPException(status_code=409, detail="MLflow beklenen model versiyonunu döndürmedi.")
 
     async with admission_transaction(db):
-        taken = (
-            await db.execute(
-                select(MlflowImageRelease.id).where(
-                    MlflowImageRelease.application_id == application.id,
-                    MlflowImageRelease.version == payload.version,
-                    MlflowImageRelease.status != ImageReleaseStatus.FAILED,
+        project, application = await _publish_target(db, payload)
+        repository = image_repository(project.rfs_code, payload.app_name)
+        created = application is None
+        if created:
+            application = K8sApplication(
+                project_id=project.id,
+                app_name=payload.app_name,
+                mlflow_model_name=payload.model_name,
+            )
+            db.add(application)
+            await db.flush()
+        else:
+            taken = (
+                await db.execute(
+                    select(MlflowImageRelease.id).where(
+                        MlflowImageRelease.application_id == application.id,
+                        MlflowImageRelease.version == payload.version,
+                        MlflowImageRelease.status != ImageReleaseStatus.FAILED,
+                    )
                 )
-            )
-        ).first()
-        if taken:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"{image_repository(project.rfs_code, application.app_name)}:"
-                    f"{payload.version} zaten yayınlandı veya yayınlanıyor; "
-                    "farklı bir versiyon seçin."
-                ),
-            )
+            ).first()
+            if taken:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"{repository}:{payload.version} zaten yayınlandı veya yayınlanıyor; "
+                        "farklı bir versiyon seçin."
+                    ),
+                )
         release = MlflowImageRelease(
             user_id=current_user.id,
             application_id=application.id,
@@ -272,11 +318,16 @@ async def create_image_release(
         )
         db.add(release)
         await db.flush()
+        if created:
+            await append_release_event(
+                db,
+                release,
+                f"{repository} uygulaması oluşturuldu ve {payload.model_name} modeline bağlandı.",
+            )
         await append_release_event(
             db,
             release,
-            f"{payload.model_name} v{payload.model_version}, "
-            f"{image_repository(project.rfs_code, application.app_name)}:{payload.version} "
+            f"{payload.model_name} v{payload.model_version}, {repository}:{payload.version} "
             "olarak yayın kuyruğuna alındı.",
         )
     await db.refresh(release)
