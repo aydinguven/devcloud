@@ -164,8 +164,8 @@ Admin endpoints (`app/routes/admin/`, `get_current_admin_user`):
   model-container-registry endpoints.
 - `GET` and `POST /api/admin/k8s-projects`, and `PUT` and `DELETE
   /api/admin/k8s-projects/{id}`.
-- `POST /api/admin/k8s-projects/{id}/applications`, and `PUT` and `DELETE
-  /api/admin/k8s-applications/{id}`.
+- `PUT` and `DELETE /api/admin/k8s-applications/{id}`. There is no admin
+  create: applications come from their first release.
 - Deleting returns 409 when releases exist. Changing a code, name or
   namespace returns 409 after a release has been published.
 
@@ -173,14 +173,20 @@ User endpoints (`/api/mlflow`):
 - `GET /kubernetes/options?model_name=` returns:
 
   ```
-  {enabled, registry, applications: [{id, project, rfs_code, namespace,
-   repository, last_version, suggested_version}]}
+  {enabled, registry_url, projects: [{id, rfs_code, name, namespace}],
+   applications: [{id, project_id, app_name, repository, last_version,
+   suggested_version}]}
   ```
 
-  It lists only enabled applications bound to that model.
-- `POST /image-releases` takes `{application_id, model_name, model_version,
-  version}` and returns 202. If the user may not publish, it returns 403.
-  If the registry is not configured, it returns 503.
+  `projects` are the enabled RFS codes; `applications` are the enabled
+  applications already bound to that model. `enabled` needs the registry and
+  at least one project.
+- `POST /image-releases` takes `{project_id, app_name, model_name,
+  model_version, version}` and returns 202. Under `admission_transaction` an
+  unknown app name is created and bound to the model (it must start with the
+  RFS code, else 400); an existing one must be enabled and bound to the same
+  model (else 409 or 400). If the user may not publish, it returns 403. If
+  the registry is not configured, it returns 503.
 - `GET /image-releases` returns the user's own releases, or all releases for
   admins.
 - `GET /image-releases/{id}` and `GET /image-releases/{id}/events`.
@@ -191,14 +197,14 @@ User endpoints (`/api/mlflow`):
 - **Deploy modal**, Kubernetes panel:
   - Remove the namespace, replica and flavor inputs. Hide the deployment name
     for this target.
-  - Add an **Uygulama** select. Show the namespace, the image repository and
-    the last version read-only.
+  - Add an **RFS kodu** select and an **Uygulama adı** input (suggesting the
+    applications bound to the model). Show the namespace, the image
+    repository and the last version (or "Yeni uygulama") read-only.
   - Add a **Versiyon (X.Y.Z)** input, prefilled with the suggested version,
     and a live preview of the full reference.
   - Pipeline steps: İmaj → Nexus → Workflow (platform ekibi) → Kubernetes.
   - Submit button: **Nexus'a Yayınla**.
-  - If no application is bound to the model, explain that an admin must
-    define one in Kubernetes Projeleri.
+  - If no RFS code exists, explain that an admin must add one.
   - `DEPLOY_TARGETS.kubernetes.available` comes from `options.enabled`.
 - **Progress view**: reuses the event terminal. The result card shows the
   image reference and digest with copy buttons, and this note: "Platform
@@ -207,7 +213,9 @@ User endpoints (`/api/mlflow`):
   table with a retry action for failed releases.
 - **Admin**: a new `kubernetes` entry in `ADMIN_SECTIONS`
   (`partials/admin_kubernetes.html`, `static/js/admin_kubernetes.js`). It
-  holds the registry card and the CRUD for projects and applications.
+  holds the registry card and the **RFS Kodları** list (code, name,
+  optional namespace). Each application row can be disabled, rebound to
+  another model, or deleted while it has no releases.
 
 ## Docs
 
@@ -225,5 +233,7 @@ User endpoints (`/api/mlflow`):
 - Turning TLS checking off is the admin's choice for a trusted internal
   network. It applies only to the deploy registry.
 - Publishing never deletes or overwrites anything in the deploy registry.
-- Admins bind each application to an MLflow model, so an AD user cannot push
-  an unrelated model under another application's name.
+- Only admins create RFS codes. An application is bound to the model of its
+  first release, so an AD user cannot push an unrelated model under an
+  existing application's name; only an admin can rebind it. Any AD user can
+  still create a new application under any RFS code.

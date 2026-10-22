@@ -40,9 +40,11 @@
         </ol>
         <p id="mlflow-deploy-k8s-note" class="deploy-target-note" hidden></p>
         <div class="responsive-form-grid">
-          <label class="form-group"><span class="form-label">Uygulama</span><select id="mlflow-deploy-k8s-application" class="form-input"><option value="">Yükleniyor...</option></select></label>
+          <label class="form-group"><span class="form-label">RFS kodu</span><select id="mlflow-deploy-k8s-project" class="form-input"><option value="">Yükleniyor...</option></select></label>
+          <label class="form-group"><span class="form-label">Uygulama adı</span><input id="mlflow-deploy-k8s-app" class="form-input" list="mlflow-deploy-k8s-apps" maxlength="100" autocomplete="off" spellcheck="false"><datalist id="mlflow-deploy-k8s-apps"></datalist></label>
           <label class="form-group"><span class="form-label">Versiyon (X.Y.Z)</span><input id="mlflow-deploy-k8s-version" class="form-input" maxlength="32" pattern="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)" placeholder="1.0.0"></label>
         </div>
+        <p class="form-help">Uygulama adı RFS koduyla başlar (örn. <code>mbnllmdml-swiftanomaly</code>). Yeni bir ad ilk yayında oluşturulur ve bu modele bağlanır; ilk yayından sonra değiştirilemez.</p>
         <dl class="mlflow-deploy-k8s-summary" style="display:grid;grid-template-columns:max-content 1fr;gap:.25rem .75rem;margin:0 0 .75rem;font-size:.85rem;">
           <dt class="text-muted">Namespace</dt><dd id="mlflow-deploy-k8s-namespace" style="margin:0;">—</dd>
           <dt class="text-muted">Son yayın</dt><dd id="mlflow-deploy-k8s-last" style="margin:0;">—</dd>

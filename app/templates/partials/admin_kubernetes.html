@@ -57,21 +57,18 @@
 <section class="card" id="k8s-projects" style="margin-bottom: 2rem;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">Kubernetes Projeleri</h2>
-      <p class="admin-section-description">Her proje bir RFS kodu ve namespace'tir; her uygulama bir ML servisidir ve tek bir MLflow modeline bağlanır. İmaj adı <code>rfskodu/uygulama-adı</code> olur. Yayını olan projenin kodu, namespace'i ve uygulama adı değiştirilemez.</p>
+      <h2 class="card-title">RFS Kodları</h2>
+      <p class="admin-section-description">Kullanıcılar MLflow'dan yayın yaparken buradaki RFS kodlarından birini seçer. Uygulamalar ilk yayında otomatik oluşur ve o modele bağlanır; imaj adı <code>rfskodu/uygulama-adı</code> olur.</p>
     </div>
   </div>
   <form id="k8s-project-form" autocomplete="off" style="margin-bottom:1rem;">
-    <input type="hidden" name="project_id">
-    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+    <div class="grid grid-cols-3" style="gap:.75rem;margin-bottom:.75rem;">
       <label class="form-group" style="margin:0;"><span class="form-label">RFS kodu</span><input class="form-input" name="rfs_code" required minlength="2" maxlength="32" pattern="[a-zA-Z0-9]+" placeholder="mbnllmd"></label>
       <label class="form-group" style="margin:0;"><span class="form-label">Proje adı</span><input class="form-input" name="name" required maxlength="120" placeholder="Payguard Anomaly Detection"></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Namespace</span><input class="form-input" name="namespace" required maxlength="63" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" placeholder="mbnllmd"></label>
-      <label class="form-group" style="margin:0;"><span class="form-label">Açıklama</span><input class="form-input" name="description" maxlength="2000"></label>
-      <label style="display:flex;gap:.5rem;align-items:center;"><input type="checkbox" name="enabled" checked><span>Etkin</span></label>
+      <label class="form-group" style="margin:0;"><span class="form-label">Namespace</span><input class="form-input" name="namespace" maxlength="63" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" placeholder="Boş bırakılırsa RFS kodu"></label>
     </div>
     <div class="table-actions">
-      <button id="btn-save-k8s-project" type="submit" class="btn btn-primary">Proje Ekle</button>
+      <button id="btn-save-k8s-project" type="submit" class="btn btn-primary">RFS Kodu Ekle</button>
       <button id="btn-cancel-k8s-project" type="button" class="btn btn-secondary" hidden>Düzenlemeyi İptal Et</button>
       <span id="k8s-project-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
     </div>

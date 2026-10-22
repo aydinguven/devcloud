@@ -257,6 +257,17 @@ async def _headers(client, username: str) -> tuple[dict[str, str], int]:
     return {"Authorization": f"Bearer {body['access_token']}"}, body["user"]["id"]
 
 
+def _payload(application: K8sApplication, **changes) -> dict:
+    return {
+        "project_id": application.project_id,
+        "app_name": application.app_name,
+        "model_name": MODEL,
+        "model_version": "3",
+        "version": "1.0.0",
+        **changes,
+    }
+
+
 @pytest.mark.asyncio
 async def test_publish_api_requires_ad_user_and_a_free_version(client, db_session, monkeypatch):
     _, application = await _seed(db_session, auth_source="internal")
@@ -266,7 +277,7 @@ async def test_publish_api_requires_ad_user_and_a_free_version(client, db_sessio
         return FakeMlflowClient()
 
     monkeypatch.setattr(release_routes, "get_mlflow_client", fake_client)
-    payload = {"application_id": application.id, "model_name": MODEL, "model_version": "3", "version": "1.0.0"}
+    payload = _payload(application)
 
     response = await client.post("/api/mlflow/image-releases", json=payload, headers=headers)
     assert response.status_code == 403
@@ -283,3 +294,49 @@ async def test_publish_api_requires_ad_user_and_a_free_version(client, db_sessio
 
     releases = (await db_session.execute(select(MlflowImageRelease))).scalars().all()
     assert [item.version for item in releases] == ["1.0.0"]
+
+
+@pytest.mark.asyncio
+async def test_first_release_creates_the_application_bound_to_its_model(client, db_session, monkeypatch):
+    _, existing = await _seed(db_session)
+    headers, user_id = await _headers(client, "publisher")
+    user = await db_session.get(User, user_id)
+    user.auth_source = "active_directory"
+    await db_session.commit()
+
+    async def fake_client(db, user_id):
+        return FakeMlflowClient()
+
+    monkeypatch.setattr(release_routes, "get_mlflow_client", fake_client)
+    other = "CashflowForecast"
+
+    response = await client.post(
+        "/api/mlflow/image-releases",
+        json=_payload(existing, app_name="mbnllmdml-cashflowai", model_name=other),
+        headers=headers,
+    )
+    assert response.status_code == 202, response.text
+    created = (
+        await db_session.execute(
+            select(K8sApplication).where(K8sApplication.app_name == "mbnllmdml-cashflowai")
+        )
+    ).scalar_one()
+    assert created.project_id == existing.project_id
+    assert created.mlflow_model_name == other
+
+    # An existing application only publishes the model it is bound to.
+    response = await client.post(
+        "/api/mlflow/image-releases",
+        json=_payload(existing, model_name=other, version="2.0.0"),
+        headers=headers,
+    )
+    assert response.status_code == 400
+    # A new application must start with the project's RFS code.
+    response = await client.post(
+        "/api/mlflow/image-releases",
+        json=_payload(existing, app_name="cashflowai", model_name=other),
+        headers=headers,
+    )
+    assert response.status_code == 400
+    applications = (await db_session.execute(select(K8sApplication.app_name))).scalars().all()
+    assert sorted(applications) == ["mbnllmdml-cashflowai", "mbnllmdml-swiftanomaly"]

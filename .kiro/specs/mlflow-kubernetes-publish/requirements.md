@@ -49,15 +49,20 @@ workflow, once the platform team says how.
    intermediate registry for builds. AI Factory never deletes anything in the
    deploy registry.
 
-### R2 — Kubernetes projects and applications (admin)
-1. The same **Yönetim → Kubernetes** section lists the projects.
+### R2 — Kubernetes projects (admin) and applications (self-service)
+1. The same **Yönetim → Kubernetes** section lists the projects as **RFS
+   Kodları**. Only admins create projects.
 2. Project fields: RFS code (lowercase, e.g. `mbnllmd`), display name,
-   namespace (DNS-1123 label, unique) and enabled. A project has one or more
-   applications (one ML service = one container = one application).
-3. Application fields: app name (e.g. `mbnllmdml-swiftanomaly`), the bound
-   MLflow registered model name (e.g. `PayguardAnomalyUnified`), an optional
+   namespace (DNS-1123 label, unique; defaults to the RFS code) and enabled.
+   A project has one or more applications (one ML service = one container =
+   one application).
+3. Applications are created by their first release from the deploy modal
+   (R4.1), not in the admin section. Fields: app name (e.g.
+   `mbnllmdml-swiftanomaly`, must start with the RFS code), the bound MLflow
+   registered model name (the model of that first release), an optional
    Bitbucket repo URL, and enabled. The image repository is
-   `{rfs_code}/{app_name}` and is unique.
+   `{rfs_code}/{app_name}` and is unique. Admins can disable, delete
+   (without releases) or rebind an application to another model.
 4. After a project or application has a published release:
    - its namespace, RFS code and app name are read-only;
    - it can be disabled but not deleted.
@@ -67,9 +72,12 @@ workflow, once the platform team says how.
    admin. One check function, so it can later be limited to project members.
 
 ### R4 — Publish flow
-1. In the MLflow deploy modal, the user picks the Kubernetes target and then
-   an enabled application bound to the selected model. Namespace and image
-   repository are shown read-only. The user then enters `X.Y.Z`.
+1. In the MLflow deploy modal, the user picks the Kubernetes target, an
+   enabled RFS code, and types the app name; an application already bound to
+   the model is prefilled. An unknown name is created with the release and
+   bound to the model. An existing application bound to another model is
+   refused. Namespace and image repository are shown read-only. The user
+   then enters `X.Y.Z`.
 2. The version is strictly `X.Y.Z`, with no pre-release or build suffix. The
    suggested value is the application's highest published version with
    patch + 1, or `1.0.0` if there is none.
@@ -120,8 +128,8 @@ workflow, once the platform team says how.
 1. (Hakkı) What is the experiment naming standard? Mustafa asked and it is not
    answered yet. Proposal: experiment name = app name.
 2. (Hakkı) Is the rule "RFS code = lowercase Bitbucket project key, app name =
-   lowercase repo name"? If so, validate the app-name prefix or derive both
-   from the repo.
+   lowercase repo name"? The app-name prefix is now validated against the
+   RFS code; deriving both from the repo is still open.
 3. (Hakkı) How should the platform pipeline learn about a new image (webhook,
    Jenkins, ArgoCD, Jira), and with which payload? Needed for Phase 2.
 4. (Hakkı) Deploy registry details:

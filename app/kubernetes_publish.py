@@ -24,6 +24,15 @@ def image_repository(rfs_code: str, app_name: str) -> str:
     return f"{rfs_code}/{app_name}"
 
 
+def app_name_fits_project(rfs_code: str, app_name: str) -> bool:
+    """Institutional rule: the app name starts with its RFS code (mbnllmd → mbnllmdml-…)."""
+    return app_name.startswith(rfs_code)
+
+
+def app_name_rule_message(rfs_code: str) -> str:
+    return f"Uygulama adı RFS koduyla başlamalıdır (örn. {rfs_code}ml-uygulama)."
+
+
 def image_reference(registry_url: str, rfs_code: str, app_name: str, version: str) -> str:
     return f"{registry_url}/{image_repository(rfs_code, app_name)}:{version}"
 

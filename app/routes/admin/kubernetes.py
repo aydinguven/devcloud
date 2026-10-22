@@ -19,7 +19,12 @@ from app.deploy_registry import (
     effective_deploy_registry_config,
     test_deploy_registry,
 )
-from app.kubernetes_publish import highest_version, image_repository
+from app.kubernetes_publish import (
+    app_name_fits_project,
+    app_name_rule_message,
+    highest_version,
+    image_repository,
+)
 from app.models.deploy_registry_settings import DeployRegistrySettings
 from app.models.kubernetes import (
     ImageReleaseStatus,
@@ -342,25 +347,7 @@ async def delete_k8s_project(
     return None
 
 
-@router.post(
-    "/k8s-projects/{project_id}/applications",
-    response_model=K8sProjectOut,
-    status_code=201,
-)
-async def create_k8s_application(
-    project_id: str,
-    payload: K8sApplicationWrite,
-    _admin: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    project = await _project_or_404(db, project_id)
-    db.add(K8sApplication(project_id=project.id, **payload.model_dump()))
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise _conflict("Bu projede aynı adlı bir uygulama zaten var.") from exc
-    return await _project_out(db, project)
+# Applications are created by their first release from the MLflow deploy modal.
 
 
 async def _application_or_404(db: AsyncSession, application_id: str) -> K8sApplication:
@@ -378,16 +365,18 @@ async def update_k8s_application(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     application = await _application_or_404(db, application_id)
-    if payload.app_name != application.app_name and await _application_has_releases(
-        db, application.id
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Bu uygulamanın yayınlanmış imajları var; uygulama adı (imaj adı) "
-                "değiştirilemez."
-            ),
-        )
+    project = await _project_or_404(db, application.project_id)
+    if payload.app_name != application.app_name:
+        if await _application_has_releases(db, application.id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Bu uygulamanın yayınlanmış imajları var; uygulama adı (imaj adı) "
+                    "değiştirilemez."
+                ),
+            )
+        if not app_name_fits_project(project.rfs_code, payload.app_name):
+            raise HTTPException(status_code=400, detail=app_name_rule_message(project.rfs_code))
     for field, value in payload.model_dump().items():
         setattr(application, field, value)
     db.add(application)
@@ -396,7 +385,6 @@ async def update_k8s_application(
     except IntegrityError as exc:
         await db.rollback()
         raise _conflict("Bu projede aynı adlı bir uygulama zaten var.") from exc
-    project = await _project_or_404(db, application.project_id)
     return await _project_out(db, project)
 
 
