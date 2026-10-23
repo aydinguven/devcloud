@@ -102,7 +102,7 @@ async def test_admin_access_controls(client: AsyncClient):
     )
     assert 'id="jupyter-ai-settings-form"' in integrations_page.text
     assert 'name="cline_enabled"' not in integrations_page.text
-    assert 'id="tcmb-code-settings-form"' in integrations_page.text
+    assert 'id="kilo-code-settings-form"' in integrations_page.text
     assert 'id="jupyter-ai-model-list"' in integrations_page.text
     assert 'name="gateway_model_discovery"' in integrations_page.text
     assert "Qwen 3.6 35B (On-Prem)" in integrations_page.text

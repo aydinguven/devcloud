@@ -6,18 +6,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
-class TcmbCodeSettings(Base):
-    """Singleton Admin settings for the TCMB Code VS Code workspace.
+class KiloCodeSettings(Base):
+    """Singleton Admin settings for the Kilo Code VS Code workspaces.
 
     The chat gateway, model catalog and default model come from Workspace AI
-    (``jupyter_ai_settings``); this table only holds what TCMB Code adds.
+    (``jupyter_ai_settings``); this table only holds what Kilo Code adds.
     """
 
-    __tablename__ = "tcmb_code_settings"
+    __tablename__ = "kilo_code_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    library_url: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    # Catalog root (no /mcp suffix): the remote MCP server and LocalMCP.sh use it.
+    catalog_url: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    encrypted_catalog_token: Mapped[str] = mapped_column(
+        Text, default="", nullable=False
+    )
+    # JSON list of URLs Kilo Code discovers skills from.
+    skills_urls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     # JSON list of Workspace AI catalog model IDs; empty offers the whole catalog.
     model_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     indexing_enabled: Mapped[bool] = mapped_column(

@@ -19,7 +19,9 @@ from app.config import settings
 from app.database import engine, init_db
 
 
-CURRENT_SCHEMA_VERSION = 32
+CURRENT_SCHEMA_VERSION = 33
+# ai_config_digest of the workspaces migration 33 moved off TCMB Code.
+TCMB_CODE_MIGRATED_DIGEST = "tcmb-code-migrated"
 
 
 class MigrationError(RuntimeError):
@@ -710,6 +712,94 @@ async def _seed_default_datacenters(conn) -> None:
         )
 
 
+async def _replace_tcmb_code_with_kilo_code(conn) -> None:
+    """Move TCMB Code settings and workspaces to upstream Kilo Code.
+
+    * ``tcmb_code_settings`` becomes ``kilo_code_settings`` (init_db created
+      it); the TCMB Library URL is reused as the catalog URL.
+    * ``vscode-tcmb`` workspaces and display overrides become ``vscode-kilo``.
+    * Every vscode-tcmb and vscode-cuda image ships TCMB Code, so those image
+      records are disabled and their workspaces unpinned, with a config digest
+      no rendered config has. A workspace keeps its old container until the
+      template's new Kilo Code image has synchronized to its worker, then its
+      next start pins that image and recreates the container (project files
+      are kept).
+    """
+    tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+    if "tcmb_code_settings" in tables:
+        existing = await conn.execute(text("SELECT id FROM kilo_code_settings"))
+        if existing.first() is None:
+            await conn.execute(
+                text(
+                    "INSERT INTO kilo_code_settings (id, enabled, catalog_url, "
+                    "encrypted_catalog_token, skills_urls_json, model_ids_json, "
+                    "indexing_enabled, indexing_model, indexing_dimension, "
+                    "encrypted_indexing_key, updated_at) "
+                    "SELECT id, enabled, library_url, '', '[]', model_ids_json, "
+                    "indexing_enabled, indexing_model, indexing_dimension, "
+                    "encrypted_indexing_key, updated_at FROM tcmb_code_settings"
+                )
+            )
+        await conn.execute(text("DROP TABLE tcmb_code_settings"))
+        # The catalog URL is a root; the controller appends /mcp itself.
+        for row in (
+            await conn.execute(text("SELECT id, catalog_url FROM kilo_code_settings"))
+        ).all():
+            url = str(row[1] or "").strip().rstrip("/")
+            if url.lower().endswith("/mcp"):
+                url = url[: -len("/mcp")].rstrip("/")
+            if url != row[1]:
+                await conn.execute(
+                    text("UPDATE kilo_code_settings SET catalog_url = :url WHERE id = :id"),
+                    {"url": url, "id": row[0]},
+                )
+    await conn.execute(
+        text(
+            "UPDATE workspaces SET template_id = 'vscode-kilo' "
+            "WHERE template_id = 'vscode-tcmb'"
+        )
+    )
+    # No rendered config has this digest, so the next start with the new image
+    # on the worker recreates the container even when Kilo Code renders none.
+    await conn.execute(
+        text(
+            "UPDATE workspaces SET image_id = NULL, ai_config_digest = :digest "
+            "WHERE template_id IN ('vscode-kilo', 'vscode-cuda')"
+        ),
+        {"digest": TCMB_CODE_MIGRATED_DIGEST},
+    )
+    await conn.execute(
+        text(
+            "UPDATE workspace_images SET enabled = :disabled "
+            "WHERE template_id IN ('vscode-tcmb', 'vscode-cuda')"
+        ),
+        {"disabled": False},
+    )
+    renamed = await conn.execute(
+        text("SELECT template_id FROM template_settings WHERE template_id = 'vscode-kilo'")
+    )
+    if renamed.first() is None:
+        await conn.execute(
+            text(
+                "UPDATE template_settings SET template_id = 'vscode-kilo' "
+                "WHERE template_id = 'vscode-tcmb'"
+            )
+        )
+    else:
+        await conn.execute(
+            text("DELETE FROM template_settings WHERE template_id = 'vscode-tcmb'")
+        )
+    # Admin display overrides still naming TCMB Code would hide the new name.
+    for column in ("name", "description"):
+        await conn.execute(
+            text(
+                f"UPDATE template_settings SET {column} = '' "
+                "WHERE template_id IN ('vscode-kilo', 'vscode-cuda') "
+                f"AND LOWER({column}) LIKE '%tcmb code%'"
+            )
+        )
+
+
 async def _add_jupyter_ai_cline_toggle(conn) -> None:
     """Add the Cline toggle; preserve existing Admin choices on upgrade."""
     columns = await conn.run_sync(
@@ -1030,7 +1120,7 @@ async def upgrade() -> None:
             await _add_directory_sync_fields(conn)
             await _record_version(conn, 29, "bulk AD sync and directory teams")
         if 30 not in applied:
-            # init_db creates the portable tcmb_code_settings table and the
+            # init_db created the (since dropped) tcmb_code_settings table and the
             # workspaces.ai_config_digest column.
             await _record_version(conn, 30, "TCMB Code settings and workspace AI config digest")
         if 31 not in applied:
@@ -1042,6 +1132,10 @@ async def upgrade() -> None:
             # init_db creates the portable deploy_registry_settings, k8s_projects,
             # k8s_applications, mlflow_image_releases and event tables.
             await _record_version(conn, 32, "Kubernetes image releases to the deploy registry")
+        if 33 not in applied:
+            # init_db creates the portable kilo_code_settings table.
+            await _replace_tcmb_code_with_kilo_code(conn)
+            await _record_version(conn, 33, "Kilo Code replaces TCMB Code")
 
 
 async def current_version() -> int:

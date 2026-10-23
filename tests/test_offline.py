@@ -468,7 +468,7 @@ async def test_list_images():
 
     images = await svc.list_images()
     assert len(images) == 7
-    assert any("vscode-tcmb" in img for img in images)
+    assert any("vscode-kilo" in img for img in images)
     assert any("vscode-empty" in img for img in images)
     assert any("vscode-python" in img for img in images)
     assert any("vscode-react" in img for img in images)

@@ -13,7 +13,7 @@ on:
         default: false
         type: boolean
       rebuild_workspaces:
-        description: Force workspace image rebuilds even when unchanged ("all" or space-separated names, e.g. "jupyter-python vscode-tcmb")
+        description: Force workspace image rebuilds even when unchanged ("all" or space-separated names, e.g. "jupyter-python vscode-kilo")
         required: false
         default: ""
         type: string
@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          all_images=(vscode-tcmb vscode-cuda jupyter-python terminal-rocky)
+          all_images=(vscode-kilo vscode-cuda jupyter-python terminal-rocky)
 
           forced=" "
           read -r -a requested <<< "${REBUILD_WORKSPACES//,/ }"
@@ -223,7 +223,7 @@ jobs:
             --tag "${local_image}" \
             "containers/${image}"
 
-      - name: Smoke test TCMB Code in the browser extension host
+      - name: Smoke test Kilo Code in the browser extension host
         if: startsWith(matrix.image, 'vscode-')
         shell: bash
         run: |
@@ -233,12 +233,12 @@ jobs:
           NODE_PATH="${RUNNER_TEMP}/vscode-smoke/node_modules" \
             node deploy/ci/smoke-vscode.cjs "localhost/devcloud-${{ matrix.image }}:${DEVCLOUD_VERSION}"
 
-      - name: Save failed TCMB Code browser check
+      - name: Save failed Kilo Code browser check
         if: failure() && startsWith(matrix.image, 'vscode-')
         uses: actions/upload-artifact@v4
         with:
-          name: tcmb-code-smoke-${{ matrix.image }}
-          path: ${{ runner.temp }}/tcmb-code-smoke.png
+          name: kilo-code-smoke-${{ matrix.image }}
+          path: ${{ runner.temp }}/kilo-code-smoke.png
           if-no-files-found: ignore
           retention-days: 1
 
@@ -287,7 +287,7 @@ jobs:
 
       # vscode-cuda is registry-only: its archive exceeds the 2 GiB asset limit.
       - name: Attach offline workspace archive
-        if: matrix.image == 'vscode-tcmb' || matrix.image == 'jupyter-python'
+        if: matrix.image == 'vscode-kilo' || matrix.image == 'jupyter-python'
         shell: bash
         run: |
           set -Eeuo pipefail

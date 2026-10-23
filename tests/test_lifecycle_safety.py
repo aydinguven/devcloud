@@ -28,7 +28,7 @@ from tests.test_workspaces import get_authenticated_headers
 
 async def create(client, headers, name="Safety workspace"):
     response = await client.post("/api/workspaces", headers=headers, json={
-        "name": name, "template_id": "vscode-tcmb", "flavor_id": "t1.nano"})
+        "name": name, "template_id": "vscode-kilo", "flavor_id": "t1.nano"})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -148,8 +148,8 @@ async def test_concurrent_admission_cannot_overbook(tmp_path, monkeypatch, backe
         async with sessions() as db:
             current_user = await db.get(User, user_id)
             return await provisioning.schedule_and_reserve_workspace(
-                db, current_user=current_user, data=WorkspaceCreate(name=name, template_id="vscode-tcmb", flavor_id="t1.micro"),
-                template=get_template("vscode-tcmb"), flavor=get_flavor("t1.micro"))
+                db, current_user=current_user, data=WorkspaceCreate(name=name, template_id="vscode-kilo", flavor_id="t1.micro"),
+                template=get_template("vscode-kilo"), flavor=get_flavor("t1.micro"))
     try:
         outcomes = await asyncio.gather(reserve("first"), reserve("second"), return_exceptions=True)
         assert sum(isinstance(item, tuple) for item in outcomes) == 1, outcomes

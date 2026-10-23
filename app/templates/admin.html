@@ -709,7 +709,7 @@ cd devcloud
 <nav class="admin-section-jumps" aria-label="Entegrasyon bölümleri">
   <span class="admin-section-jumps-label">Hızlı geçiş</span>
   <a href="#workspace-ai-integration">Workspace AI</a>
-  <a href="#tcmb-code-integration">TCMB Code</a>
+  <a href="#kilo-code-integration">Kilo Code</a>
   <a href="#container-registry-integration">Container Registry</a>
   <a href="#mlflow-integration">MLflow</a>
   <a href="#genai-integration">GenAI</a>
@@ -731,7 +731,7 @@ cd devcloud
       <span>Ortak Workspace AI gateway erişimini etkinleştir</span>
     </label>
     <p class="text-muted" style="margin: 0 0 1rem;">
-      TCMB Code bu gateway URL'sini, model kataloğunu ve varsayılan modeli kullanır; sohbet için ortak anahtarı değil kullanıcının kendi AI Factory anahtarını kullanır. Ortak anahtar Jupyter ve kullanımdan kaldırılan Cline VS Code imajlarındaki mevcut workspace'ler içindir.
+      Kilo Code bu gateway URL'sini, model kataloğunu ve varsayılan modeli kullanır; sohbet için ortak anahtarı değil kullanıcının kendi AI Factory anahtarını kullanır. Ortak anahtar Jupyter ve kullanımdan kaldırılan Cline VS Code imajlarındaki mevcut workspace'ler içindir.
     </p>
     <div class="grid grid-cols-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
       <label class="form-group" style="margin: 0;">
@@ -767,7 +767,7 @@ cd devcloud
       <div class="card-header" style="padding: 0 0 0.5rem;">
         <div>
           <h3 class="card-title" style="font-size: 1rem;">Kullanıcı Model Kataloğu</h3>
-          <p class="admin-section-description">Sıra, Jupyter AI ve TCMB Code model seçicisindeki sıradır; varsayılan seçim TCMB Code'un da varsayılan modelidir. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
+          <p class="admin-section-description">Sıra, Jupyter AI ve Kilo Code model seçicisindeki sıradır; varsayılan seçim Kilo Code'un da varsayılan modelidir. Model kimlikleri LiteLLM'e değiştirilmeden gönderilir.</p>
         </div>
         <button id="btn-add-jupyter-ai-model" type="button" class="btn btn-secondary btn-sm">Model Ekle</button>
       </div>
@@ -793,7 +793,7 @@ cd devcloud
         {% endfor %}
       </div>
     </div>
-    <p class="text-muted">API anahtarı controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Jupyter ve Cline VS Code container kullanıcıları bu ortak anahtarı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın. TCMB Code ve Cline, root URL'yi OpenAI uyumlu <code>/v1</code> uçlarına dönüştürür.</p>
+    <p class="text-muted">API anahtarı controller veritabanında şifreli tutulur ve yalnızca kimliği doğrulanmış worker'lara iletilir. Jupyter ve Cline VS Code container kullanıcıları bu ortak anahtarı görebilir; bu nedenle yalnızca ortak kullanım için kısıtlanmış bir gateway hesabı kullanın. Kilo Code ve Cline, root URL'yi OpenAI uyumlu <code>/v1</code> uçlarına dönüştürür.</p>
     <div class="table-actions">
       <button id="btn-save-jupyter-ai" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
       <button id="btn-test-jupyter-ai" type="button" class="btn btn-secondary">Seçili Modeli Test Et</button>
@@ -804,63 +804,79 @@ cd devcloud
   </form>
 </section>
 
-{% set tcmb_code_ready = tcmb_code_settings and tcmb_code_settings.enabled and jupyter_ai_settings and jupyter_ai_settings.enabled %}
-<section class="card admin-integration-card admin-integration-card--ai" id="tcmb-code-integration" style="margin-bottom: 2rem; border-top: 3px solid #d50032;">
+{% set kilo_code_ready = kilo_code_settings and kilo_code_settings.enabled and jupyter_ai_settings and jupyter_ai_settings.enabled %}
+<section class="card admin-integration-card admin-integration-card--ai" id="kilo-code-integration" style="margin-bottom: 2rem; border-top: 3px solid #d50032;">
   <div class="card-header">
     <div>
-      <h2 class="card-title">TCMB Code</h2>
-      <p class="admin-section-description">TCMB Code VS Code workspace'lerine yazılan <code>~/.config/kilo/tcmb.jsonc</code> dosyasını yönetin. Sohbet, Workspace AI gateway'i ve kullanıcının GenAI sekmesinden talep ettiği kendi AI Factory anahtarıyla çalışır; anahtarı olmayan kullanıcıya ortak anahtar verilmez.</p>
+      <h2 class="card-title">Kilo Code</h2>
+      <p class="admin-section-description">Kilo Code VS Code workspace'lerine yazılan <code>~/.config/kilo/kilo.jsonc</code> dosyasını yönetin. Sohbet, Workspace AI gateway'i ve kullanıcının GenAI sekmesinden talep ettiği kendi AI Factory anahtarıyla çalışır; anahtarı olmayan kullanıcıya ortak anahtar verilmez.</p>
     </div>
-    <span id="tcmb-code-status-badge" class="badge {% if tcmb_code_ready %}badge-running{% else %}badge-stopped{% endif %}">
-      {% if tcmb_code_ready %}Etkin{% else %}Devre Dışı{% endif %}
+    <span id="kilo-code-status-badge" class="badge {% if kilo_code_ready %}badge-running{% else %}badge-stopped{% endif %}">
+      {% if kilo_code_ready %}Etkin{% else %}Devre Dışı{% endif %}
     </span>
   </div>
-  <form id="tcmb-code-settings-form" autocomplete="off">
+  <form id="kilo-code-settings-form" autocomplete="off">
     <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
-      <input type="checkbox" name="enabled" {% if tcmb_code_settings and tcmb_code_settings.enabled %}checked{% endif %}>
-      <span>TCMB Code yapılandırmasını workspace'lere dağıt</span>
+      <input type="checkbox" name="enabled" {% if kilo_code_settings and kilo_code_settings.enabled %}checked{% endif %}>
+      <span>Kilo Code yapılandırmasını workspace'lere dağıt</span>
     </label>
     <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
       <label class="form-group" style="margin:0;">
-        <span class="form-label">TCMB Library URL</span>
-        <input class="form-input" name="library_url" type="url" value="{{ tcmb_code_settings.library_url if tcmb_code_settings else '' }}" placeholder="http://library.internal.example:8765">
+        <span class="form-label">Kilo Code modelleri (virgülle ayrılmış model ID)</span>
+        <input class="form-input" name="model_ids" value="{{ kilo_code_model_ids|join(', ') }}" placeholder="Boş: Workspace AI kataloğunun tamamı">
       </label>
       <label class="form-group" style="margin:0;">
-        <span class="form-label">TCMB Code modelleri (virgülle ayrılmış model ID)</span>
-        <input class="form-input" name="model_ids" value="{{ tcmb_code_model_ids|join(', ') }}" placeholder="Boş: Workspace AI kataloğunun tamamı">
+        <span class="form-label">Skills URL'leri (virgülle ayrılmış)</span>
+        <input class="form-input" name="skills_urls" value="{{ kilo_code_skills_urls|join(', ') }}" placeholder="http://skills.internal.example:8788/">
       </label>
     </div>
+    <h3 class="card-title" style="font-size:1rem;margin:1rem 0 .5rem;">Katalog (MCP)</h3>
+    <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Katalog URL (sonunda /mcp olmadan)</span>
+        <input class="form-input" name="catalog_url" type="url" value="{{ kilo_code_settings.catalog_url if kilo_code_settings else '' }}" placeholder="http://catalog.internal.example:8000">
+      </label>
+      <label class="form-group" style="margin:0;">
+        <span class="form-label">Katalog token'ı (isteğe bağlı)</span>
+        <input class="form-input" name="catalog_token" type="password" autocomplete="new-password" placeholder="{% if kilo_code_settings and kilo_code_settings.encrypted_catalog_token %}Kayıtlı token'ı korumak için boş bırakın{% else %}Katalog Bearer token'ı{% endif %}">
+      </label>
+    </div>
+    <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;">
+      <input type="checkbox" name="clear_catalog_token">
+      <span>Kayıtlı katalog token'ını temizle</span>
+    </label>
+    <p class="text-muted">Katalog URL girildiğinde iki MCP sunucusu eklenir: <code>kilo-catalog</code> (<code>&lt;URL&gt;/mcp</code>, öğeleri listeler) ve <code>kilo-install</code> (image'daki <code>/opt/kilo/LocalMCP.sh</code>; seçilen skill, agent, kural ve workflow'ları projenin <code>.kilo</code> klasörüne yazar). Token her Kilo Code kullanıcısının workspace'inde okunabilir.</p>
     <h3 class="card-title" style="font-size:1rem;margin:1rem 0 .5rem;">Kod indeksleme</h3>
     <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;">
-      <input type="checkbox" name="indexing_enabled" {% if not tcmb_code_settings or tcmb_code_settings.indexing_enabled %}checked{% endif %}>
+      <input type="checkbox" name="indexing_enabled" {% if not kilo_code_settings or kilo_code_settings.indexing_enabled %}checked{% endif %}>
       <span>Kod tabanı indekslemeyi etkinleştir (LanceDB, Workspace AI gateway'inin <code>/v1/embeddings</code> ucu)</span>
     </label>
     <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
       <label class="form-group" style="margin:0;">
         <span class="form-label">Embedding modeli</span>
-        <input class="form-input" name="indexing_model" value="{{ tcmb_code_settings.indexing_model if tcmb_code_settings else 'bge-m3' }}" placeholder="bge-m3">
+        <input class="form-input" name="indexing_model" value="{{ kilo_code_settings.indexing_model if kilo_code_settings else 'bge-m3' }}" placeholder="bge-m3">
       </label>
       <label class="form-group" style="margin:0;">
         <span class="form-label">Vektör boyutu</span>
-        <input class="form-input" name="indexing_dimension" type="number" min="1" max="16384" value="{{ tcmb_code_settings.indexing_dimension if tcmb_code_settings else 1024 }}">
+        <input class="form-input" name="indexing_dimension" type="number" min="1" max="16384" value="{{ kilo_code_settings.indexing_dimension if kilo_code_settings else 1024 }}">
       </label>
     </div>
     <div class="grid grid-cols-2" style="gap:.75rem;margin-bottom:.75rem;">
       <label class="form-group" style="margin:0;">
         <span class="form-label">İndeksleme API anahtarı</span>
-        <input class="form-input" name="indexing_key" type="password" autocomplete="new-password" placeholder="{% if tcmb_code_settings and tcmb_code_settings.encrypted_indexing_key %}Kayıtlı anahtarı korumak için boş bırakın{% else %}İndeksleme API anahtarını girin{% endif %}">
+        <input class="form-input" name="indexing_key" type="password" autocomplete="new-password" placeholder="{% if kilo_code_settings and kilo_code_settings.encrypted_indexing_key %}Kayıtlı anahtarı korumak için boş bırakın{% else %}İndeksleme API anahtarını girin{% endif %}">
       </label>
       <label style="display:flex;gap:.5rem;align-items:center;align-self:end;min-height:2.75rem;">
         <input type="checkbox" name="clear_indexing_key">
         <span>Kayıtlı indeksleme anahtarını temizle</span>
       </label>
     </div>
-    <p class="text-muted">İndeksleme anahtarı controller veritabanında şifreli tutulur ve workspace oluşturulurken worker'a iletilir. Her TCMB Code kullanıcısı bu anahtarı kendi workspace'inde okuyabilir; LiteLLM'de yalnızca embedding modeline ve bir bütçeye kısıtlayın.</p>
-    <p class="text-muted">Değişiklikler yeni workspace'lere ve durdurulup yeniden başlatılan TCMB Code workspace'lerine uygulanır (container proje dosyaları korunarak yeniden oluşturulur).</p>
-    <p id="tcmb-code-warning" class="quota-status-error" hidden></p>
+    <p class="text-muted">İndeksleme anahtarı controller veritabanında şifreli tutulur ve workspace oluşturulurken worker'a iletilir. Her Kilo Code kullanıcısı bu anahtarı kendi workspace'inde okuyabilir; LiteLLM'de yalnızca embedding modeline ve bir bütçeye kısıtlayın.</p>
+    <p class="text-muted">Değişiklikler yeni workspace'lere ve durdurulup yeniden başlatılan Kilo Code workspace'lerine uygulanır (container proje dosyaları korunarak yeniden oluşturulur).</p>
+    <p id="kilo-code-warning" class="quota-status-error" hidden></p>
     <div class="table-actions">
-      <button id="btn-save-tcmb-code" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
-      <span id="tcmb-code-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
+      <button id="btn-save-kilo-code" type="submit" class="btn btn-primary">Ayarları Kaydet</button>
+      <span id="kilo-code-form-status" class="quota-form-status" role="status" aria-live="polite"></span>
     </div>
   </form>
 </section>

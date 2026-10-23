@@ -63,19 +63,23 @@ automatically.
 Workspace images are not part of the controller or worker base installation.
 An administrator imports a maintained template image under **Admin > Workspace
 Image'ları** from GHCR, another reachable OCI registry, or an OCI/Docker archive.
-The maintained VS Code image is `vscode-tcmb`: code-server with Python 3, `uv`,
-Node.js 22 and TCMB Code (TCMB's build of Kilo Code), with native Chat/Copilot
-and extension auto-updates disabled. The image contains no keys or internal
-host names; at every container start DevCloud writes
-`~/.config/kilo/tcmb.jsonc` from the Workspace AI and TCMB Code Admin records,
-with the owner's AI Factory key for chat and the shared indexing key for
-embeddings. Codebase indexing loads LanceDB 0.26.2 from
-`/opt/tcmb/lancedb` (`KILO_LANCEDB_PATH`), installed with `npm ci` from the
-committed lockfile in `containers/vscode-tcmb/lancedb/`. The image also sets
+The maintained VS Code image is `vscode-kilo`: code-server with Python 3, `uv`,
+Node.js 22 and Kilo Code (`kilocode.kilo-code` from Open VSX), with native
+Chat/Copilot and extension auto-updates disabled. The image contains no keys or
+internal host names; at every container start DevCloud writes
+`~/.config/kilo/kilo.jsonc` from the Workspace AI and Kilo Code Admin records,
+with the owner's AI Factory key for chat, the shared indexing key for
+embeddings, the skills URLs and, when a catalog URL is set, the `kilo-catalog`
+(remote) and `kilo-install` (local) MCP servers. `kilo-install` is
+`/opt/kilo/LocalMCP.sh` (bash, curl and base64 only), copied from
+`containers/vscode-kilo/LocalMCP.sh`; it writes catalog items into the open
+project's `.kilo` folder. Codebase indexing loads LanceDB 0.26.2 from
+`/opt/kilo/lancedb` (`KILO_LANCEDB_PATH`), installed with `npm ci` from the
+committed lockfile in `containers/vscode-kilo/lancedb/`. The image also sets
 `KILO_TELEMETRY_LEVEL=off` and disables CLI auto-update, sharing, session
 ingest, models.dev fetches and LSP downloads, so nothing reaches the Internet
 from a workspace by default.
-The `vscode-cuda` image is `vscode-tcmb` plus NVIDIA's CUDA 13.4 toolkit from
+The `vscode-cuda` image is `vscode-kilo` plus NVIDIA's CUDA 13.4 toolkit from
 the Debian 13 repository: nvcc, the runtime and math libraries, the
 command-line debugging/profiling tools (the `cuda:*-devel` set without Nsight
 Compute), cuDNN 9 and NCCL, with `/usr/local/cuda/bin` on `PATH` and
@@ -85,8 +89,8 @@ Toolkit injects them through the CDI device the scheduler assigns, and the
 build fails if a driver library ends up in the image. CUDA 13.x needs host
 driver 580 or newer. The template is GPU-only: it is refused on CPU flavors,
 its image is synchronized only to workers that report an NVIDIA stack, and it
-is placed only on 3.19.0+ workers (older ones would not know the template and
-would start it without TCMB Code). The image is roughly 7 GB unpacked, so the
+is placed only on 3.24.0+ workers (older ones would start it without the
+Kilo Code config). The image is roughly 7 GB unpacked, so the
 release publishes it to the registries only, without a GitHub release archive.
 The `terminal-rocky` image carries no IDE and no AI assistant: it is a
 digest-pinned Rocky Linux 10 base plus a checksum-locked static `ttyd`, which
@@ -94,28 +98,35 @@ serves the shell over HTTP and WebSocket on port 7681. Because its `ide_type` is
 `terminal`, the worker leaves the image's own `ENTRYPOINT` in charge instead of
 injecting IDE environment or rewriting the container command.
 
-### Updating TCMB Code
+### Updating Kilo Code
 
-The TCMB Code VSIX is platform specific. Use the **Linux x64** build
-(`tcmbcode-vscode-linux-x64-<version>.vsix`); the win32-x64 build only ships
-`bin/kilo.exe` and cannot start its agent on Linux. The release workflow
-downloads the VSIX from a dedicated GitHub release in this repository and
-verifies its checksum, so publish it there first:
+The Kilo Code VSIX is platform specific. The image installs the **linux-x64**
+build straight from Open VSX and verifies its pinned checksum:
 
-    sha256sum tcmbcode-vscode-linux-x64-7.8.3.vsix
-    gh release create tcmb-code-7.8.3 tcmbcode-vscode-linux-x64-7.8.3.vsix \
-      --repo aydinguven/devcloud --prerelease --latest=false \
-      --title "TCMB Code 7.8.3 (Linux x64 VSIX)" \
-      --notes "Build input for the vscode-tcmb workspace image."
+    v=7.8.17
+    curl -fsSLO "https://open-vsx.org/api/kilocode/kilo-code/linux-x64/$v/file/kilocode.kilo-code-$v@linux-x64.vsix"
+    sha256sum "kilocode.kilo-code-$v@linux-x64.vsix"
 
-Then set `TCMB_CODE_VERSION` and `TCMB_CODE_VSIX_SHA256` in
-`containers/vscode-tcmb/Containerfile` and, to the same values,
-`containers/vscode-cuda/Containerfile` (keep `lancedb/` identical too; the
-release smoke test checks both images against the vscode-tcmb version), and
-release DevCloud as usual. The
-build refuses to run while the checksum is empty. This repository is public,
-so the VSIX release asset and the published `vscode-tcmb` images are publicly
-downloadable.
+Set `KILO_CODE_VERSION` and `KILO_CODE_VSIX_SHA256` in
+`containers/vscode-kilo/Containerfile` and, to the same values,
+`containers/vscode-cuda/Containerfile` (keep `lancedb/` and `LocalMCP.sh`
+identical too; the release smoke test checks both images against the
+vscode-kilo version), and release DevCloud as usual. The build refuses to run
+while the checksum is empty.
+
+### Replacing TCMB Code (3.24.0)
+
+Releases 3.18–3.23 shipped TCMB Code (TCMB's Kilo Code build, `vscode-tcmb`).
+Migration 33 moves its Admin settings to Kilo Code (the TCMB Library URL
+becomes the catalog URL), renames `vscode-tcmb` workspaces to `vscode-kilo`,
+disables every `vscode-tcmb` and `vscode-cuda` image record (they carry TCMB
+Code) and unpins their workspaces. A workspace keeps its old TCMB Code
+container until the template's new image has synchronized to its worker; its
+next start after that pins the new image and recreates the container from it
+(project files are kept). A workspace whose container is gone cannot start
+until then. Import `vscode-kilo` and `vscode-cuda` 3.24.0 images
+under **Admin > Workspace Image'ları** after updating, then delete the disabled
+`vscode-tcmb` records.
 
 ### Retired VS Code images
 
@@ -123,7 +134,7 @@ downloadable.
 were retired in 3.18.1. Their definitions are no longer built, but their
 templates still resolve, so existing workspaces keep starting on the images
 already on the workers, with the legacy Cline wiring. They are hidden from the
-catalog and new workspaces are refused. After rolling out `vscode-tcmb`,
+catalog and new workspaces are refused. After rolling out `vscode-kilo`,
 disable their entries under **Admin > Workspace Image'ları**; this hides them
 everywhere without affecting existing workspaces.
 The controller converts registry and Docker inputs to a normalized Linux/amd64

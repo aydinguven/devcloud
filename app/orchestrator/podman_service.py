@@ -23,12 +23,12 @@ from app.mlflow_workspace import (
 )
 from app.orchestrator.flavors import get_flavor
 from app.orchestrator.templates import get_template
-from app.tcmb_code import (
-    CONFIG_DIR as TCMB_CODE_CONFIG_DIR,
-    CONFIG_FILENAME as TCMB_CODE_CONFIG_FILENAME,
-    TCMB_CODE_ASSISTANT,
-    managed_vscode_settings as tcmb_code_vscode_settings,
-    validated_config as validated_tcmb_code_config,
+from app.kilo_code import (
+    CONFIG_DIR as KILO_CODE_CONFIG_DIR,
+    CONFIG_FILENAME as KILO_CODE_CONFIG_FILENAME,
+    KILO_CODE_ASSISTANT,
+    managed_vscode_settings as kilo_code_vscode_settings,
+    validated_config as validated_kilo_code_config,
 )
 
 logger = logging.getLogger("devcloud.podman")
@@ -37,7 +37,7 @@ _SENSITIVE_ENV_KEYS = {
     "PASSWORD",
     "JUPYTER_TOKEN",
     "DEVCLOUD_CLINE_SECRETS_JSON",
-    "DEVCLOUD_TCMB_CONFIG_JSON",
+    "DEVCLOUD_KILO_CONFIG_JSON",
     "MLFLOW_TRACKING_TOKEN",
     "MLFLOW_TRACKING_PASSWORD",
 }
@@ -288,7 +288,7 @@ class PodmanService:
         mlflow_environment: dict[str, str] | None = None,
         service_environment: dict[str, str] | None = None,
         ai_gateway_token: str = "",
-        tcmb_code_config: str = "",
+        kilo_code_config: str = "",
         progress_callback: Any | None = None,
     ) -> tuple[str, str]:
         """Create and run a new container for a workspace.
@@ -327,14 +327,14 @@ class PodmanService:
         ):
             raise ValueError("Geçerli bir workspace image referansı gereklidir.")
         is_vscode = template.ide_type == "vscode"
-        is_tcmb_code = is_vscode and template.ai_assistant == TCMB_CODE_ASSISTANT
-        tcmb_code_config = (
-            validated_tcmb_code_config(tcmb_code_config) if is_tcmb_code else ""
+        is_kilo_code = is_vscode and template.ai_assistant == KILO_CODE_ASSISTANT
+        kilo_code_config = (
+            validated_kilo_code_config(kilo_code_config) if is_kilo_code else ""
         )
-        if is_tcmb_code and not tcmb_code_config:
+        if is_kilo_code and not kilo_code_config:
             logger.warning(
-                "TCMB Code workspace %s starts without tcmb.jsonc: the controller "
-                "sent no TCMB Code config (check Admin > Entegrasyonlar > TCMB Code "
+                "Kilo Code workspace %s starts without kilo.jsonc: the controller "
+                "sent no Kilo Code config (check Admin > Entegrasyonlar > Kilo Code "
                 "and Workspace AI).",
                 container_name,
             )
@@ -419,15 +419,15 @@ class PodmanService:
                 "-e",
                 "VSCODE_USER_DIR=/home/coder/.local/share/code-server/User",
             ])
-            if is_tcmb_code:
+            if is_kilo_code:
                 cmd_args.extend([
                     "-e", "DEVCLOUD_VSCODE_SETTINGS_JSON="
-                    + tcmb_code_vscode_settings(tcmb_code_config),
+                    + kilo_code_vscode_settings(kilo_code_config),
                 ])
-                if tcmb_code_config:
+                if kilo_code_config:
                     cmd_args.extend([
-                        "-e", f"DEVCLOUD_TCMB_CONFIG_DIR={TCMB_CODE_CONFIG_DIR}",
-                        "-e", "DEVCLOUD_TCMB_CONFIG_JSON=" + tcmb_code_config,
+                        "-e", f"DEVCLOUD_KILO_CONFIG_DIR={KILO_CODE_CONFIG_DIR}",
+                        "-e", "DEVCLOUD_KILO_CONFIG_JSON=" + kilo_code_config,
                     ])
             else:
                 cmd_args.extend([
@@ -545,14 +545,14 @@ class PodmanService:
                     " \"$CLINE_DATA_DIR/secrets.json\""
                     " \"$CLINE_DATA_DIR/settings/providers.json\"",
                 ])
-            if tcmb_code_config:
-                config_path = f"$DEVCLOUD_TCMB_CONFIG_DIR/{TCMB_CODE_CONFIG_FILENAME}"
+            if kilo_code_config:
+                config_path = f"$DEVCLOUD_KILO_CONFIG_DIR/{KILO_CODE_CONFIG_FILENAME}"
                 setup_commands.extend([
-                    "install -d -m 700 \"$DEVCLOUD_TCMB_CONFIG_DIR\"",
-                    f"printf '%s' \"$DEVCLOUD_TCMB_CONFIG_JSON\" > \"{config_path}\"",
+                    "install -d -m 700 \"$DEVCLOUD_KILO_CONFIG_DIR\"",
+                    f"printf '%s' \"$DEVCLOUD_KILO_CONFIG_JSON\" > \"{config_path}\"",
                     f"chmod 600 \"{config_path}\"",
                     # Keep the keys out of every editor terminal's environment.
-                    "unset DEVCLOUD_TCMB_CONFIG_JSON",
+                    "unset DEVCLOUD_KILO_CONFIG_JSON",
                 ])
             setup_commands.append(
                 "exec /usr/bin/entrypoint.sh"
@@ -763,7 +763,7 @@ class PodmanService:
         """List local container images."""
         if self._mock_mode:
             return [
-                "localhost/devcloud-vscode-tcmb:latest",
+                "localhost/devcloud-vscode-kilo:latest",
                 "localhost/devcloud-vscode-empty:latest",
                 "localhost/devcloud-vscode-python:latest",
                 "localhost/devcloud-vscode-react:latest",

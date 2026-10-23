@@ -9,10 +9,10 @@ DevCloud is a lightweight, high-performance cloud development platform built wit
 - **Podman Container Orchestration**: Rootless container lifecycle management with memory & CPU quotas.
 - **Persistent Workspace Storage**: Host bind-mounts maintain project files across container restarts and updates.
 - **Integrated Browser IDEs**:
-  - **TCMB Code (VS Code)**: Python 3, `pip`, `uv`, Node.js 22 LTS, git and the TCMB Code AI assistant (TCMB's build of Kilo Code) with LanceDB codebase indexing. Chat uses the workspace owner's own AI Factory key.
+  - **Kilo Code (VS Code)**: Python 3, `pip`, `uv`, Node.js 22 LTS, git and the Kilo Code AI assistant with LanceDB codebase indexing and an Admin-managed skill/agent/rule catalog (MCP). Chat uses the workspace owner's own AI Factory key.
   - **JupyterLab (Python)**: Data science environment with NumPy, Pandas, Matplotlib, Jupyter AI 3, and a Claude ACP persona for on-prem model gateways.
 
-  The Cline-based VS Code templates (Boş Proje, Python 3.14, React/Node.js, Java 21 LTS) were retired in 3.18.1: existing workspaces keep running, new ones use TCMB Code.
+  The Cline-based VS Code templates (Boş Proje, Python 3.14, React/Node.js, Java 21 LTS) were retired in 3.18.1: existing workspaces keep running, new ones use Kilo Code. TCMB Code (TCMB's Kilo Code build, 3.18–3.23) was replaced by upstream Kilo Code in 3.24.0.
 - **Native Linux Terminal Workspace**: A full Rocky Linux 10 shell in the browser, served by `ttyd` over the same authenticated proxy as the IDEs. The session runs inside `tmux`, so a dropped connection reattaches instead of killing running work, and the entire home directory persists across restarts. Workspaces carry no `sudo`; the image ships git, Python 3, a C/C++ toolchain, and the usual shell utilities.
 - **Resource Flavors**:
   - `t1.nano`: 0.5 CPU, 512 MB RAM (Light scripts and utilities)
@@ -309,40 +309,45 @@ Import the resulting OCI/Docker archives, or a GHCR/internal-registry image
 reference, under **Admin > Workspace Image'ları**. Enrolled workers fetch the
 enabled images from the controller; the base installation does not build them.
 Formal GitHub Releases include downloadable, checksummed offline archives for
-the maintained `vscode-tcmb` and `jupyter-python` templates. The GPU-only
-`vscode-cuda` template (TCMB Code + CUDA 13, cuDNN, NCCL) is published to the
+the maintained `vscode-kilo` and `jupyter-python` templates. The GPU-only
+`vscode-cuda` template (Kilo Code + CUDA 13, cuDNN, NCCL) is published to the
 registries only; see WORKERS.md, "CUDA VS Code workspaces".
 
 ### Workspace AI through LiteLLM
 
 The maintained `jupyter-python` template includes Jupyter AI, Claude Code, and
-the Claude ACP adapter. The `vscode-tcmb` template ships TCMB Code; native
+the Claude ACP adapter. The `vscode-kilo` template ships Kilo Code; native
 VS Code Chat and Copilot are disabled. Configure gateway access under
 **Admin > Entegrasyonlar**:
 
 1. **Workspace AI**: enter the LiteLLM root URL, for example
    `http://llm-gateway:5003`. Do not add `/v1`; Claude Code appends its
-   Anthropic paths and TCMB Code uses the same root at `/v1`.
+   Anthropic paths and Kilo Code uses the same root at `/v1`.
 2. Store a restricted LiteLLM virtual key for Jupyter. Never distribute the
-   LiteLLM master key. TCMB Code does not use this shared key.
+   LiteLLM master key. Kilo Code does not use this shared key.
 3. Publish the exact LiteLLM aliases in **Kullanıcı Model Kataloğu**, save the
-   settings, and run **Seçili Modeli Test Et**. The default model is also TCMB
+   settings, and run **Seçili Modeli Test Et**. The default model is also Kilo
    Code's default.
-4. **TCMB Code**: enable it, enter the TCMB Library URL, optionally limit the
-   catalog models offered in TCMB Code, and store the indexing key with the
+4. **Kilo Code**: enable it, optionally limit the catalog models offered in
+   Kilo Code, enter the skills URLs and the catalog URL (its root, without
+   `/mcp`) with an optional catalog token, and store the indexing key with the
    embedding model (`bge-m3`) and vector size (`1024`). Restrict that LiteLLM
-   key to the embedding model and a budget: every TCMB Code user can read it
-   inside their workspace.
+   key to the embedding model and a budget: every Kilo Code user can read it,
+   and the catalog token, inside their workspace.
 
-DevCloud writes `~/.config/kilo/tcmb.jsonc` into each TCMB Code container
+DevCloud writes `~/.config/kilo/kilo.jsonc` into each Kilo Code container
 every time it starts. Chat uses the owner's own AI Factory key from the
 **GenAI** tab (the per-user workspace key, so usage counts towards that
 user, team and müdürlük); there is no shared-key fallback. A user without a
 key sees a warning while the workspace is created and an "anahtar yok" hint in
-TCMB Code's model picker; after requesting a key they stop and start the
+Kilo Code's model picker; after requesting a key they stop and start the
 workspace, which recreates the container with the key (project files stay on
 the bind mount). Admin changes apply the same way. Indexing uses LanceDB
-0.26.2 baked into the image (`KILO_LANCEDB_PATH`). This requires GenAI and
+0.26.2 baked into the image (`KILO_LANCEDB_PATH`). With a catalog URL the
+config adds two MCP servers: `kilo-catalog` (remote, `<catalog>/mcp`) and
+`kilo-install`, the image's `/opt/kilo/LocalMCP.sh`, which writes the chosen
+skills, agents, rules, workflows or `AGENTS.md` into the open project's
+`.kilo` folder. Rules load through `instructions: [".kilo/rules/*.md"]`. This requires GenAI and
 Workspace AI to point at the same LiteLLM.
 Disabling Cline uses the extension manager to remove it from a workspace
 container without leaving a broken registration. Recreate affected containers
@@ -605,8 +610,8 @@ intelligent-nobel/
 │   └── templates/               # Jinja2 HTML templates
 ├── containers/                  # Controller, worker, and workspace Containerfiles
 │   ├── build_images.sh          # Podman batch builder
-│   ├── vscode-tcmb/             # VS Code + TCMB Code (+ pinned LanceDB runtime)
-│   ├── vscode-cuda/             # vscode-tcmb + CUDA toolkit, cuDNN, NCCL (GPU workers)
+│   ├── vscode-kilo/             # VS Code + Kilo Code (+ pinned LanceDB runtime, LocalMCP.sh)
+│   ├── vscode-cuda/             # vscode-kilo + CUDA toolkit, cuDNN, NCCL (GPU workers)
 │   ├── jupyter-python/
 │   └── terminal-rocky/
 ├── deploy/                      # Linux VM deployment scripts & systemd unit

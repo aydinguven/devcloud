@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initDirectorySettings();
   initDirectorySync();
   initJupyterAiSettings();
-  initTcmbCodeSettings();
+  initKiloCodeSettings();
   initModelContainerRegistrySettings();
   initAdminMlflowSettings();
   initAdminGenAiSettings();
@@ -497,13 +497,17 @@ function initModelContainerRegistrySettings() {
   });
 }
 
-function initTcmbCodeSettings() {
-  const form = document.getElementById("tcmb-code-settings-form");
+function initKiloCodeSettings() {
+  const form = document.getElementById("kilo-code-settings-form");
   if (!form) return;
-  const saveButton = document.getElementById("btn-save-tcmb-code");
-  const status = document.getElementById("tcmb-code-form-status");
-  const badge = document.getElementById("tcmb-code-status-badge");
-  const blocked = document.getElementById("tcmb-code-warning");
+  const saveButton = document.getElementById("btn-save-kilo-code");
+  const status = document.getElementById("kilo-code-form-status");
+  const badge = document.getElementById("kilo-code-status-badge");
+  const blocked = document.getElementById("kilo-code-warning");
+  const splitList = (value) => String(value || "")
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   function showState(result) {
     badge.className = `badge ${result.active ? "badge-running" : "badge-stopped"}`;
@@ -513,9 +517,12 @@ function initTcmbCodeSettings() {
     form.elements.indexing_key.placeholder = result.has_indexing_key
       ? "Kayıtlı anahtarı korumak için boş bırakın"
       : "İndeksleme API anahtarını girin";
+    form.elements.catalog_token.placeholder = result.has_catalog_token
+      ? "Kayıtlı token'ı korumak için boş bırakın"
+      : "Katalog Bearer token'ı";
   }
 
-  fetch("/api/admin/tcmb-code-settings")
+  fetch("/api/admin/kilo-code-settings")
     .then((response) => (response.ok ? response.json() : null))
     .then((result) => { if (result) showState(result); })
     .catch(() => {});
@@ -523,23 +530,23 @@ function initTcmbCodeSettings() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
-    const key = String(data.get("indexing_key") || "");
+    const key = String(data.get("indexing_key") || "").trim();
     const clearKey = form.elements.clear_indexing_key.checked;
-    const modelIds = String(data.get("model_ids") || "")
-      .split(/[\s,]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
+    const token = String(data.get("catalog_token") || "").trim();
+    const clearToken = form.elements.clear_catalog_token.checked;
     saveButton.disabled = true;
     status.textContent = "Kaydediliyor...";
     status.className = "quota-form-status";
     try {
-      const response = await fetch("/api/admin/tcmb-code-settings", {
+      const response = await fetch("/api/admin/kilo-code-settings", {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           enabled: form.elements.enabled.checked,
-          library_url: String(data.get("library_url") || "").trim(),
-          model_ids: modelIds,
+          catalog_url: String(data.get("catalog_url") || "").trim(),
+          catalog_token: clearToken ? "" : (token || null),
+          skills_urls: splitList(data.get("skills_urls")),
+          model_ids: splitList(data.get("model_ids")),
           indexing_enabled: form.elements.indexing_enabled.checked,
           indexing_model: String(data.get("indexing_model") || "").trim(),
           indexing_dimension: Number.parseInt(String(data.get("indexing_dimension") || "1024"), 10),
@@ -554,9 +561,13 @@ function initTcmbCodeSettings() {
       }
       form.elements.indexing_key.value = "";
       form.elements.clear_indexing_key.checked = false;
+      form.elements.catalog_token.value = "";
+      form.elements.clear_catalog_token.checked = false;
+      form.elements.catalog_url.value = result.catalog_url || "";
+      form.elements.skills_urls.value = (result.skills_urls || []).join(", ");
       form.elements.model_ids.value = (result.model_ids || []).join(", ");
       showState(result);
-      status.textContent = "TCMB Code ayarları kaydedildi; yeni ve yeniden başlatılan workspace'lere uygulanacak.";
+      status.textContent = "Kilo Code ayarları kaydedildi; yeni ve yeniden başlatılan workspace'lere uygulanacak.";
       status.className = "quota-form-status quota-status-success";
     } catch (error) {
       status.textContent = error.message;

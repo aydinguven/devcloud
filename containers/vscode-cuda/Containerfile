@@ -1,6 +1,6 @@
-# VS Code with TCMB Code and the NVIDIA CUDA toolkit, for GPU workers
+# VS Code with Kilo Code and the NVIDIA CUDA toolkit, for GPU workers
 #
-# This is vscode-tcmb (Python 3, uv, Node.js 22, TCMB Code, LanceDB) plus
+# This is vscode-kilo (Python 3, uv, Node.js 22, Kilo Code, LanceDB) plus
 # CUDA 13.4 from NVIDIA's Debian 13 repository: nvcc, the runtime and math
 # libraries, the command-line debugging/profiling tools, cuDNN 9 and NCCL.
 #
@@ -9,17 +9,17 @@
 # the host's NVIDIA Container Toolkit injects them through the CDI device that
 # DevCloud assigns to a GPU workspace. CUDA 13.x needs host driver 580 or newer.
 #
-# Keep TCMB_CODE_VERSION, its checksum and lancedb/ identical to vscode-tcmb;
-# the release smoke test checks the version against vscode-tcmb.
+# Keep KILO_CODE_VERSION, its checksum, lancedb/ and LocalMCP.sh identical to
+# vscode-kilo; the release smoke test checks the version against vscode-kilo.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.1
 FROM ${UV_IMAGE} AS uv
 
-# Same pinned code-server (Debian 13) base as vscode-tcmb.
+# Same pinned code-server (Debian 13) base as vscode-kilo.
 FROM docker.io/codercom/code-server:4.137.0@sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971
 
-ARG TCMB_CODE_VERSION=7.8.3
-ARG TCMB_CODE_VSIX_URL=https://github.com/aydinguven/devcloud/releases/download/tcmb-code-${TCMB_CODE_VERSION}/tcmbcode-vscode-linux-x64-${TCMB_CODE_VERSION}.vsix
-ARG TCMB_CODE_VSIX_SHA256=b458724533d755daa1adb4a673735a8281a782e50fa9c5920de873c63a524a67
+ARG KILO_CODE_VERSION=7.8.17
+ARG KILO_CODE_VSIX_URL=https://open-vsx.org/api/kilocode/kilo-code/linux-x64/${KILO_CODE_VERSION}/file/kilocode.kilo-code-${KILO_CODE_VERSION}@linux-x64.vsix
+ARG KILO_CODE_VSIX_SHA256=b438caf4be0c148050af1849db28c043b779ac89f38793c35d61e509211183c4
 
 # NVIDIA's repository signing key, pinned by the keyring package checksum.
 ARG CUDA_KEYRING_URL=https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb
@@ -29,7 +29,7 @@ ARG CUDA_PACKAGE_VERSION=13.4.3-1
 ARG CUDNN_PACKAGE_VERSION=9.27.0.42-1
 ARG NCCL_PACKAGE_VERSION=2.32.3-1+cuda13.4
 
-LABEL org.opencontainers.image.title="DevCloud TCMB Code CUDA workspace"
+LABEL org.opencontainers.image.title="DevCloud Kilo Code CUDA workspace"
 
 USER root
 
@@ -101,15 +101,20 @@ ENV CUDA_HOME=/usr/local/cuda \
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
-# LanceDB native runtime for codebase indexing, pinned by its lockfile. TCMB
+# LanceDB native runtime for codebase indexing, pinned by its lockfile. Kilo
 # Code loads it from KILO_LANCEDB_PATH instead of bundling it.
-COPY lancedb/package.json lancedb/package-lock.json /opt/tcmb/lancedb/
-RUN npm ci --prefix /opt/tcmb/lancedb --omit=dev --ignore-scripts --no-audit --no-fund \
+COPY lancedb/package.json lancedb/package-lock.json /opt/kilo/lancedb/
+RUN npm ci --prefix /opt/kilo/lancedb --omit=dev --ignore-scripts --no-audit --no-fund \
     && node -e 'require(process.argv[1])' \
-        /opt/tcmb/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
-    && chmod -R a+rX /opt/tcmb
+        /opt/kilo/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
+    && chmod -R a+rX /opt/kilo
 
-ENV KILO_LANCEDB_PATH=/opt/tcmb/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
+# Local stdio MCP server (kilo-install) that writes catalog items into the
+# open project's .kilo folder. DevCloud's kilo.jsonc starts it with bash.
+COPY LocalMCP.sh /opt/kilo/LocalMCP.sh
+RUN chmod 0755 /opt/kilo/LocalMCP.sh && bash -n /opt/kilo/LocalMCP.sh
+
+ENV KILO_LANCEDB_PATH=/opt/kilo/lancedb/node_modules/@lancedb/lancedb/dist/index.js \
     KILO_TELEMETRY_LEVEL=off \
     KILO_DISABLE_AUTOUPDATE=1 \
     KILO_DISABLE_MODELS_FETCH=1 \
@@ -131,17 +136,17 @@ RUN bash -lc 'nvcc --version' \
     && bash -lc 'nvcc -o /tmp/devcloud-cuda-check /tmp/devcloud-cuda-check.cu' \
     && rm -f /tmp/devcloud-cuda-check /tmp/devcloud-cuda-check.cu
 
-# The TCMB Code VSIX stores its bin/ entries as 0664 and code-server keeps the
-# zip modes, so the execute bit is restored on the bundled native tools (kilo,
-# bwrap, ffmpeg, kilo-sandbox-seccomp); otherwise the agent cannot start.
-RUN test -n "${TCMB_CODE_VSIX_SHA256}" \
-        || { echo "Set TCMB_CODE_VSIX_SHA256 to pin the Linux x64 TCMB Code VSIX." >&2; exit 1; } \
-    && curl -fsSL "${TCMB_CODE_VSIX_URL}" -o /tmp/tcmbcode.vsix \
-    && echo "${TCMB_CODE_VSIX_SHA256}  /tmp/tcmbcode.vsix" | sha256sum -c - \
-    && code-server --install-extension /tmp/tcmbcode.vsix \
-    && code-server --list-extensions --show-versions | grep -Fx "tcmb.tcmbcode@${TCMB_CODE_VERSION}" \
-    && rm -f /tmp/tcmbcode.vsix \
-    && ext="$(ls -d /home/coder/.local/share/code-server/extensions/tcmb.tcmbcode-${TCMB_CODE_VERSION}*)" \
+# code-server keeps the zip modes of a VSIX, so the execute bit is restored on
+# the bundled native tools (kilo, bwrap, ffmpeg, kilo-sandbox-seccomp) in case
+# a release stores them without it; otherwise the agent cannot start.
+RUN test -n "${KILO_CODE_VSIX_SHA256}" \
+        || { echo "Set KILO_CODE_VSIX_SHA256 to pin the Linux x64 Kilo Code VSIX." >&2; exit 1; } \
+    && curl -fsSL "${KILO_CODE_VSIX_URL}" -o /tmp/kilocode.vsix \
+    && echo "${KILO_CODE_VSIX_SHA256}  /tmp/kilocode.vsix" | sha256sum -c - \
+    && code-server --install-extension /tmp/kilocode.vsix \
+    && code-server --list-extensions --show-versions | grep -Fx "kilocode.kilo-code@${KILO_CODE_VERSION}" \
+    && rm -f /tmp/kilocode.vsix \
+    && ext="$(ls -d /home/coder/.local/share/code-server/extensions/kilocode.kilo-code-${KILO_CODE_VERSION}*)" \
     && find "${ext}/bin" -maxdepth 1 -type f ! -name '*.js' -exec chmod 0755 {} + \
     && cli="${ext}/bin/kilo" \
     && test -x "${cli}" \

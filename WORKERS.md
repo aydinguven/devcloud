@@ -100,15 +100,16 @@ path used by workspace containers. The gateway value must be a root URL such as
 `http://llm-gateway:5003`, without `/v1`. Model IDs must exactly match the
 LiteLLM aliases allowed for the shared key.
 
-The `vscode-tcmb` image contains TCMB Code (`tcmb.tcmbcode`). Its configuration
-is not part of the 30-second worker sync: the controller renders
-`~/.config/kilo/tcmb.jsonc` for each workspace (owner's AI Factory key,
-Workspace AI gateway and catalogue, TCMB Code Admin settings) and sends it with
-the `container.create` request; the container writes it at every start.
-Workers older than 3.18.0 ignore it. Since 3.18.2 the controller does not place
-new TCMB Code workspaces on them, and an existing TCMB Code workspace on one is
-left unchanged (with a warning in the controller log) until the worker is
-upgraded. Workspaces on the retired Cline images still receive Cline's
+The `vscode-kilo` image contains Kilo Code (`kilocode.kilo-code`). Its
+configuration is not part of the 30-second worker sync: the controller renders
+`~/.config/kilo/kilo.jsonc` for each workspace (owner's AI Factory key,
+Workspace AI gateway and catalogue, Kilo Code Admin settings) and sends it with
+the `container.create` request as `kilo_code_config`; the container writes it
+at every start. Workers older than 3.24.0 ignore it. The controller does not
+place new Kilo Code workspaces on them, and an existing Kilo Code workspace on
+one is left unchanged (with a warning in the controller log) until the worker
+is upgraded. A Kilo Code workspace whose config changed also keeps its
+container while its image is not yet synchronized to its worker. Workspaces on the retired Cline images still receive Cline's
 legacy state and `settings/providers.json` from the shared key.
 
 Settings are injected when a workspace container is created. To roll changed
@@ -159,11 +160,11 @@ is required.
 
 ### CUDA VS Code workspaces
 
-The `vscode-cuda` template (**TCMB Code (CUDA)**) is TCMB Code plus the CUDA
+The `vscode-cuda` template (**Kilo Code (CUDA)**) is Kilo Code plus the CUDA
 13.4 toolkit, cuDNN 9 and NCCL. To use it:
 
 1. Run host NVIDIA driver 580 or newer on the GPU workers (CUDA 13.x
-   requirement) and update the workers to 3.19.0 or newer.
+   requirement) and update the workers to 3.24.0 or newer.
 2. Import `ghcr.io/aydinguven/devcloud:vscode-cuda-VERSION` under
    **Admin > Workspace Image'ları**. Only workers whose heartbeat reports an
    NVIDIA stack download it (about 3.5 GB compressed); CPU workers skip it.

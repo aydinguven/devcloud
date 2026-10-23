@@ -68,7 +68,7 @@ async def test_admin_can_create_edit_sync_and_delete_custom_flavor(client, db_se
 async def test_admin_can_rename_builtin_workspace_type(client, db_session):
     headers = await _admin_headers(client, db_session)
     updated = await client.patch(
-        "/api/admin/templates/vscode-tcmb",
+        "/api/admin/templates/vscode-kilo",
         headers=headers,
         json={"name": "Kurumsal Python", "description": "Yönetilen Python geliştirme ortamı"},
     )
@@ -76,6 +76,6 @@ async def test_admin_can_rename_builtin_workspace_type(client, db_session):
     assert updated.json()["name"] == "Kurumsal Python"
 
     templates = await client.get("/api/workspaces/templates", headers=headers)
-    template = next(item for item in templates.json() if item["id"] == "vscode-tcmb")
+    template = next(item for item in templates.json() if item["id"] == "vscode-kilo")
     assert template["name"] == "Kurumsal Python"
     assert template["description"] == "Yönetilen Python geliştirme ortamı"
