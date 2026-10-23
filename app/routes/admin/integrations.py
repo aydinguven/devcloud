@@ -20,7 +20,7 @@ from app.models.user import User
 from app.models.node import Node
 from app.models.mlflow_deployment import MlflowModelBuild
 from app.models.jupyter_ai_settings import JupyterAiSettings
-from app.models.tcmb_code_settings import TcmbCodeSettings
+from app.models.kilo_code_settings import KiloCodeSettings
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.model_container_registry_settings import (
     ModelContainerRegistrySettings,
@@ -36,11 +36,12 @@ from app.schemas.jupyter_ai_settings import (
     JupyterAiSettingsUpdate,
 )
 from app.schemas.mlflow import MlflowServerSettingsOut, MlflowServerSettingsUpdate
-from app.schemas.tcmb_code_settings import TcmbCodeSettingsOut, TcmbCodeSettingsUpdate
-from app.tcmb_code import (
+from app.schemas.kilo_code_settings import KiloCodeSettingsOut, KiloCodeSettingsUpdate
+from app.kilo_code import (
     DEFAULT_INDEXING_DIMENSION,
     DEFAULT_INDEXING_MODEL,
     parse_model_ids,
+    parse_skills_urls,
 )
 from app.schemas.model_container_registry import (
     ModelContainerRegistrySettingsOut,
@@ -520,32 +521,37 @@ async def test_jupyter_ai_settings(
     )
 
 
-def _tcmb_code_status(
-    record: TcmbCodeSettings | None,
+def _kilo_code_status(
+    record: KiloCodeSettings | None,
     workspace_ai: JupyterAiSettings | None,
 ) -> tuple[bool, str]:
     if record is None or not record.enabled:
         return False, ""
     if workspace_ai is None or not workspace_ai.enabled or not workspace_ai.gateway_url:
         return False, (
-            "Workspace AI etkin değil; TCMB Code gateway URL'sini ve model "
+            "Workspace AI etkin değil; Kilo Code gateway URL'sini ve model "
             "kataloğunu oradan alır, bu yüzden workspace'lere yapılandırma gönderilmiyor."
         )
+    warnings = []
+    if not record.catalog_url:
+        warnings.append("Katalog URL boş; kilo-catalog ve kilo-install MCP sunucuları eklenmez.")
     if record.indexing_enabled and not record.encrypted_indexing_key:
-        return True, "Kod indeksleme için API anahtarı kayıtlı değil; indeksleme kapalı kalır."
-    return True, ""
+        warnings.append("Kod indeksleme için API anahtarı kayıtlı değil; indeksleme kapalı kalır.")
+    return True, " ".join(warnings)
 
 
-def _tcmb_code_settings_out(
-    record: TcmbCodeSettings | None,
+def _kilo_code_settings_out(
+    record: KiloCodeSettings | None,
     workspace_ai: JupyterAiSettings | None,
-) -> TcmbCodeSettingsOut:
-    active, warning = _tcmb_code_status(record, workspace_ai)
+) -> KiloCodeSettingsOut:
+    active, warning = _kilo_code_status(record, workspace_ai)
     if record is None:
-        return TcmbCodeSettingsOut(
+        return KiloCodeSettingsOut(
             managed=False,
             enabled=False,
-            library_url="",
+            catalog_url="",
+            has_catalog_token=False,
+            skills_urls=[],
             model_ids=[],
             indexing_enabled=True,
             indexing_model=DEFAULT_INDEXING_MODEL,
@@ -555,10 +561,12 @@ def _tcmb_code_settings_out(
             warning=warning,
             updated_at=None,
         )
-    return TcmbCodeSettingsOut(
+    return KiloCodeSettingsOut(
         managed=True,
         enabled=record.enabled,
-        library_url=record.library_url,
+        catalog_url=record.catalog_url,
+        has_catalog_token=bool(record.encrypted_catalog_token),
+        skills_urls=parse_skills_urls(record.skills_urls_json),
         model_ids=parse_model_ids(record.model_ids_json),
         indexing_enabled=record.indexing_enabled,
         indexing_model=record.indexing_model,
@@ -571,30 +579,30 @@ def _tcmb_code_settings_out(
 
 
 @router.get(
-    "/tcmb-code-settings",
-    response_model=TcmbCodeSettingsOut,
+    "/kilo-code-settings",
+    response_model=KiloCodeSettingsOut,
 )
-async def get_tcmb_code_settings(
+async def get_kilo_code_settings(
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Return TCMB Code settings without exposing the indexing key."""
-    return _tcmb_code_settings_out(
-        await db.get(TcmbCodeSettings, 1), await db.get(JupyterAiSettings, 1)
+    """Return Kilo Code settings without exposing the catalog token or indexing key."""
+    return _kilo_code_settings_out(
+        await db.get(KiloCodeSettings, 1), await db.get(JupyterAiSettings, 1)
     )
 
 
 @router.put(
-    "/tcmb-code-settings",
-    response_model=TcmbCodeSettingsOut,
+    "/kilo-code-settings",
+    response_model=KiloCodeSettingsOut,
 )
-async def update_tcmb_code_settings(
-    update: TcmbCodeSettingsUpdate,
+async def update_kilo_code_settings(
+    update: KiloCodeSettingsUpdate,
     _admin: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Store TCMB Code settings; they apply to newly created or restarted workspaces."""
-    record = await db.get(TcmbCodeSettings, 1)
+    """Store Kilo Code settings; they apply to newly created or restarted workspaces."""
+    record = await db.get(KiloCodeSettings, 1)
     workspace_ai = await db.get(JupyterAiSettings, 1)
     has_existing_key = bool(record and record.encrypted_indexing_key)
     if update.enabled and update.indexing_enabled and (
@@ -623,13 +631,18 @@ async def update_tcmb_code_settings(
                 ),
             )
     if record is None:
-        record = TcmbCodeSettings(id=1)
+        record = KiloCodeSettings(id=1)
     record.enabled = update.enabled
-    record.library_url = update.library_url
+    record.catalog_url = update.catalog_url
+    record.skills_urls_json = json.dumps(update.skills_urls, ensure_ascii=False)
     record.model_ids_json = json.dumps(update.model_ids, ensure_ascii=False)
     record.indexing_enabled = update.indexing_enabled
     record.indexing_model = update.indexing_model
     record.indexing_dimension = update.indexing_dimension
+    if update.catalog_token is not None:
+        record.encrypted_catalog_token = (
+            encrypt_secret(update.catalog_token) if update.catalog_token else ""
+        )
     if update.indexing_key is not None:
         record.encrypted_indexing_key = (
             encrypt_secret(update.indexing_key) if update.indexing_key else ""
@@ -638,7 +651,7 @@ async def update_tcmb_code_settings(
     db.add(record)
     await db.commit()
     await db.refresh(record)
-    return _tcmb_code_settings_out(record, workspace_ai)
+    return _kilo_code_settings_out(record, workspace_ai)
 
 
 @router.get(

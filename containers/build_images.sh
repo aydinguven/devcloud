@@ -7,9 +7,9 @@ echo "====================================================="
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# The TCMB Code VSIX URL and SHA-256 are pinned in the Containerfile.
-echo "1/4 Building devcloud-vscode-tcmb..."
-podman build -t localhost/devcloud-vscode-tcmb:latest "${SCRIPT_DIR}/vscode-tcmb"
+# The Kilo Code VSIX URL and SHA-256 are pinned in the Containerfile.
+echo "1/4 Building devcloud-vscode-kilo..."
+podman build -t localhost/devcloud-vscode-kilo:latest "${SCRIPT_DIR}/vscode-kilo"
 
 # Large (CUDA toolkit, cuDNN, NCCL); only GPU workers use it.
 echo "2/4 Building devcloud-vscode-cuda..."

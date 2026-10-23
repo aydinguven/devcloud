@@ -29,7 +29,7 @@ from app.models.download_settings import DownloadSettings
 from app.models.workspace_image import WorkspaceImage
 from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket
 from app.models.jupyter_ai_settings import JupyterAiSettings
-from app.models.tcmb_code_settings import TcmbCodeSettings
+from app.models.kilo_code_settings import KiloCodeSettings
 from app.models.genai_settings import GenAiSettings
 from app.models.genai_account import GenAiAccount
 from app.models.directory_team import DirectoryTeam
@@ -66,7 +66,7 @@ __all__ = [
     "WorkspaceImage",
     "WorkerBootstrapTicket",
     "JupyterAiSettings",
-    "TcmbCodeSettings",
+    "KiloCodeSettings",
     "GenAiSettings",
     "GenAiAccount",
     "FlavorSettings",

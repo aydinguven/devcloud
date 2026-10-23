@@ -111,7 +111,7 @@ class Workspace(Base):
     node: Mapped["Node"] = relationship("Node", back_populates="workspaces")
 
     # Specifications
-    template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-tcmb, jupyter-python, etc.
+    template_id: Mapped[str] = mapped_column(String(50), nullable=False)  # vscode-kilo, jupyter-python, etc.
     flavor_id: Mapped[str] = mapped_column(String(50), nullable=False)    # t1.nano through t1.xlarge
     image_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspace_images.id", ondelete="RESTRICT"), nullable=True, index=True
@@ -142,7 +142,7 @@ class Workspace(Base):
     host_port: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     container_port: Mapped[int] = mapped_column(Integer, default=8080, nullable=False)
     workspace_token: Mapped[str] = mapped_column(String(128), default=lambda: uuid.uuid4().hex, nullable=False)
-    # SHA-256 of the TCMB Code config the container was created with ("" for
+    # SHA-256 of the Kilo Code config the container was created with ("" for
     # other templates). A different value on start recreates the container so
     # a newly requested AI Factory key or changed Admin settings take effect.
     ai_config_digest: Mapped[str] = mapped_column(

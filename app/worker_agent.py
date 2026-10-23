@@ -730,7 +730,7 @@ class WorkerAgent:
                 "flavor_id", "host_port", "workspace_token",
                 "accelerator_cdi_name", "image_ref", "image_sha256",
                 "mlflow_environment", "service_environment", "ai_gateway_token",
-                "tcmb_code_config",
+                "kilo_code_config",
             }
             args = {key: value for key, value in payload.items() if key in allowed}
             token = args.get("ai_gateway_token")
@@ -740,14 +740,14 @@ class WorkerAgent:
                 or any(character.isspace() or ord(character) < 32 for character in token)
             ):
                 args.pop("ai_gateway_token")
-            if "tcmb_code_config" in args:
-                from app.tcmb_code import validated_config
+            if "kilo_code_config" in args:
+                from app.kilo_code import validated_config
 
-                tcmb_code_config = validated_config(args["tcmb_code_config"])
-                if tcmb_code_config:
-                    args["tcmb_code_config"] = tcmb_code_config
+                kilo_code_config = validated_config(args["kilo_code_config"])
+                if kilo_code_config:
+                    args["kilo_code_config"] = kilo_code_config
                 else:
-                    args.pop("tcmb_code_config")
+                    args.pop("kilo_code_config")
             async with self.registry_lock:
                 existing = self.registry.get(args["container_name"])
                 if isinstance(existing, dict):

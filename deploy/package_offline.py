@@ -57,7 +57,7 @@ SYSTEM_PACKAGES_BY_BUNDLE_ROLE = {
 # Compatibility for integrations that imported the original server-wide map.
 SYSTEM_PACKAGES_BY_DISTRIBUTION = SYSTEM_PACKAGES_BY_BUNDLE_ROLE["server"]
 IMAGES = (
-    ("devcloud-vscode-tcmb", "localhost/devcloud-vscode-tcmb:latest", "vscode-tcmb"),
+    ("devcloud-vscode-kilo", "localhost/devcloud-vscode-kilo:latest", "vscode-kilo"),
     ("devcloud-vscode-cuda", "localhost/devcloud-vscode-cuda:latest", "vscode-cuda"),
     ("devcloud-jupyter-python", "localhost/devcloud-jupyter-python:latest", "jupyter-python"),
     (

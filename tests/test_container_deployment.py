@@ -72,23 +72,23 @@ def test_worker_image_and_quadlet_use_rootful_host_podman_socket():
     assert "Privileged=true" not in quadlet
 
 
-def test_builtin_vscode_image_installs_pinned_tcmb_code():
+def test_builtin_vscode_image_installs_pinned_kilo_code():
     code_server_base = (
         "FROM docker.io/codercom/code-server:4.137.0@"
         "sha256:57ac684d44deb6fa94317b3e8f3e128dd7fb897fffd95b4efcd16f56ce607971"
     )
     containerfile = (
-        ROOT / "containers" / "vscode-tcmb" / "Containerfile"
+        ROOT / "containers" / "vscode-kilo" / "Containerfile"
     ).read_text(encoding="utf-8")
     assert code_server_base in containerfile
-    assert "ARG TCMB_CODE_VERSION=7.8.3" in containerfile
-    assert "tcmbcode-vscode-linux-x64-${TCMB_CODE_VERSION}.vsix" in containerfile
+    assert "ARG KILO_CODE_VERSION=7.8.17" in containerfile
+    assert "kilocode.kilo-code-${KILO_CODE_VERSION}@linux-x64.vsix" in containerfile
     assert (
-        'echo "${TCMB_CODE_VSIX_SHA256}  /tmp/tcmbcode.vsix" | sha256sum -c -'
+        'echo "${KILO_CODE_VSIX_SHA256}  /tmp/kilocode.vsix" | sha256sum -c -'
     ) in containerfile
-    assert "code-server --install-extension /tmp/tcmbcode.vsix" in containerfile
-    assert 'grep -Fx "tcmb.tcmbcode@${TCMB_CODE_VERSION}"' in containerfile
-    assert "KILO_LANCEDB_PATH=/opt/tcmb/lancedb/" in containerfile
+    assert "code-server --install-extension /tmp/kilocode.vsix" in containerfile
+    assert 'grep -Fx "kilocode.kilo-code@${KILO_CODE_VERSION}"' in containerfile
+    assert "KILO_LANCEDB_PATH=/opt/kilo/lancedb/" in containerfile
     assert '"extensions.autoCheckUpdates":false' in containerfile
     assert '"extensions.autoUpdate":false' in containerfile
     assert '"chat.disableAIFeatures":true' in containerfile

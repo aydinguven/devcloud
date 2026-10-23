@@ -33,10 +33,10 @@ from app.orchestrator.scheduler import (
 )
 from app.resource_usage import get_cluster_usage, get_user_usage
 from app.quotas import effective_quota
-from app.tcmb_code import TCMB_CODE_ASSISTANT
+from app.kilo_code import KILO_CODE_ASSISTANT
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.workspace_provisioning import (
-    TCMB_CODE_MISSING_KEY_MESSAGE,
+    KILO_CODE_MISSING_KEY_MESSAGE,
     QuotaExceeded,
     WorkspaceNameConflict,
     WorkspaceOperationError,
@@ -46,7 +46,8 @@ from app.orchestrator.workspace_provisioning import (
     get_resume_quota_error,
     schedule_and_reserve_workspace,
     sync_mlflow_deployment_status,
-    tcmb_code_worker_problem,
+    kilo_code_worker_problem,
+    runtime_image_missing_problem,
     template_definition,
     workspace_ai_config,
     workspace_mlflow_environment,
@@ -77,7 +78,7 @@ from app.workspace_catalog import (
 logger = logging.getLogger("devcloud.routes.workspaces")
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 RETIRED_TEMPLATE_MESSAGE = (
-    "Bu VS Code şablonu kullanımdan kaldırıldı; yeni workspace için TCMB Code "
+    "Bu VS Code şablonu kullanımdan kaldırıldı; yeni workspace için Kilo Code "
     "şablonunu seçin. Mevcut workspace'ler çalışmaya devam eder."
 )
 
@@ -237,8 +238,8 @@ async def create_workspace(
         runtime = runtime_for_node(workspace.node_id)
         image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
         ai_config = await workspace_ai_config(db, template, current_user.id)
-        if ai_config.tcmb_code_problem:
-            logger.warning("Workspace %s: %s", workspace.id, ai_config.tcmb_code_problem)
+        if ai_config.kilo_code_problem:
+            logger.warning("Workspace %s: %s", workspace.id, ai_config.kilo_code_problem)
         container_id, storage_path = await runtime.create_workspace_container(
             workspace_id=workspace.id,
             user_id=current_user.id,
@@ -371,10 +372,10 @@ async def deploy_workspace_stream(
             runtime = runtime_for_node(workspace.node_id)
             image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
             ai_config = await workspace_ai_config(db, template, current_user.id)
-            if ai_config.tcmb_code_problem:
-                await emit_log(ai_config.tcmb_code_problem, "warning")
+            if ai_config.kilo_code_problem:
+                await emit_log(ai_config.kilo_code_problem, "warning")
             if ai_config.user_key_missing:
-                await emit_log(TCMB_CODE_MISSING_KEY_MESSAGE, "warning")
+                await emit_log(KILO_CODE_MISSING_KEY_MESSAGE, "warning")
             container_id, storage_path = await runtime.create_workspace_container(
                 workspace_id=workspace.id,
                 user_id=current_user.id,
@@ -500,30 +501,39 @@ async def start_workspace_endpoint(
         ai_config = None
         if container_exists:
             template = await resolve_template(db, workspace.template_id)
-            if template and template.ai_assistant == TCMB_CODE_ASSISTANT:
+            if template and template.ai_assistant == KILO_CODE_ASSISTANT:
                 # The keys live in the container's environment, so a newly
                 # requested AI Factory key or changed Admin settings need a
                 # new container. Project files are on the bind mount.
                 ai_config = await workspace_ai_config(db, template, workspace.user_id)
-                if ai_config.tcmb_code_problem:
+                if ai_config.kilo_code_problem:
                     logger.warning(
-                        "Workspace %s: %s", workspace.id, ai_config.tcmb_code_problem
+                        "Workspace %s: %s", workspace.id, ai_config.kilo_code_problem
                     )
-                worker_problem = await tcmb_code_worker_problem(db, workspace)
+                worker_problem = await kilo_code_worker_problem(db, workspace)
+                config_changed = ai_config.digest != (workspace.ai_config_digest or "")
+                image_problem = (
+                    await runtime_image_missing_problem(db, workspace, template)
+                    if config_changed and not worker_problem
+                    else ""
+                )
                 if worker_problem:
                     # Recreating on this worker would drop the config again.
                     logger.warning("Workspace %s: %s", workspace.id, worker_problem)
-                elif ai_config.digest != (workspace.ai_config_digest or ""):
+                elif image_problem:
+                    # Removing now would leave the workspace with no container.
+                    logger.warning("Workspace %s: %s", workspace.id, image_problem)
+                elif config_changed:
                     try:
                         if await runtime.remove_container(workspace.container_name):
                             container_exists = False
                             logger.info(
-                                "Recreating %s because its TCMB Code settings changed",
+                                "Recreating %s because its Kilo Code settings changed",
                                 workspace.container_name,
                             )
-                    except Exception as exc:  # noqa: BLE001 - pre-3.18 workers
+                    except Exception as exc:  # noqa: BLE001 - outdated workers
                         logger.warning(
-                            "Keeping %s with its previous TCMB Code settings: %s",
+                            "Keeping %s with its previous Kilo Code settings: %s",
                             workspace.container_name,
                             exc,
                         )

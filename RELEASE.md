@@ -115,11 +115,11 @@ The workflow publishes:
   changed since the last published version release: an immutable,
   smoke-tested image to GHCR as `TEMPLATE-VERSION` and
   `TEMPLATE-VERSION-SHORT_SHA`, plus gzip-compressed Docker archives and
-  SHA-256 sidecars for `vscode-tcmb` and `jupyter-python`. `vscode-cuda`
+  SHA-256 sidecars for `vscode-kilo` and `jupyter-python`. `vscode-cuda`
   exceeds GitHub's 2 GiB asset limit and is registry-only; its job first
-  removes the runner's preinstalled SDKs to make disk room. The `vscode-tcmb`
-  build needs the TCMB Code VSIX release asset and its pinned checksum first
-  (see CONTAINERS.md, "Updating TCMB Code").
+  removes the runner's preinstalled SDKs to make disk room. The `vscode-kilo`
+  and `vscode-cuda` builds download the Kilo Code VSIX from Open VSX and check
+  its pinned checksum (see CONTAINERS.md, "Updating Kilo Code").
 
 Workspace images have an independent lifecycle and are not embedded in platform
 bundles. A release where no workspace build context changed builds and ships

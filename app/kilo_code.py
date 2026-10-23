@@ -1,13 +1,14 @@
-"""TCMB Code configuration generated from the controller-managed AI gateway.
+"""Kilo Code configuration generated from the controller-managed AI gateway.
 
-TCMB Code is TCMB's build of Kilo Code. Its bundled CLI and the extension both
-read the global config file ``~/.config/kilo/tcmb.jsonc``. The file written into
-a workspace holds two keys:
+The Kilo Code extension and its bundled CLI both read the global config file
+``~/.config/kilo/kilo.jsonc``. The file written into a workspace holds:
 
 * the workspace owner's own AI Factory (LiteLLM) key, for chat requests;
-* the shared indexing key from Admin, for codebase-indexing embeddings.
+* the shared indexing key from Admin, for codebase-indexing embeddings;
+* the catalog MCP servers and skills URLs from Admin, with the optional shared
+  catalog token.
 
-Neither key nor any internal host name is baked into the image.
+Neither a key nor any internal host name is baked into the image.
 """
 
 from __future__ import annotations
@@ -18,28 +19,46 @@ from typing import Any
 
 from app.cline import openai_compatible_base_url
 
-TCMB_CODE_ASSISTANT = "tcmb-code"
-# First worker release that accepts tcmb_code_config and knows the vscode-tcmb
-# template; older workers silently start the image with no tcmb.jsonc.
-MIN_AGENT_VERSION = "3.18.0"
-EXTENSION_ID = "tcmb.tcmbcode"
+KILO_CODE_ASSISTANT = "kilo-code"
+# First worker release that accepts kilo_code_config and knows the vscode-kilo
+# template; older workers silently start the image with no kilo.jsonc.
+MIN_AGENT_VERSION = "3.24.0"
+EXTENSION_ID = "kilocode.kilo-code"
 CONFIG_SCHEMA = "https://app.kilo.ai/config.json"
 CONFIG_DIR = "/home/coder/.config/kilo"
-CONFIG_FILENAME = "tcmb.jsonc"
+CONFIG_FILENAME = "kilo.jsonc"
 PROVIDER_ID = "litellm"
 PROVIDER_NAME = "TCMB code"
-# Shown in TCMB Code's model picker when the owner has no AI Factory key yet.
+# Shown in Kilo Code's model picker when the owner has no AI Factory key yet.
 MISSING_KEY_PROVIDER_NAME = (
     "TCMB code (anahtar yok: GenAI sekmesinden AI Factory anahtarı talep edin)"
 )
+REASONING_EFFORT = "high"
+# Kilo's own cloud gateway is unreachable from workspaces.
+DISABLED_PROVIDERS = ["kilo"]
+# Project rules installed by the catalog (LocalMCP.sh writes .kilo/rules/*.md).
+INSTRUCTIONS = [".kilo/rules/*.md"]
+# Baked into the vscode-kilo and vscode-cuda images.
+LOCAL_MCP_SCRIPT = "/opt/kilo/LocalMCP.sh"
+CATALOG_MCP_SERVER = "kilo-catalog"
+INSTALL_MCP_SERVER = "kilo-install"
 MAX_CONFIG_LENGTH = 65536
-CONFIG_DIGEST_SALT = b"devcloud-tcmb-code-config-v2\x00"
+CONFIG_DIGEST_SALT = b"devcloud-kilo-code-config-v1\x00"
 DEFAULT_INDEXING_MODEL = "bge-m3"
 DEFAULT_INDEXING_DIMENSION = 1024
 
 
 def parse_model_ids(raw: str | None) -> list[str]:
-    """Return the stored TCMB Code model allow-list; empty means the whole catalog."""
+    """Return the stored Kilo Code model allow-list; empty means the whole catalog."""
+    return _parse_string_list(raw)
+
+
+def parse_skills_urls(raw: str | None) -> list[str]:
+    """Return the stored skills URLs."""
+    return _parse_string_list(raw)
+
+
+def _parse_string_list(raw: str | None) -> list[str]:
     try:
         values = json.loads(raw or "[]")
     except (TypeError, ValueError):
@@ -48,9 +67,9 @@ def parse_model_ids(raw: str | None) -> list[str]:
         return []
     result: list[str] = []
     for value in values:
-        model_id = str(value or "").strip()
-        if model_id and model_id not in result:
-            result.append(model_id)
+        item = str(value or "").strip()
+        if item and item not in result:
+            result.append(item)
     return result
 
 
@@ -59,7 +78,7 @@ def select_models(
     model_ids: list[str],
     default_model: str,
 ) -> tuple[list[dict[str, str]], str]:
-    """Pick the catalog models offered in TCMB Code and its default model."""
+    """Pick the catalog models offered in Kilo Code and its default model."""
     models = [item for item in catalog if not model_ids or item["model_id"] in model_ids]
     if not models:
         models = list(catalog)
@@ -69,28 +88,55 @@ def select_models(
     return models, default_model if default_model in ids else ids[0]
 
 
+def catalog_mcp_servers(catalog_url: str, catalog_token: str = "") -> dict[str, Any]:
+    """The remote catalog MCP server and the local installer that writes into .kilo."""
+    catalog_url = catalog_url.rstrip("/")
+    if not catalog_url:
+        return {}
+    remote: dict[str, Any] = {
+        "type": "remote",
+        "url": f"{catalog_url}/mcp",
+        "oauth": False,
+    }
+    environment = {"CATALOG_URL": catalog_url}
+    if catalog_token:
+        remote["headers"] = {"Authorization": f"Bearer {catalog_token}"}
+        environment["MCP_TOKEN"] = catalog_token
+    return {
+        CATALOG_MCP_SERVER: remote,
+        INSTALL_MCP_SERVER: {
+            "type": "local",
+            "command": ["bash", LOCAL_MCP_SCRIPT],
+            "environment": environment,
+        },
+    }
+
+
 def render_config(
     *,
     gateway_url: str,
     models: list[dict[str, str]],
     default_model: str,
     user_key: str,
-    library_url: str = "",
+    catalog_url: str = "",
+    catalog_token: str = "",
+    skills_urls: list[str] | None = None,
     indexing_enabled: bool = False,
     indexing_model: str = DEFAULT_INDEXING_MODEL,
     indexing_dimension: int = DEFAULT_INDEXING_DIMENSION,
     indexing_key: str = "",
 ) -> str:
-    """Build the global tcmb.jsonc content as deterministic JSON (valid JSONC)."""
+    """Build the global kilo.jsonc content as deterministic JSON (valid JSONC)."""
     base_url = openai_compatible_base_url(gateway_url)
     if not base_url or not models or not default_model:
         return ""
-    options: dict[str, Any] = {"baseURL": base_url}
+    options: dict[str, Any] = {"baseURL": base_url, "reasoningEffort": REASONING_EFFORT}
     if user_key:
         options["apiKey"] = user_key
     config: dict[str, Any] = {
         "$schema": CONFIG_SCHEMA,
-        "disabled_providers": [],
+        "disabled_providers": list(DISABLED_PROVIDERS),
+        "instructions": list(INSTRUCTIONS),
         "model": f"{PROVIDER_ID}/{default_model}",
         "provider": {
             PROVIDER_ID: {
@@ -107,8 +153,11 @@ def render_config(
             }
         },
     }
-    if library_url:
-        config["tcmbLibrary"] = {"url": library_url.rstrip("/")}
+    servers = catalog_mcp_servers(catalog_url, catalog_token)
+    if servers:
+        config["mcp"] = {"servers": servers}
+    if skills_urls:
+        config["skills"] = list(skills_urls)
     if indexing_enabled and indexing_key and indexing_model:
         config["indexing"] = {
             "provider": "openai-compatible",
@@ -135,9 +184,8 @@ def validated_config(raw: Any) -> str:
 def config_digest(config: str) -> str:
     """Fingerprint of the rendered config; changes when a key or setting changes.
 
-    Salted with a format version: 3.18.0/3.18.1 stored the digest of the config
-    they SENT, even when a pre-3.18 worker dropped it. A new salt makes every
-    such row mismatch once, so the next start rebuilds the container.
+    Salted with a format version so a format change rebuilds every container
+    once on its next start.
     """
     if not config:
         return ""

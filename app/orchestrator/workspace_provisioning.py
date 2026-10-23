@@ -29,7 +29,7 @@ from app.models.mlflow_deployment import MlflowDeployment
 from app.models.mlflow_server_settings import MlflowServerSettings
 from app.models.mlflow_settings import MlflowSettings
 from app.models.node import Node
-from app.models.tcmb_code_settings import TcmbCodeSettings
+from app.models.kilo_code_settings import KiloCodeSettings
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -43,7 +43,11 @@ from app.orchestrator.admission import admission_transaction
 from app.orchestrator.flavors import Flavor, get_flavor
 from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.runtime_backend import runtime_for_node
-from app.orchestrator.scheduler import WorkspacePlacement, select_workspace_placement
+from app.orchestrator.scheduler import (
+    WorkspacePlacement,
+    _has_workspace_image as has_workspace_image,
+    select_workspace_placement,
+)
 from app.placement import (
     PlacementConstraints,
     encode_tags,
@@ -54,11 +58,12 @@ from app.release_catalog import semantic_version
 from app.resource_usage import quota_violations
 from app.schemas.workspace import WorkspaceCreate
 from app.security.secrets import SecretDecryptionError, decrypt_secret
-from app.tcmb_code import (
-    MIN_AGENT_VERSION as TCMB_CODE_MIN_AGENT_VERSION,
-    TCMB_CODE_ASSISTANT,
+from app.kilo_code import (
+    KILO_CODE_ASSISTANT,
+    MIN_AGENT_VERSION as KILO_CODE_MIN_AGENT_VERSION,
     config_digest,
     parse_model_ids,
+    parse_skills_urls,
     render_config,
     select_models,
 )
@@ -156,63 +161,63 @@ class WorkspaceAiConfig:
     """AI wiring sent to the worker with a container.create request."""
 
     ai_gateway_token: str = ""
-    tcmb_code_config: str = ""
-    # TCMB Code is configured but the owner has no AI Factory key yet.
+    kilo_code_config: str = ""
+    # Kilo Code is configured but the owner has no AI Factory key yet.
     user_key_missing: bool = False
-    # Why a TCMB Code workspace gets no tcmb.jsonc at all (Admin-side cause).
-    tcmb_code_problem: str = ""
+    # Why a Kilo Code workspace gets no kilo.jsonc at all (Admin-side cause).
+    kilo_code_problem: str = ""
 
     @property
     def digest(self) -> str:
-        return config_digest(self.tcmb_code_config)
+        return config_digest(self.kilo_code_config)
 
     def create_arguments(self) -> dict[str, str]:
         arguments = {"ai_gateway_token": self.ai_gateway_token}
-        if self.tcmb_code_config:
-            # Pre-3.18 workers drop unknown keys, so this stays rolling-safe.
-            arguments["tcmb_code_config"] = self.tcmb_code_config
+        if self.kilo_code_config:
+            # Older workers drop unknown keys, so this stays rolling-safe.
+            arguments["kilo_code_config"] = self.kilo_code_config
         return arguments
 
 
-TCMB_CODE_MISSING_KEY_MESSAGE = (
-    "TCMB Code sohbeti için AI Factory anahtarınız yok. GenAI sekmesinden anahtar "
+KILO_CODE_MISSING_KEY_MESSAGE = (
+    "Kilo Code sohbeti için AI Factory anahtarınız yok. GenAI sekmesinden anahtar "
     "talep edin, ardından workspace'i durdurup yeniden başlatın. Kod indeksleme "
     "bu sırada çalışmaya devam eder."
 )
-TCMB_CODE_RESTART_HINT = (
+KILO_CODE_RESTART_HINT = (
     " Ayar düzeltildikten sonra workspace'i durdurup yeniden başlatın."
 )
-TCMB_CODE_DISABLED_MESSAGE = (
-    "TCMB Code yapılandırılmadı: Admin > Entegrasyonlar > TCMB Code kartında "
-    "\"TCMB Code yapılandırmasını workspace'lere dağıt\" kapalı."
-    + TCMB_CODE_RESTART_HINT
+KILO_CODE_DISABLED_MESSAGE = (
+    "Kilo Code yapılandırılmadı: Admin > Entegrasyonlar > Kilo Code kartında "
+    "\"Kilo Code yapılandırmasını workspace'lere dağıt\" kapalı."
+    + KILO_CODE_RESTART_HINT
 )
-TCMB_CODE_NO_GATEWAY_MESSAGE = (
-    "TCMB Code yapılandırılmadı: Admin > Entegrasyonlar > Workspace AI kapalı "
-    "veya gateway adresi boş." + TCMB_CODE_RESTART_HINT
+KILO_CODE_NO_GATEWAY_MESSAGE = (
+    "Kilo Code yapılandırılmadı: Admin > Entegrasyonlar > Workspace AI kapalı "
+    "veya gateway adresi boş." + KILO_CODE_RESTART_HINT
 )
-TCMB_CODE_NO_MODELS_MESSAGE = (
-    "TCMB Code yapılandırılmadı: Workspace AI model kataloğunda TCMB Code'a "
-    "sunulacak model yok." + TCMB_CODE_RESTART_HINT
+KILO_CODE_NO_MODELS_MESSAGE = (
+    "Kilo Code yapılandırılmadı: Workspace AI model kataloğunda Kilo Code'a "
+    "sunulacak model yok." + KILO_CODE_RESTART_HINT
 )
 
 
-def tcmb_code_worker_outdated_message(node_name: str, agent_version: str) -> str:
+def kilo_code_worker_outdated_message(node_name: str, agent_version: str) -> str:
     return (
-        f"TCMB Code yapılandırılmadı: worker '{node_name}' {agent_version or 'bilinmeyen sürüm'} "
-        f"çalıştırıyor; TCMB Code ayarlarını yazmak için en az {TCMB_CODE_MIN_AGENT_VERSION} "
+        f"Kilo Code yapılandırılmadı: worker '{node_name}' {agent_version or 'bilinmeyen sürüm'} "
+        f"çalıştırıyor; Kilo Code ayarlarını yazmak için en az {KILO_CODE_MIN_AGENT_VERSION} "
         "gerekir. Worker'ı güncelleyip workspace'i durdurup yeniden başlatın."
     )
 
 
-def worker_applies_tcmb_code(node) -> bool:
-    """False only when the worker reports a release older than 3.18.0.
+def worker_applies_kilo_code(node) -> bool:
+    """False only when the worker reports a release older than MIN_AGENT_VERSION.
 
-    Such a worker drops tcmb_code_config. An unknown version is given the
+    Such a worker drops kilo_code_config. An unknown version is given the
     benefit of the doubt, matching the scheduler.
     """
     current = semantic_version(str(getattr(node, "agent_version", "") or ""))
-    required = semantic_version(TCMB_CODE_MIN_AGENT_VERSION)
+    required = semantic_version(KILO_CODE_MIN_AGENT_VERSION)
     return current is None or required is None or current >= required
 
 
@@ -223,24 +228,60 @@ async def applied_ai_config_digest(
 ) -> str:
     """Digest of the config the worker really wrote into the container.
 
-    A pre-3.18 worker drops ``tcmb_code_config``; recording the sent digest
+    An outdated worker drops ``kilo_code_config``; recording the sent digest
     would make the next start believe the container is current and never
     recreate it after the worker is upgraded.
     """
-    if not ai_config.tcmb_code_config:
+    if not ai_config.kilo_code_config:
         return ""
     node = await db.get(Node, workspace.node_id) if workspace.node_id else None
-    if node is None or not worker_applies_tcmb_code(node):
+    if node is None or not worker_applies_kilo_code(node):
         return ""
     return ai_config.digest
 
 
-async def tcmb_code_worker_problem(db: AsyncSession, workspace: Workspace) -> str:
-    """Explain an outdated worker for a TCMB Code workspace, else ''."""
+async def kilo_code_worker_problem(db: AsyncSession, workspace: Workspace) -> str:
+    """Explain an outdated worker for a Kilo Code workspace, else ''."""
     node = await db.get(Node, workspace.node_id) if workspace.node_id else None
-    if node is None or worker_applies_tcmb_code(node):
+    if node is None or worker_applies_kilo_code(node):
         return ""
-    return tcmb_code_worker_outdated_message(node.name, node.agent_version or "")
+    return kilo_code_worker_outdated_message(node.name, node.agent_version or "")
+
+
+async def runtime_image_missing_problem(
+    db: AsyncSession,
+    workspace: Workspace,
+    template,
+) -> str:
+    """Explain why the image a recreated container would use is not on its worker.
+
+    Checked before an existing container is removed for a config change, so a
+    workspace keeps its working container until the new image has synchronized
+    (for example right after the TCMB Code to Kilo Code upgrade).
+    """
+    node = await db.get(Node, workspace.node_id) if workspace.node_id else None
+    if node is None:
+        return ""
+    image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
+    if not image_sha256:
+        image_sha256 = (
+            await db.execute(
+                select(WorkspaceImage.sha256)
+                .where(
+                    WorkspaceImage.enabled.is_(True),
+                    WorkspaceImage.image_ref == image_ref,
+                )
+                .order_by(WorkspaceImage.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if has_workspace_image(node, image_ref, image_sha256 or None):
+        return ""
+    return (
+        f"{image_ref} image'ı worker '{node.name}' üzerinde henüz yok; mevcut "
+        "container korunuyor. Admin > Workspace Image'ları üzerinden image'ı "
+        "içe aktarın, senkronize olduktan sonra workspace'i durdurup yeniden başlatın."
+    )
 
 
 async def workspace_ai_config(
@@ -253,46 +294,56 @@ async def workspace_ai_config(
 
     if template is None or template.ide_type == "service":
         return WorkspaceAiConfig()
-    if getattr(template, "ai_assistant", "") != TCMB_CODE_ASSISTANT:
+    if getattr(template, "ai_assistant", "") != KILO_CODE_ASSISTANT:
         # Jupyter and the retired Cline images keep the shared-key fallback.
         return WorkspaceAiConfig(
             ai_gateway_token=await workspace_gateway_token(db, user_id)
         )
-    record = await db.get(TcmbCodeSettings, 1)
+    record = await db.get(KiloCodeSettings, 1)
     workspace_ai = await db.get(JupyterAiSettings, 1)
     if record is None or not record.enabled:
-        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_DISABLED_MESSAGE)
+        return WorkspaceAiConfig(kilo_code_problem=KILO_CODE_DISABLED_MESSAGE)
     if workspace_ai is None or not workspace_ai.enabled or not workspace_ai.gateway_url:
-        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_NO_GATEWAY_MESSAGE)
+        return WorkspaceAiConfig(kilo_code_problem=KILO_CODE_NO_GATEWAY_MESSAGE)
     catalog = parse_model_catalog(workspace_ai.model_catalog_json, workspace_ai.model_id)
     models, default_model = select_models(
         catalog, parse_model_ids(record.model_ids_json), workspace_ai.model_id
     )
     if not models:
-        return WorkspaceAiConfig(tcmb_code_problem=TCMB_CODE_NO_MODELS_MESSAGE)
+        return WorkspaceAiConfig(kilo_code_problem=KILO_CODE_NO_MODELS_MESSAGE)
     indexing_key = ""
     if record.indexing_enabled and record.encrypted_indexing_key:
         try:
             indexing_key = decrypt_secret(record.encrypted_indexing_key)
         except SecretDecryptionError:
-            logger.warning("TCMB Code indexing key cannot be decrypted; indexing is off.")
-    # Only the owner's own key: TCMB Code never falls back to the shared key.
+            logger.warning("Kilo Code indexing key cannot be decrypted; indexing is off.")
+    catalog_token = ""
+    if record.encrypted_catalog_token:
+        try:
+            catalog_token = decrypt_secret(record.encrypted_catalog_token)
+        except SecretDecryptionError:
+            logger.warning(
+                "Kilo Code catalog token cannot be decrypted; the catalog is called without it."
+            )
+    # Only the owner's own key: Kilo Code never falls back to the shared key.
     user_key = await workspace_gateway_token(db, user_id)
     config = render_config(
         gateway_url=workspace_ai.gateway_url,
         models=models,
         default_model=default_model,
         user_key=user_key,
-        library_url=record.library_url,
+        catalog_url=record.catalog_url,
+        catalog_token=catalog_token,
+        skills_urls=parse_skills_urls(record.skills_urls_json),
         indexing_enabled=record.indexing_enabled,
         indexing_model=record.indexing_model,
         indexing_dimension=record.indexing_dimension,
         indexing_key=indexing_key,
     )
     return WorkspaceAiConfig(
-        tcmb_code_config=config,
+        kilo_code_config=config,
         user_key_missing=bool(config) and not user_key,
-        tcmb_code_problem="" if config else TCMB_CODE_NO_GATEWAY_MESSAGE,
+        kilo_code_problem="" if config else KILO_CODE_NO_GATEWAY_MESSAGE,
     )
 
 
@@ -500,8 +551,8 @@ def template_minimum_agent_version(template) -> str | None:
     candidates = [
         version
         for version in (
-            TCMB_CODE_MIN_AGENT_VERSION
-            if getattr(template, "ai_assistant", "") == TCMB_CODE_ASSISTANT
+            KILO_CODE_MIN_AGENT_VERSION
+            if getattr(template, "ai_assistant", "") == KILO_CODE_ASSISTANT
             else "",
             getattr(template, "min_agent_version", ""),
         )

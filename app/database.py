@@ -174,7 +174,7 @@ async def ensure_workspace_columns(conn) -> None:
                 raise
     existing_columns = await _workspace_column_names(conn)
     if "ai_config_digest" not in existing_columns:
-        # Fingerprint of the AI config a TCMB Code container was created with.
+        # Fingerprint of the AI config a Kilo Code container was created with.
         try:
             async with conn.begin_nested():
                 await conn.execute(
@@ -343,7 +343,7 @@ async def init_db() -> None:
     from app.models.workspace_image import WorkspaceImage  # noqa: F401
     from app.models.worker_bootstrap_ticket import WorkerBootstrapTicket  # noqa: F401
     from app.models.jupyter_ai_settings import JupyterAiSettings  # noqa: F401
-    from app.models.tcmb_code_settings import TcmbCodeSettings  # noqa: F401
+    from app.models.kilo_code_settings import KiloCodeSettings  # noqa: F401
     from app.models.genai_settings import GenAiSettings  # noqa: F401
     from app.models.genai_account import GenAiAccount  # noqa: F401
     from app.models.flavor_settings import FlavorSettings  # noqa: F401

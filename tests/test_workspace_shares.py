@@ -22,7 +22,7 @@ async def shared_setup(client, db_session, monkeypatch):
     })
     headers = {'Authorization': f"Bearer {registration.json()['access_token']}"}
     result = await client.post('/api/workspaces', headers=headers, json={
-        'name': 'Shared app', 'template_id': 'vscode-tcmb', 'flavor_id': 't1.nano',
+        'name': 'Shared app', 'template_id': 'vscode-kilo', 'flavor_id': 't1.nano',
     })
     assert result.status_code == 201, result.text
     workspace_id = result.json()['id']
@@ -177,7 +177,7 @@ def test_grant_cookie_is_never_forwarded():
     request = Request({'type': 'http', 'method': 'GET', 'path': '/', 'headers': [
         (b'cookie', b'devcloud_session=login; devcloud_share_ws_3333=grant; app_cookie=ok'),
     ]})
-    headers = proxy._forward_headers(request, SimpleNamespace(template_id='vscode-tcmb'), 3333)
+    headers = proxy._forward_headers(request, SimpleNamespace(template_id='vscode-kilo'), 3333)
     assert headers['Cookie'] == 'app_cookie=ok'
 
 

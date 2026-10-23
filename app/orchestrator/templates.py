@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from app.schemas.workspace import TemplateInfo
-from app.tcmb_code import TCMB_CODE_ASSISTANT
+from app.kilo_code import KILO_CODE_ASSISTANT
 
 
 @dataclass(frozen=True)
@@ -47,18 +47,19 @@ class WorkspaceTemplate:
 
 
 TEMPLATES: dict[str, WorkspaceTemplate] = {
-    "vscode-tcmb": WorkspaceTemplate(
-        id="vscode-tcmb",
-        name="TCMB Code",
-        description="Python 3, uv, Node.js 22 ve TCMB Code yapay zekâ asistanı yüklü VS Code ortamı.",
+    "vscode-kilo": WorkspaceTemplate(
+        id="vscode-kilo",
+        name="Kilo Code",
+        description="Python 3, uv, Node.js 22 ve Kilo Code yapay zekâ asistanı yüklü VS Code ortamı.",
         category="Genel",
         icon="code-bracket-square",
         default_port=8080,
         container_workdir="/home/coder/project",
-        image_tag="localhost/devcloud-vscode-tcmb:latest",
+        image_tag="localhost/devcloud-vscode-kilo:latest",
         features=[
             "VS Code Web (code-server)",
-            "TCMB Code AI Asistanı",
+            "Kilo Code AI Asistanı",
+            "Skill, agent ve kural kataloğu",
             "Kod tabanı indeksleme",
             "Python 3 & uv",
             "Node.js 22 LTS",
@@ -66,12 +67,12 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
         ],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
-        ai_assistant=TCMB_CODE_ASSISTANT,
+        ai_assistant=KILO_CODE_ASSISTANT,
     ),
     "vscode-cuda": WorkspaceTemplate(
         id="vscode-cuda",
-        name="TCMB Code (CUDA)",
-        description="GPU worker'lar için CUDA 13, cuDNN ve NCCL yüklü TCMB Code VS Code ortamı. GPU kaynak profili gerektirir.",
+        name="Kilo Code (CUDA)",
+        description="GPU worker'lar için CUDA 13, cuDNN ve NCCL yüklü Kilo Code VS Code ortamı. GPU kaynak profili gerektirir.",
         category="GPU",
         icon="cpu-chip",
         default_port=8080,
@@ -81,18 +82,18 @@ TEMPLATES: dict[str, WorkspaceTemplate] = {
             "NVIDIA CUDA 13 Toolkit",
             "cuDNN 9 & NCCL",
             "VS Code Web (code-server)",
-            "TCMB Code AI Asistanı",
+            "Kilo Code AI Asistanı",
             "Python 3 & uv",
             "Node.js 22 LTS",
         ],
         ide_type="vscode",
         env_vars={"DOCKER_USER": "coder"},
-        ai_assistant=TCMB_CODE_ASSISTANT,
+        ai_assistant=KILO_CODE_ASSISTANT,
         requires_accelerator=True,
         min_agent_version="3.19.0",
     ),
-    # Retired in 3.18.0 in favour of vscode-tcmb. Kept so existing workspaces
-    # still start; hidden from the catalog and refused for new workspaces.
+    # Retired in 3.18.0 in favour of the Kilo Code workspace. Kept so existing
+    # workspaces still start; hidden from the catalog and refused for new workspaces.
     "vscode-empty": WorkspaceTemplate(
         id="vscode-empty",
         name="Boş Proje",

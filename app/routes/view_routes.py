@@ -30,8 +30,8 @@ from app.deploy_registry import (
 )
 from app.models.node import Node
 from app.models.jupyter_ai_settings import JupyterAiSettings
-from app.models.tcmb_code_settings import TcmbCodeSettings
-from app.tcmb_code import parse_model_ids
+from app.models.kilo_code_settings import KiloCodeSettings
+from app.kilo_code import parse_model_ids, parse_skills_urls
 from app.models.genai_settings import GenAiSettings
 from app.genai import is_configured as genai_is_configured
 from app.integrations.litellm import parse_models as parse_genai_models
@@ -691,11 +691,16 @@ async def admin_page(
             if jupyter_ai_settings
             else default_model_catalog()
         )
-        tcmb_code_settings = await db.get(TcmbCodeSettings, 1)
-        context["tcmb_code_settings"] = tcmb_code_settings
-        context["tcmb_code_model_ids"] = (
-            parse_model_ids(tcmb_code_settings.model_ids_json)
-            if tcmb_code_settings
+        kilo_code_settings = await db.get(KiloCodeSettings, 1)
+        context["kilo_code_settings"] = kilo_code_settings
+        context["kilo_code_model_ids"] = (
+            parse_model_ids(kilo_code_settings.model_ids_json)
+            if kilo_code_settings
+            else []
+        )
+        context["kilo_code_skills_urls"] = (
+            parse_skills_urls(kilo_code_settings.skills_urls_json)
+            if kilo_code_settings
             else []
         )
         context["mlflow_server_settings"] = await db.get(MlflowServerSettings, 1)

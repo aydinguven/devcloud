@@ -117,8 +117,8 @@ The maintained jupyter-python workspace image includes Jupyter AI 3, notebook
 magic commands, Claude Code, and the Claude ACP adapter. This preserves the
 agent architecture used by the former JupyterHub deployment: Jupyter AI opens
 Claude as the default persona, while Claude Code calls an Anthropic-compatible
-on-prem gateway. The maintained VS Code image (`vscode-tcmb`) ships TCMB Code,
-configured from the same central gateway record plus the TCMB Code settings
+on-prem gateway. The maintained VS Code image (`vscode-kilo`) ships Kilo Code,
+configured from the same central gateway record plus the Kilo Code settings
 described below. Native VS Code
 Chat and Copilot are disabled. The `terminal-rocky` image intentionally has no
 AI assistant and needs no gateway configuration.
@@ -151,7 +151,7 @@ JUPYTER_AI_MODEL_CATALOG_JSON=[]
 
 The gateway URL is the root URL, for example
 `http://llm-gateway.internal.example:5003`. Do not append `/v1`: DevCloud and
-Claude Code append `/v1/messages` and `/v1/models` as needed, while TCMB Code uses
+Claude Code append `/v1/messages` and `/v1/models` as needed, while Kilo Code uses
 the same root at `/v1` through its OpenAI-compatible provider. A configured URL
 ending in `/v1` therefore causes requests such as `/v1/v1/messages` and usually
 returns HTTP 404. The root URL must be reachable from the workspace container
@@ -203,90 +203,103 @@ retired Cline images). This means each Jupyter user can inspect and reuse the
 key. Use a gateway credential intended for this shared audience, restrict it
 at the gateway, and rotate it regularly.
 
-#### TCMB Code
+#### Kilo Code
 
-The `vscode-tcmb` image ships TCMB Code, TCMB's build of Kilo Code. Configure
-it under **Admin > Entegrasyonlar > TCMB Code**:
+The `vscode-kilo` image ships Kilo Code (`kilocode.kilo-code`). Configure it
+under **Admin > Entegrasyonlar > Kilo Code**:
 
-- **TCMB Library URL**, for example `http://library.internal.example:8765`.
-- **TCMB Code modelleri**: optional comma-separated subset of the Workspace AI
+- **Kilo Code modelleri**: optional comma-separated subset of the Workspace AI
   catalogue; empty offers the whole catalogue. The Workspace AI default model
-  is TCMB Code's default.
+  is Kilo Code's default.
+- **Skills URL'leri**: comma-separated URLs Kilo Code discovers skills from,
+  for example `http://skills.internal.example:8788/`.
+- **Katalog URL**: the catalog root without `/mcp`, for example
+  `http://catalog.internal.example:8000`, and an optional **Katalog token'ı**
+  (sent as `Authorization: Bearer`). With a URL, `kilo.jsonc` gets two MCP
+  servers: `kilo-catalog` (remote, `<URL>/mcp`) and `kilo-install`
+  (`bash /opt/kilo/LocalMCP.sh` with `CATALOG_URL`), which writes the chosen
+  skills, agents, rules, workflows or `AGENTS.md` into the open project's
+  `.kilo` folder. Rules load through `instructions: [".kilo/rules/*.md"]`.
+  When `open_catalog` finds no browser opener in the container, it returns
+  the catalog page URL to open instead.
 - **Kod indeksleme**: embedding model (`bge-m3`), vector size (`1024`) and
   the indexing API key. Embeddings go to the Workspace AI gateway's `/v1`
   endpoint and are stored with LanceDB inside the workspace.
 
 Chat requests use the workspace owner's own AI Factory key, which they
 request on the **GenAI** tab (DevCloud issues a separate per-user workspace
-key for the same LiteLLM user and team). TCMB Code never falls back to the
+key for the same LiteLLM user and team). Kilo Code never falls back to the
 shared key, so GenAI and Workspace AI must point at the same LiteLLM. Without
 a key the user sees a warning while creating the workspace and an
-"anahtar yok" hint in TCMB Code's model picker; indexing still works.
+"anahtar yok" hint in Kilo Code's model picker; indexing still works. Kilo's
+own cloud provider is disabled (`disabled_providers: ["kilo"]`).
 
-Every TCMB Code user can read the indexing key inside their own workspace.
-Restrict it in LiteLLM to the embedding model and give it a budget.
+Every Kilo Code user can read the indexing key and the catalog token inside
+their own workspace. Restrict the indexing key in LiteLLM to the embedding
+model and give it a budget.
 
-DevCloud rewrites `~/.config/kilo/tcmb.jsonc` at each container start. When
+DevCloud rewrites `~/.config/kilo/kilo.jsonc` at each container start. When
 the owner's key or the Admin settings changed since the container was
 created, stopping and starting the workspace recreates the container with the
 new settings; the project directory is a bind mount and is preserved, while
 other state in the container (for example extra VS Code extensions or files
 outside the project directory) is reset. No manual `podman rm` is needed.
 
-#### Rolling out TCMB Code (3.18.1)
+#### Rolling out Kilo Code (3.24.0)
 
-3.18.0 was tagged but never published (its TCMB Code image build failed), so
-3.18.1 is the first release with TCMB Code.
+3.24.0 replaces TCMB Code with upstream Kilo Code (see CONTAINERS.md,
+"Replacing TCMB Code").
 
-1. Update the controller and then the workers to 3.18.1. Older workers
-   cannot write the TCMB Code configuration.
-2. Import `ghcr.io/aydinguven/devcloud:vscode-tcmb-3.18.1` (or the matching
-   quay.io tag, or the `devcloud-workspace-vscode-tcmb-*.tar.gz` release
-   archive) under **Admin > Workspace Image'ları** and wait for the workers
-   to synchronize it.
-3. Under **Admin > Entegrasyonlar**, keep Workspace AI enabled, then fill in
-   and save the **TCMB Code** card.
-4. In LiteLLM, restrict the indexing key to the embedding model.
-5. Create a TCMB Code workspace as a user who has requested an AI Factory key
-   on the GenAI tab. Trust the project if prompted, open TCMB Code in the
-   Activity Bar, send a prompt, and check that the request appears under
-   that user's key in LiteLLM. Run an indexing pass and check the
-   embeddings appear under the indexing key.
-6. Disable the retired `vscode-empty`, `vscode-python`, `vscode-react` and
-   `vscode-java` images under **Admin > Workspace Image'ları**. Existing
-   workspaces on them keep running with Cline; new ones cannot be created.
+1. Update the controller and then the workers to 3.24.0. Older workers
+   cannot write the Kilo Code configuration. Migration 33 keeps the TCMB Code
+   card's values (the TCMB Library URL becomes the catalog URL) and moves
+   `vscode-tcmb` workspaces to `vscode-kilo`.
+2. Import `ghcr.io/aydinguven/devcloud:vscode-kilo-3.24.0` (or the
+   `devcloud-workspace-vscode-kilo-*.tar.gz` release archive) and, for GPU
+   workers, `ghcr.io/aydinguven/devcloud:vscode-cuda-3.24.0` under
+   **Admin > Workspace Image'ları**, and wait for the workers to synchronize
+   them. Until then existing workspaces keep their TCMB Code containers.
+3. Under **Admin > Entegrasyonlar**, keep Workspace AI enabled, then check
+   the **Kilo Code** card: catalog URL (no `/mcp`), catalog token, skills
+   URLs, models and indexing. Save it.
+4. Create or stop/start a Kilo Code workspace as a user who has requested an
+   AI Factory key on the GenAI tab. Trust the project if prompted, open Kilo
+   Code in the Activity Bar, send a prompt, and check that the request
+   appears under that user's key in LiteLLM. Ask it to list the catalog and
+   install an item; it appears under the project's `.kilo` folder.
+5. Delete the disabled `vscode-tcmb` image records once no workspace uses
+   them.
 
-The release checks TCMB Code activation, its agent CLI start, chat-input
-rendering with an injected test configuration, and that LanceDB's native
-binding loads. It does not validate connectivity to your private gateway or
-TCMB Library; test both after rollout.
+The release checks Kilo Code activation, its agent CLI start, that the agent
+resolves the injected MCP servers, chat-input rendering, that LanceDB's native
+binding loads and that `LocalMCP.sh` answers MCP. It does not validate
+connectivity to your private gateway, catalog or skills server; test them
+after rollout.
 
-#### TCMB Code opens but is not configured
+#### Kilo Code opens but is not configured
 
-TCMB Code then has no "TCMB code" provider in its model picker and falls back
-to Kilo's own cloud models. In the workspace terminal:
+Kilo Code then has no "TCMB code" provider in its model picker. In the
+workspace terminal:
 
 ~~~bash
 ls -la ~/.config/kilo/
 ~~~
 
-- **No `tcmb.jsonc`**: DevCloud sent no configuration. Since 3.18.2 the
-  deployment log names the cause; the possible causes are:
-  - the **TCMB Code** card under **Admin > Entegrasyonlar** is not set to
+- **No `kilo.jsonc`**: DevCloud sent no configuration. The deployment log
+  names the cause; the possible causes are:
+  - the **Kilo Code** card under **Admin > Entegrasyonlar** is not set to
     distribute (its badge says "Devre Dışı");
   - Workspace AI is disabled, has no gateway URL, or offers no models;
-  - the workspace's worker runs a release older than 3.18.0 (see
-    **Admin > Node'lar**). 3.18.2 no longer places new TCMB Code workspaces
-    on such workers.
+  - the workspace's worker runs a release older than 3.24.0 (see
+    **Admin > Node'lar**). New Kilo Code workspaces are not placed on such
+    workers.
 
-  Fix the cause, then stop and start the workspace. 3.18.2 rebuilds every
-  TCMB Code container created by 3.18.0/3.18.1 once on its next start,
-  because those releases could record a configuration an old worker had
-  dropped.
-- **`tcmb.jsonc` exists**: check the agent sees it with
-  `"$(ls -d ~/.local/share/code-server/extensions/tcmb.tcmbcode-*/bin/kilo)" models litellm`,
-  which lists the configured models. The folder must be trusted: in
-  Restricted Mode VS Code disables TCMB Code entirely.
+  Fix the cause, then stop and start the workspace.
+- **`kilo.jsonc` exists**: check the agent sees it with
+  `"$(ls -d ~/.local/share/code-server/extensions/kilocode.kilo-code-*/bin/kilo)" models litellm`,
+  which lists the configured models, and `... debug config`, which shows the
+  resolved MCP servers. The folder must be trusted: in Restricted Mode VS
+  Code disables Kilo Code entirely.
 
 In JupyterLab, open the chat panel and select Claude. Notebook magic commands
 are also installed:
@@ -303,7 +316,7 @@ automatically. A future platform release publishes a new Jupyter tag only when
 its image definition (`containers/jupyter-python`) changes, or when a manual
 release forces it with `rebuild_workspaces`.
 
-When the target cannot reach an OCI registry, use the `vscode-tcmb` and
+When the target cannot reach an OCI registry, use the `vscode-kilo` and
 `jupyter-python` workspace archives attached to the most recent GitHub Release
 that rebuilt that image (releases that did not change a workspace do not carry
 its archive). `vscode-cuda` has no release archive because it exceeds GitHub's
