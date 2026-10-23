@@ -96,7 +96,10 @@ fs.writeFileSync(path.join(fixture, 'settings.json'), JSON.stringify({
       'cli="$(ls -d /home/coder/.local/share/code-server/extensions/kilocode.kilo-code-*/bin/kilo)" && "$cli" --version'));
     const resolved = docker('exec', '-w', '/home/coder/project', container, 'sh', '-c',
       '"$(ls -d /home/coder/.local/share/code-server/extensions/kilocode.kilo-code-*/bin/kilo)" debug config');
-    assert(resolved.includes('/opt/kilo/LocalMCP.sh') && resolved.includes('"kilo-catalog"'), 'Kilo did not load the MCP servers from kilo.jsonc');
+    // `kilo debug config` exits 0 even on an invalid file, so check what it resolved.
+    const servers = JSON.parse(resolved.slice(resolved.indexOf('{'))).mcp || {};
+    assert.equal(servers['kilo-catalog']?.url, 'http://127.0.0.1:9/mcp', 'Kilo did not load the kilo-catalog MCP server');
+    assert.deepEqual(servers['kilo-install']?.command, ['bash', '/opt/kilo/LocalMCP.sh'], 'Kilo did not load the kilo-install MCP server');
     const mcp = docker('exec', container, 'sh', '-c',
       'printf \'%s\\n\' \'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\' \'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\' | bash /opt/kilo/LocalMCP.sh');
     assert(mcp.includes('"name":"kilo-install"') && mcp.includes('"name":"install_items"'), 'LocalMCP.sh did not answer initialize and tools/list: ' + mcp);

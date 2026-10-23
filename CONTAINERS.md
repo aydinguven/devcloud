@@ -122,8 +122,9 @@ becomes the catalog URL), renames `vscode-tcmb` workspaces to `vscode-kilo`,
 disables every `vscode-tcmb` and `vscode-cuda` image record (they carry TCMB
 Code) and unpins their workspaces. A workspace keeps its old TCMB Code
 container until the template's new image has synchronized to its worker; its
-next start after that recreates the container from the Kilo Code image
-(project files are kept). Import `vscode-kilo` and `vscode-cuda` 3.24.0 images
+next start after that pins the new image and recreates the container from it
+(project files are kept). A workspace whose container is gone cannot start
+until then. Import `vscode-kilo` and `vscode-cuda` 3.24.0 images
 under **Admin > Workspace Image'ları** after updating, then delete the disabled
 `vscode-tcmb` records.
 

@@ -20,6 +20,8 @@ from app.database import engine, init_db
 
 
 CURRENT_SCHEMA_VERSION = 33
+# ai_config_digest of the workspaces migration 33 moved off TCMB Code.
+TCMB_CODE_MIGRATED_DIGEST = "tcmb-code-migrated"
 
 
 class MigrationError(RuntimeError):
@@ -717,10 +719,11 @@ async def _replace_tcmb_code_with_kilo_code(conn) -> None:
       it); the TCMB Library URL is reused as the catalog URL.
     * ``vscode-tcmb`` workspaces and display overrides become ``vscode-kilo``.
     * Every vscode-tcmb and vscode-cuda image ships TCMB Code, so those image
-      records are disabled and their workspaces unpinned with a cleared config
-      digest. A workspace keeps its old container until the template's new
-      Kilo Code image has synchronized to its worker, then its next start
-      recreates it (project files are kept).
+      records are disabled and their workspaces unpinned, with a config digest
+      no rendered config has. A workspace keeps its old container until the
+      template's new Kilo Code image has synchronized to its worker, then its
+      next start pins that image and recreates the container (project files
+      are kept).
     """
     tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
     if "tcmb_code_settings" in tables:
@@ -738,17 +741,32 @@ async def _replace_tcmb_code_with_kilo_code(conn) -> None:
                 )
             )
         await conn.execute(text("DROP TABLE tcmb_code_settings"))
+        # The catalog URL is a root; the controller appends /mcp itself.
+        for row in (
+            await conn.execute(text("SELECT id, catalog_url FROM kilo_code_settings"))
+        ).all():
+            url = str(row[1] or "").strip().rstrip("/")
+            if url.lower().endswith("/mcp"):
+                url = url[: -len("/mcp")].rstrip("/")
+            if url != row[1]:
+                await conn.execute(
+                    text("UPDATE kilo_code_settings SET catalog_url = :url WHERE id = :id"),
+                    {"url": url, "id": row[0]},
+                )
     await conn.execute(
         text(
             "UPDATE workspaces SET template_id = 'vscode-kilo' "
             "WHERE template_id = 'vscode-tcmb'"
         )
     )
+    # No rendered config has this digest, so the next start with the new image
+    # on the worker recreates the container even when Kilo Code renders none.
     await conn.execute(
         text(
-            "UPDATE workspaces SET image_id = NULL, ai_config_digest = '' "
+            "UPDATE workspaces SET image_id = NULL, ai_config_digest = :digest "
             "WHERE template_id IN ('vscode-kilo', 'vscode-cuda')"
-        )
+        ),
+        {"digest": TCMB_CODE_MIGRATED_DIGEST},
     )
     await conn.execute(
         text(
@@ -777,7 +795,7 @@ async def _replace_tcmb_code_with_kilo_code(conn) -> None:
             text(
                 f"UPDATE template_settings SET {column} = '' "
                 "WHERE template_id IN ('vscode-kilo', 'vscode-cuda') "
-                f"AND {column} LIKE '%TCMB Code%'"
+                f"AND LOWER({column}) LIKE '%tcmb code%'"
             )
         )
 

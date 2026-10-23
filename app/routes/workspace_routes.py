@@ -47,6 +47,7 @@ from app.orchestrator.workspace_provisioning import (
     schedule_and_reserve_workspace,
     sync_mlflow_deployment_status,
     kilo_code_worker_problem,
+    pin_active_workspace_image,
     runtime_image_missing_problem,
     template_definition,
     workspace_ai_config,
@@ -455,6 +456,20 @@ async def get_workspace_detail(
     return ws_out
 
 
+async def _kilo_code_image_problem(db: AsyncSession, workspace: Workspace, template) -> str:
+    """Pin the template's enabled image and say why it cannot be used yet, else ''.
+
+    The pin is undone when the image is not on the worker, so a later import
+    is still picked up.
+    """
+    previous_image_id = workspace.image_id
+    await pin_active_workspace_image(db, workspace, template)
+    problem = await runtime_image_missing_problem(db, workspace, template)
+    if problem:
+        workspace.image_id = previous_image_id
+    return problem
+
+
 @workspace_router.post("/{workspace_id}/start", response_model=WorkspaceOut)
 async def start_workspace_endpoint(
     workspace_id: str,
@@ -512,17 +527,17 @@ async def start_workspace_endpoint(
                     )
                 worker_problem = await kilo_code_worker_problem(db, workspace)
                 config_changed = ai_config.digest != (workspace.ai_config_digest or "")
-                image_problem = (
-                    await runtime_image_missing_problem(db, workspace, template)
-                    if config_changed and not worker_problem
-                    else ""
-                )
+                image_problem = ""
+                if config_changed and not worker_problem:
+                    image_problem = await _kilo_code_image_problem(db, workspace, template)
                 if worker_problem:
                     # Recreating on this worker would drop the config again.
                     logger.warning("Workspace %s: %s", workspace.id, worker_problem)
                 elif image_problem:
                     # Removing now would leave the workspace with no container.
-                    logger.warning("Workspace %s: %s", workspace.id, image_problem)
+                    logger.warning(
+                        "Workspace %s keeps its container: %s", workspace.id, image_problem
+                    )
                 elif config_changed:
                     try:
                         if await runtime.remove_container(workspace.container_name):
@@ -561,6 +576,10 @@ async def start_workspace_endpoint(
             flavor = await resolve_flavor(db, workspace.flavor_id)
             if not template or not flavor:
                 raise ValueError("Workspace şablonu veya kaynak profili artık bulunamıyor.")
+            if template.ai_assistant == KILO_CODE_ASSISTANT:
+                image_problem = await _kilo_code_image_problem(db, workspace, template)
+                if image_problem:
+                    raise RuntimeError(image_problem)
             image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
             if ai_config is None:
                 ai_config = await workspace_ai_config(db, template, workspace.user_id)

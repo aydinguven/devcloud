@@ -530,9 +530,9 @@ function initKiloCodeSettings() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
-    const key = String(data.get("indexing_key") || "");
+    const key = String(data.get("indexing_key") || "").trim();
     const clearKey = form.elements.clear_indexing_key.checked;
-    const token = String(data.get("catalog_token") || "");
+    const token = String(data.get("catalog_token") || "").trim();
     const clearToken = form.elements.clear_catalog_token.checked;
     saveButton.disabled = true;
     status.textContent = "Kaydediliyor...";

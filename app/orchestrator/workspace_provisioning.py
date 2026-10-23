@@ -45,6 +45,7 @@ from app.orchestrator.metrics_service import get_workspace_disk_usage_by_user
 from app.orchestrator.runtime_backend import runtime_for_node
 from app.orchestrator.scheduler import (
     WorkspacePlacement,
+    _capabilities as node_capabilities,
     _has_workspace_image as has_workspace_image,
     select_workspace_placement,
 )
@@ -248,6 +249,26 @@ async def kilo_code_worker_problem(db: AsyncSession, workspace: Workspace) -> st
     return kilo_code_worker_outdated_message(node.name, node.agent_version or "")
 
 
+async def pin_active_workspace_image(
+    db: AsyncSession,
+    workspace: Workspace,
+    template,
+) -> None:
+    """Pin an unpinned workspace to its template's enabled image before a recreate.
+
+    Migration 33 unpins the TCMB Code era workspaces. ``vscode-cuda`` keeps its
+    tag, so the old TCMB Code image and the new Kilo Code image share it; only
+    the pinned checksum tells them apart.
+    """
+    if workspace.image_id:
+        return
+    image = await active_workspace_image(
+        db, template_id=workspace.template_id, image_ref=template.image_tag
+    )
+    if image is not None:
+        workspace.image_id = image.id
+
+
 async def runtime_image_missing_problem(
     db: AsyncSession,
     workspace: Workspace,
@@ -255,32 +276,26 @@ async def runtime_image_missing_problem(
 ) -> str:
     """Explain why the image a recreated container would use is not on its worker.
 
-    Checked before an existing container is removed for a config change, so a
-    workspace keeps its working container until the new image has synchronized
-    (for example right after the TCMB Code to Kilo Code upgrade).
+    Checked before a Kilo Code container is removed or recreated, so a
+    workspace keeps its working container until the managed image has
+    synchronized (for example right after the TCMB Code to Kilo Code upgrade).
+    Call ``pin_active_workspace_image`` first: an image without a checksum
+    cannot be told apart from an older one under the same tag.
     """
     node = await db.get(Node, workspace.node_id) if workspace.node_id else None
     if node is None:
         return ""
     image_ref, image_sha256 = await workspace_runtime_image(db, workspace, template)
-    if not image_sha256:
-        image_sha256 = (
-            await db.execute(
-                select(WorkspaceImage.sha256)
-                .where(
-                    WorkspaceImage.enabled.is_(True),
-                    WorkspaceImage.image_ref == image_ref,
-                )
-                .order_by(WorkspaceImage.created_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-    if has_workspace_image(node, image_ref, image_sha256 or None):
+    if image_sha256:
+        if has_workspace_image(node, image_ref, image_sha256):
+            return ""
+    elif "workspace_images" not in node_capabilities(node):
+        # A worker that reports no image inventory cannot be checked.
         return ""
     return (
-        f"{image_ref} image'ı worker '{node.name}' üzerinde henüz yok; mevcut "
-        "container korunuyor. Admin > Workspace Image'ları üzerinden image'ı "
-        "içe aktarın, senkronize olduktan sonra workspace'i durdurup yeniden başlatın."
+        f"{image_ref} image'ı worker '{node.name}' üzerinde henüz yok. "
+        "Admin > Workspace Image'ları üzerinden image'ı içe aktarın; senkronize "
+        "olduktan sonra workspace'i durdurup yeniden başlatın."
     )
 
 
